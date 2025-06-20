@@ -2,6 +2,7 @@
 
 This is a minimal Retrieval-Augmented Generation (RAG) demo that lets you ask questions about the **`retail_system`** SQL / Python codebase.
 
+Link to demo: https://www.loom.com/share/60bbe775e7fa42e6993f8ff434bd90a2?sid=b5de9a73-8e23-40fe-b540-a07a4bf3d777
 It uses:
 
 * **Sentence-Transformers** (`all-MiniLM-L6-v2`) for embeddings
