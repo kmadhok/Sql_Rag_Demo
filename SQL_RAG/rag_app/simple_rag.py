@@ -5,7 +5,7 @@ from typing import List
 import time
 
 from dotenv import load_dotenv, find_dotenv
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain.vectorstores.faiss import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
@@ -17,7 +17,6 @@ load_dotenv(find_dotenv(), override=False)
 
 DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
 INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index.pkl"
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 LLM_MODEL_NAME = "llama3-70b-8192"  # Adjust to the exact Groq model name if different
 
 
@@ -51,7 +50,7 @@ def _build_or_load_vector_store() -> FAISS:
         with open(INDEX_PATH, "rb") as f:
             return pickle.load(f)
 
-    embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
+    embeddings = OpenAIEmbeddings()
     documents = _load_source_files()
     vector_store = FAISS.from_documents(documents, embeddings)
 

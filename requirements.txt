@@ -1,9 +1,9 @@
 groq>=0.4.0
 langchain>=0.1.14
-sentence-transformers>=2.2.2
 faiss-cpu>=1.7.4
 python-dotenv>=1.0.0 
 streamlit>=1.30.0          # UI layer
 sqlparse>=0.4.4            # nice SQL formatting
 pygments>=2.17.2           # syntax highlighting helper
 pyvis>=0.3.2             # interactive network graph
+langchain-openai
