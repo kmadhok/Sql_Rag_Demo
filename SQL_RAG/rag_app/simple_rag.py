@@ -11,12 +11,13 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 import groq
 from groq import Groq
+import streamlit as st
 
 # Load .env regardless of current working directory
 load_dotenv(find_dotenv(), override=False)
 
 DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
-INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index.pkl"
+INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index"
 LLM_MODEL_NAME = "llama3-70b-8192"  # Adjust to the exact Groq model name if different
 
 
@@ -45,18 +46,34 @@ def _load_source_files() -> List[Document]:
 
 
 def _build_or_load_vector_store() -> FAISS:
-    """Build a FAISS vector store (or load if cached)."""
-    if INDEX_PATH.exists():
-        with open(INDEX_PATH, "rb") as f:
-            return pickle.load(f)
-
+    """
+    Build a FAISS vector store using the recommended save_local/load_local methods,
+    or load it from a local directory if it already exists.
+    """
     embeddings = OpenAIEmbeddings()
+
+    if INDEX_PATH.exists() and INDEX_PATH.is_dir():
+        print(f"Loading existing FAISS index from {INDEX_PATH}")
+        # allow_dangerous_deserialization is required for loading pickled objects
+        return FAISS.load_local(
+            str(INDEX_PATH),
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+
+    print("Building new FAISS index...")
     documents = _load_source_files()
+    if not documents:
+         raise ValueError(
+            "No source documents found. Ensure the 'retail_system' directory "
+            "contains .sql or .py files."
+        )
+
     vector_store = FAISS.from_documents(documents, embeddings)
 
-    # Persist index locally for future runs
-    with open(INDEX_PATH, "wb") as f:
-        pickle.dump(vector_store, f)
+    # Persist index locally for future runs using the recommended method
+    print(f"Saving new FAISS index to {INDEX_PATH}")
+    vector_store.save_local(str(INDEX_PATH))
     return vector_store
 
 
@@ -81,11 +98,19 @@ def _get_llm_client() -> Groq:
     return Groq(api_key=api_key)
 
 
-def answer_question(query: str, k: int = 4, *, return_docs: bool = False, return_tokens: bool = False):
+def answer_question(
+    query: str,
+    vector_store: FAISS,
+    k: int = 4,
+    *,
+    return_docs: bool = False,
+    return_tokens: bool = False
+):
     """Answer a user question using Retrieval-Augmented Generation.
 
     Args:
         query: The user's question.
+        vector_store: The FAISS vector store to search.
         k: Number of relevant chunks to retrieve.
         return_docs: Whether to return the retrieved documents.
         return_tokens: Whether to return token usage information.
@@ -95,8 +120,7 @@ def answer_question(query: str, k: int = 4, *, return_docs: bool = False, return
         If return_docs=True, returns (answer, docs).
         If return_tokens=True, returns token usage info as well.
     """
-    # Retrieve relevant context
-    vector_store = _build_or_load_vector_store()
+    # Retrieve relevant context from the provided vector store
     retrieved_docs = vector_store.similarity_search(query, k=k)
 
     context = "\n\n".join(
@@ -204,11 +228,15 @@ if __name__ == "__main__":
     parser.add_argument("--k", type=int, default=4, help="Number of chunks to retrieve")
     args = parser.parse_args()
 
-    answer, docs = answer_question(args.question, k=args.k, return_docs=True)
+    vector_store = _build_or_load_vector_store()
+    answer, docs, token_usage = answer_question(args.question, vector_store, k=args.k, return_docs=True, return_tokens=True)
 
     print("\n=== Answer ===\n")
     print(answer)
 
     print("\n=== Sources ===")
     for doc in docs:
-        print(f"\nFile: {doc.metadata['source']} (chunk {doc.metadata['chunk']})\n{doc.page_content}") 
+        print(f"\nFile: {doc.metadata['source']} (chunk {doc.metadata['chunk']})\n{doc.page_content}")
+
+    print("\n=== Token Usage ===")
+    print(token_usage) 

@@ -179,6 +179,12 @@ PAGE = st.sidebar.radio("Navigation", ["🔎 Chat", "📚 Catalog"], key="nav")
 # Shared header
 st.title("🛍️  Retail SQL Knowledge Base")
 
+# --- Manage and cache the vector store in session state ---
+if 'vector_store' not in st.session_state:
+    with st.spinner("Building knowledge base from source files..."):
+        st.session_state.vector_store = _build_or_load_vector_store()
+# ---------------------------------------------------------
+
 # Token counter in top right corner is being moved below
 
 DESC_PATH = APP_DIR / "query_descriptions.json"
@@ -261,7 +267,14 @@ if PAGE == "🔎 Chat":
     if st.button("🔍  Ask") and query.strip():
         with st.spinner("Thinking…"):
             try:
-                answer, docs, token_usage = answer_question(query, k=k, return_docs=True, return_tokens=True)
+                # Pass the cached vector store to the answer function
+                answer, docs, token_usage = answer_question(
+                    query,
+                    vector_store=st.session_state.vector_store,
+                    k=k,
+                    return_docs=True,
+                    return_tokens=True
+                )
                 
                 # Track token usage
                 if token_usage:
@@ -528,7 +541,7 @@ else:
 
     search_query = st.text_input("🔍 Full-text search across codebase", key="global_search")
     if search_query:
-        vs = _build_or_load_vector_store()
+        vs = st.session_state.vector_store # Use cached vector store
         hits = vs.similarity_search(search_query, k=5)
         for doc in hits:
             if fuzz.partial_ratio(search_query.lower(), doc.page_content.lower()) < 40:
