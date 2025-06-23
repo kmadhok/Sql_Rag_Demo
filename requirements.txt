@@ -8,3 +8,4 @@ pygments>=2.17.2           # syntax highlighting helper
 pyvis>=0.3.2             # interactive network graph
 langchain-openai
 graphviz
+RapidFuzz
