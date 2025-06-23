@@ -4,7 +4,7 @@ import pickle
 from typing import List
 import time
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.vectorstores.faiss import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -12,8 +12,8 @@ from langchain.docstore.document import Document
 import groq
 from groq import Groq
 
-# Load environment variables from .env if present
-load_dotenv()
+# Load .env regardless of current working directory
+load_dotenv(find_dotenv(), override=False)
 
 DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
 INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index.pkl"
@@ -62,23 +62,39 @@ def _build_or_load_vector_store() -> FAISS:
 
 
 def _get_llm_client() -> Groq:
-    """Initialize Groq client using the GROQ_API_KEY env variable."""
-    api_key = os.getenv("GROQ_API_KEY")
+    """Return an authenticated Groq client.
+
+    Tries several common env-var names (useful if the key is stored as, e.g.,
+    GROQ_KEY or GROQ_TOKEN). Provides a clear hint if none are found.
+    """
+
+    api_key = (
+        os.getenv("GROQ_API_KEY")
+        or os.getenv("GROQ_KEY")
+        or os.getenv("GROQ_TOKEN")
+    )
+
     if not api_key:
-        raise EnvironmentError("Please set the GROQ_API_KEY environment variable.")
+        raise EnvironmentError(
+            "GROQ_API_KEY not found. Please set it in your environment or a .env file."
+        )
+
     return Groq(api_key=api_key)
 
 
-def answer_question(query: str, k: int = 4, *, return_docs: bool = False):
+def answer_question(query: str, k: int = 4, *, return_docs: bool = False, return_tokens: bool = False):
     """Answer a user question using Retrieval-Augmented Generation.
 
     Args:
         query: The user's question.
         k: Number of relevant chunks to retrieve.
         return_docs: Whether to return the retrieved documents.
+        return_tokens: Whether to return token usage information.
 
     Returns:
         The LLM-generated answer leveraging retrieved context.
+        If return_docs=True, returns (answer, docs).
+        If return_tokens=True, returns token usage info as well.
     """
     # Retrieve relevant context
     vector_store = _build_or_load_vector_store()
@@ -99,6 +115,7 @@ def answer_question(query: str, k: int = 4, *, return_docs: bool = False):
 
     # Resilient call with simple exponential backoff
     retries = 3
+    completion = None
     for attempt in range(1, retries + 1):
         try:
             completion = client.chat.completions.create(
@@ -116,9 +133,68 @@ def answer_question(query: str, k: int = 4, *, return_docs: bool = False):
             print(f"Groq API error ({exc}). Retrying in {wait_secs}s …")
             time.sleep(wait_secs)
 
-    if return_docs:
+    # Extract token usage if available
+    token_usage = None
+    if completion and hasattr(completion, 'usage'):
+        token_usage = {
+            'prompt_tokens': completion.usage.prompt_tokens,
+            'completion_tokens': completion.usage.completion_tokens,
+            'total_tokens': completion.usage.total_tokens,
+            'model': LLM_MODEL_NAME
+        }
+
+    # Return based on flags
+    if return_docs and return_tokens:
+        return answer_text, retrieved_docs, token_usage
+    elif return_docs:
         return answer_text, retrieved_docs
+    elif return_tokens:
+        return answer_text, token_usage
     return answer_text
+
+
+def generate_description(query_text: str, model: str = "llama3-8b-8192") -> tuple[str, dict]:
+    """Generate a description for a SQL query and return token usage.
+    
+    Args:
+        query_text: The SQL query text to describe
+        model: The model to use for description generation
+        
+    Returns:
+        A tuple of (description, token_usage_dict)
+    """
+    prompt = (
+        "Summarize the following SQL query in at most two sentences of plain English. "
+        "Focus on the business purpose, key tables and metrics.\n\n" + query_text[:4000]
+    )
+    
+    try:
+        client = _get_llm_client()
+        completion = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=80,
+            temperature=0.3,
+        )
+        description = completion.choices[0].message.content.strip()
+        
+        # Extract token usage
+        token_usage = {
+            'prompt_tokens': completion.usage.prompt_tokens if hasattr(completion, 'usage') else 0,
+            'completion_tokens': completion.usage.completion_tokens if hasattr(completion, 'usage') else 0,
+            'total_tokens': completion.usage.total_tokens if hasattr(completion, 'usage') else 0,
+            'model': model
+        }
+        
+        return description, token_usage
+        
+    except Exception as exc:
+        return f"Description unavailable ({exc})", {
+            'prompt_tokens': 0,
+            'completion_tokens': 0,
+            'total_tokens': 0,
+            'model': model
+        }
 
 
 if __name__ == "__main__":
