@@ -28,7 +28,6 @@ hf-xet==1.1.4
 httpcore==1.0.9
 httpx==0.28.1
 httpx-sse==0.4.0
-huggingface-hub==0.33.0
 idna==3.10
 ipython==9.3.0
 ipython_pygments_lexers==1.1.1
@@ -101,7 +100,6 @@ threadpoolctl==3.6.0
 tiktoken==0.9.0
 tokenizers==0.21.1
 toml==0.10.2
-torch==2.7.1
 tornado==6.5.1
 tqdm==4.67.1
 traitlets==5.14.3
