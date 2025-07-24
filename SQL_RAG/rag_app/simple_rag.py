@@ -21,26 +21,215 @@ LLM_MODEL_NAME = "phi3"  # Ollama Phi3 model
 
 
 def _load_source_files() -> List[Document]:
-    """Walk the retail_system directory and load .sql and .py files as Documents."""
+    """Walk the retail_system directory and load .sql and .py files as Documents.
+    
+    Enhanced version that:
+    - Recursively walks through nested folder structures
+    - Avoids virtual environment and cache directories
+    - Provides better logging and file organization
+    - Extracts SQL from Python files with enhanced context
+    """
     docs: List[Document] = []
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-
-    for file_path in DATA_DIR.rglob("*.*"):
-        if file_path.suffix.lower() not in {".sql", ".py"}:
-            continue
-        try:
-            text = file_path.read_text(encoding="utf-8")
-        except Exception as e:
-            print(f"Skipping {file_path} due to read error: {e}")
-            continue
-
-        # Split into chunks
-        for i, chunk in enumerate(splitter.split_text(text)):
-            metadata = {
-                "source": str(file_path.relative_to(DATA_DIR)),
-                "chunk": i,
-            }
-            docs.append(Document(page_content=chunk, metadata=metadata))
+    
+    # Directories to avoid (virtual environments, caches, etc.)
+    EXCLUDED_DIRS = {
+        '.venv', 'venv', 'env', '.env',
+        '__pycache__', '.git', '.svn',
+        'node_modules', 'dist', 'build',
+        'temp_env', 'tmp', '.pytest_cache',
+        '.mypy_cache', '.tox', 'coverage'
+    }
+    
+    # Statistics tracking
+    stats = {
+        'folders_processed': 0,
+        'folders_skipped': 0,
+        'sql_files_found': 0,
+        'py_files_found': 0,
+        'total_chunks_created': 0,
+        'skipped_files': []
+    }
+    
+    def should_skip_directory(dir_path: pathlib.Path) -> bool:
+        """Check if directory should be skipped based on exclusion patterns."""
+        dir_name = dir_path.name.lower()
+        
+        # Check exact matches
+        if dir_name in EXCLUDED_DIRS:
+            return True
+            
+        # Check patterns
+        if (dir_name.startswith('.') and len(dir_name) > 1 and 
+            dir_name not in {'.sql', '.py'}):  # Skip hidden dirs but not file extensions
+            return True
+            
+        if dir_name.endswith('_env') or dir_name.endswith('_cache'):
+            return True
+            
+        return False
+    
+    def extract_sql_from_python(file_path: pathlib.Path, text: str) -> List[tuple]:
+        """Extract SQL queries from Python files with enhanced context."""
+        sql_chunks = []
+        lines = text.split('\n')
+        
+        in_sql_string = False
+        current_sql = []
+        sql_start_line = 0
+        function_context = None
+        indent_level = 0
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # Track function context
+            if stripped.startswith('def ') and '(' in stripped:
+                function_context = stripped.split('(')[0].replace('def ', '').strip()
+            
+            # Look for SQL string indicators
+            if (not in_sql_string and 
+                ('"""' in line or "'''" in line or 
+                 'return """' in line or 'return \'\'\'' in line or
+                 '= """' in line or "= '''" in line)):
+                in_sql_string = True
+                sql_start_line = i
+                indent_level = len(line) - len(line.lstrip())
+                
+                # Extract SQL content from the same line if present
+                if '"""' in line:
+                    sql_content = line.split('"""', 1)[1] if line.count('"""') == 1 else line.split('"""')[1]
+                    if sql_content.strip():
+                        current_sql.append(sql_content)
+                elif "'''" in line:
+                    sql_content = line.split("'''", 1)[1] if line.count("'''") == 1 else line.split("'''")[1]
+                    if sql_content.strip():
+                        current_sql.append(sql_content)
+                continue
+            
+            if in_sql_string:
+                # Check for end of SQL string
+                if ('"""' in line and line.count('"""') % 2 == 1) or ("'''" in line and line.count("'''") % 2 == 1):
+                    # Extract any SQL before the closing quotes
+                    if '"""' in line:
+                        sql_content = line.split('"""')[0]
+                    else:
+                        sql_content = line.split("'''")[0]
+                    
+                    if sql_content.strip():
+                        current_sql.append(sql_content)
+                    
+                    # Process the collected SQL
+                    if current_sql:
+                        full_sql = '\n'.join(current_sql)
+                        if any(keyword in full_sql.upper() for keyword in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'WITH', 'CREATE']):
+                            context_info = f"Python file: {file_path.name}"
+                            if function_context:
+                                context_info += f" | Function: {function_context}()"
+                            
+                            sql_chunks.append((full_sql.strip(), context_info, sql_start_line))
+                    
+                    # Reset for next SQL block
+                    in_sql_string = False
+                    current_sql = []
+                    function_context = None
+                else:
+                    # Continue collecting SQL lines
+                    current_sql.append(line)
+        
+        return sql_chunks
+    
+    def process_directory(dir_path: pathlib.Path) -> None:
+        """Recursively process directory and its subdirectories."""
+        if should_skip_directory(dir_path):
+            stats['folders_skipped'] += 1
+            print(f"Skipping excluded directory: {dir_path.relative_to(DATA_DIR)}")
+            return
+        
+        stats['folders_processed'] += 1
+        print(f"Processing directory: {dir_path.relative_to(DATA_DIR)}")
+        
+        # Process files in current directory
+        for file_path in dir_path.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in {".sql", ".py"}:
+                try:
+                    text = file_path.read_text(encoding="utf-8")
+                    relative_path = str(file_path.relative_to(DATA_DIR))
+                    
+                    if file_path.suffix.lower() == ".sql":
+                        stats['sql_files_found'] += 1
+                        # Process SQL files directly
+                        for i, chunk in enumerate(splitter.split_text(text)):
+                            metadata = {
+                                "source": relative_path,
+                                "chunk": i,
+                                "file_type": "direct_sql",
+                                "folder_path": str(file_path.parent.relative_to(DATA_DIR))
+                            }
+                            docs.append(Document(page_content=chunk, metadata=metadata))
+                            stats['total_chunks_created'] += 1
+                    
+                    elif file_path.suffix.lower() == ".py":
+                        stats['py_files_found'] += 1
+                        # Extract SQL from Python files
+                        sql_chunks = extract_sql_from_python(file_path, text)
+                        
+                        if sql_chunks:
+                            for sql_content, context, line_num in sql_chunks:
+                                # Add context header to SQL content
+                                enhanced_content = f"-- {context}\n-- Line {line_num + 1}\n\n{sql_content}"
+                                
+                                for i, chunk in enumerate(splitter.split_text(enhanced_content)):
+                                    metadata = {
+                                        "source": relative_path,
+                                        "chunk": i,
+                                        "file_type": "python_sql",
+                                        "folder_path": str(file_path.parent.relative_to(DATA_DIR)),
+                                        "context": context,
+                                        "line_number": line_num + 1
+                                    }
+                                    docs.append(Document(page_content=chunk, metadata=metadata))
+                                    stats['total_chunks_created'] += 1
+                        else:
+                            # Also include Python files without SQL for completeness
+                            for i, chunk in enumerate(splitter.split_text(text)):
+                                metadata = {
+                                    "source": relative_path,
+                                    "chunk": i,
+                                    "file_type": "python_code",
+                                    "folder_path": str(file_path.parent.relative_to(DATA_DIR))
+                                }
+                                docs.append(Document(page_content=chunk, metadata=metadata))
+                                stats['total_chunks_created'] += 1
+                    
+                except Exception as e:
+                    stats['skipped_files'].append(f"{relative_path}: {e}")
+                    print(f"Skipping {relative_path} due to read error: {e}")
+        
+        # Recursively process subdirectories
+        for subdir in dir_path.iterdir():
+            if subdir.is_dir():
+                process_directory(subdir)
+    
+    print(f"Starting enhanced file discovery in: {DATA_DIR}")
+    process_directory(DATA_DIR)
+    
+    # Print discovery statistics
+    print(f"\n=== File Discovery Summary ===")
+    print(f"Folders processed: {stats['folders_processed']}")
+    print(f"Folders skipped: {stats['folders_skipped']}")
+    print(f"SQL files found: {stats['sql_files_found']}")
+    print(f"Python files found: {stats['py_files_found']}")
+    print(f"Total chunks created: {stats['total_chunks_created']}")
+    
+    if stats['skipped_files']:
+        print(f"\nSkipped files ({len(stats['skipped_files'])}):")
+        for skipped in stats['skipped_files'][:5]:  # Show first 5
+            print(f"  - {skipped}")
+        if len(stats['skipped_files']) > 5:
+            print(f"  ... and {len(stats['skipped_files']) - 5} more")
+    
+    print(f"\nTotal documents created: {len(docs)}")
     return docs
 
 
