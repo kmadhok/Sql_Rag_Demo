@@ -4,9 +4,9 @@ This is a minimal Retrieval-Augmented Generation (RAG) demo that lets you ask qu
 
 It uses:
 
-* **Sentence-Transformers** (`all-MiniLM-L6-v2`) for embeddings
+* **Ollama nomic-embed-text** for embeddings (local)
 * **FAISS** for the in-memory vector store
-* **Groq** Llama 70B (`llama3-70b-8192`) for answer generation
+* **Ollama** Phi3 (3.8B parameters) for local answer generation
 * A lightweight script `simple_rag.py` to tie everything together
 
 ---
@@ -18,18 +18,23 @@ python -m venv .venv && source .venv/bin/activate  # optional
 pip install -r rag_app/requirements.txt
 ```
 
-## 2  Set your Groq API key
+## 2  Set up Ollama and required models
 
-Export an environment variable `GROQ_API_KEY` *or* create a `.env` file at the project root:
+Install Ollama and download the required models:
 
 ```bash
-export GROQ_API_KEY="<your-groq-key>"
+# Install Ollama (if not already installed)
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Download required models
+ollama pull phi3              # For LLM inference  
+ollama pull nomic-embed-text  # For embeddings
+
+# Verify installation
+ollama list
 ```
 
-```
-# .env
-GROQ_API_KEY=<your-groq-key>
-```
+No API keys required - all processing happens locally!
 
 ## 3  Ask questions
 
@@ -54,5 +59,5 @@ The first run will build a FAISS index (stored as `rag_app/faiss_index.pkl`). Su
 
 ### Notes
 
-* The LLM is instructed **not to hallucinate**; it will answer *"I don't know..."* if the context is insufficient.
+* The local Phi3 model is instructed **not to hallucinate**; it will answer *"I don't know..."* if the context is insufficient.
 * The script keeps things simple—no external databases or web servers required. Feel free to adapt it into a web API, Streamlit app, etc. 

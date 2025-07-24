@@ -5,12 +5,11 @@ from typing import List
 import time
 
 from dotenv import load_dotenv, find_dotenv
-from langchain_openai import OpenAIEmbeddings
-from langchain.vectorstores.faiss import FAISS
+from langchain_ollama import OllamaEmbeddings
+from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
-import groq
-from groq import Groq
+from langchain_ollama import ChatOllama
 import streamlit as st
 
 # Load .env regardless of current working directory
@@ -18,7 +17,7 @@ load_dotenv(find_dotenv(), override=False)
 
 DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
 INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index"
-LLM_MODEL_NAME = "llama3-70b-8192"  # Adjust to the exact Groq model name if different
+LLM_MODEL_NAME = "phi3"  # Ollama Phi3 model
 
 
 def _load_source_files() -> List[Document]:
@@ -50,7 +49,7 @@ def _build_or_load_vector_store() -> FAISS:
     Build a FAISS vector store using the recommended save_local/load_local methods,
     or load it from a local directory if it already exists.
     """
-    embeddings = OpenAIEmbeddings()
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
     if INDEX_PATH.exists() and INDEX_PATH.is_dir():
         print(f"Loading existing FAISS index from {INDEX_PATH}")
@@ -77,25 +76,12 @@ def _build_or_load_vector_store() -> FAISS:
     return vector_store
 
 
-def _get_llm_client() -> Groq:
-    """Return an authenticated Groq client.
-
-    Tries several common env-var names (useful if the key is stored as, e.g.,
-    GROQ_KEY or GROQ_TOKEN). Provides a clear hint if none are found.
+def _get_llm_client() -> ChatOllama:
+    """Return an Ollama chat client.
+    
+    No authentication required for local Ollama instance.
     """
-
-    api_key = (
-        os.getenv("GROQ_API_KEY")
-        or os.getenv("GROQ_KEY")
-        or os.getenv("GROQ_TOKEN")
-    )
-
-    if not api_key:
-        raise EnvironmentError(
-            "GROQ_API_KEY not found. Please set it in your environment or a .env file."
-        )
-
-    return Groq(api_key=api_key)
+    return ChatOllama(model=LLM_MODEL_NAME, temperature=0.2)
 
 
 def answer_question(
@@ -141,28 +127,27 @@ def answer_question(
     completion = None
     for attempt in range(1, retries + 1):
         try:
-            completion = client.chat.completions.create(
-                model=LLM_MODEL_NAME,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=512,
-                temperature=0.2,
-            )
-            answer_text = completion.choices[0].message.content.strip()
+            response = client.invoke(prompt)
+            answer_text = response.content.strip()
+            completion = response  # Store for token usage extraction
             break  # success → exit loop
-        except groq.APIError as exc:  # covers connection + status errors
+        except Exception as exc:  # covers connection and other errors
             if attempt == retries:
                 raise  # re-throw after last attempt
             wait_secs = 2 ** attempt
-            print(f"Groq API error ({exc}). Retrying in {wait_secs}s …")
+            print(f"Ollama API error ({exc}). Retrying in {wait_secs}s …")
             time.sleep(wait_secs)
 
-    # Extract token usage if available
+    # Extract token usage - Ollama doesn't provide detailed token counts
+    # Provide approximate counts based on text length
     token_usage = None
-    if completion and hasattr(completion, 'usage'):
+    if completion:
+        prompt_tokens = len(prompt.split()) * 1.3  # Rough estimate
+        completion_tokens = len(answer_text.split()) * 1.3  # Rough estimate
         token_usage = {
-            'prompt_tokens': completion.usage.prompt_tokens,
-            'completion_tokens': completion.usage.completion_tokens,
-            'total_tokens': completion.usage.total_tokens,
+            'prompt_tokens': int(prompt_tokens),
+            'completion_tokens': int(completion_tokens),
+            'total_tokens': int(prompt_tokens + completion_tokens),
             'model': LLM_MODEL_NAME
         }
 
@@ -176,7 +161,7 @@ def answer_question(
     return answer_text
 
 
-def generate_description(query_text: str, model: str = "llama3-8b-8192") -> tuple[str, dict]:
+def generate_description(query_text: str, model: str = "phi3") -> tuple[str, dict]:
     """Generate a description for a SQL query and return token usage.
     
     Args:
@@ -192,20 +177,17 @@ def generate_description(query_text: str, model: str = "llama3-8b-8192") -> tupl
     )
     
     try:
-        client = _get_llm_client()
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=80,
-            temperature=0.3,
-        )
-        description = completion.choices[0].message.content.strip()
+        client = ChatOllama(model=model, temperature=0.3)
+        response = client.invoke(prompt)
+        description = response.content.strip()
         
-        # Extract token usage
+        # Extract token usage - approximate for Ollama
+        prompt_tokens = len(prompt.split()) * 1.3
+        completion_tokens = len(description.split()) * 1.3
         token_usage = {
-            'prompt_tokens': completion.usage.prompt_tokens if hasattr(completion, 'usage') else 0,
-            'completion_tokens': completion.usage.completion_tokens if hasattr(completion, 'usage') else 0,
-            'total_tokens': completion.usage.total_tokens if hasattr(completion, 'usage') else 0,
+            'prompt_tokens': int(prompt_tokens),
+            'completion_tokens': int(completion_tokens),
+            'total_tokens': int(prompt_tokens + completion_tokens),
             'model': model
         }
         

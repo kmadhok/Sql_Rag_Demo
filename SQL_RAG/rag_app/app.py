@@ -18,7 +18,6 @@ import re
 import os
 
 from collections import defaultdict
-from groq import Groq
 import graphviz
 from rapidfuzz import fuzz
 from dotenv import load_dotenv, find_dotenv
@@ -45,53 +44,7 @@ load_dotenv(find_dotenv(), override=False)
 #  Token tracking and cost calculation utilities
 # --------------------------------------------------------------------------- #
 
-# Model pricing (per 1M tokens)
-MODEL_PRICING = {
-    'llama3-70b-8192': {
-        'input': 0.59,   # Groq pricing for Llama 70B
-        'output': 0.79
-    },
-    'llama3-8b-8192': {
-        'input': 0.05,   # Groq pricing for Llama 8B
-        'output': 0.08
-    },
-    'gemini-1.5-flash': {
-        'input_small': 0.075,    # <= 128k tokens
-        'input_large': 0.15,     # > 128k tokens
-        'output_small': 0.30,    # <= 128k tokens
-        'output_large': 0.60     # > 128k tokens
-    }
-}
-
-def calculate_cost(token_usage: dict, model_name: str = None) -> dict:
-    """Calculate cost for token usage based on model pricing."""
-    if not token_usage:
-        return {'input_cost': 0, 'output_cost': 0, 'total_cost': 0}
-    
-    model = model_name or token_usage.get('model', 'llama3-70b-8192')
-    prompt_tokens = token_usage.get('prompt_tokens', 0)
-    completion_tokens = token_usage.get('completion_tokens', 0)
-    
-    if model in ['llama3-70b-8192', 'llama3-8b-8192']:
-        pricing = MODEL_PRICING[model]
-        input_cost = (prompt_tokens / 1_000_000) * pricing['input']
-        output_cost = (completion_tokens / 1_000_000) * pricing['output']
-    elif 'gemini' in model.lower():
-        pricing = MODEL_PRICING['gemini-1.5-flash']
-        # Use small pricing for simplicity (most queries will be <= 128k)
-        input_cost = (prompt_tokens / 1_000_000) * pricing['input_small']
-        output_cost = (completion_tokens / 1_000_000) * pricing['output_small']
-    else:
-        # Default to Llama 70B pricing
-        pricing = MODEL_PRICING['llama3-70b-8192']
-        input_cost = (prompt_tokens / 1_000_000) * pricing['input']
-        output_cost = (completion_tokens / 1_000_000) * pricing['output']
-    
-    return {
-        'input_cost': input_cost,
-        'output_cost': output_cost,
-        'total_cost': input_cost + output_cost
-    }
+# Token usage tracking for local Ollama - no costs involved
 
 def get_session_token_stats():
     """Get cumulative token statistics for the session."""
@@ -102,16 +55,10 @@ def get_session_token_stats():
     total_completion = sum(usage.get('completion_tokens', 0) for usage in st.session_state.token_usage)
     total_tokens = total_prompt + total_completion
     
-    # Calculate total costs for different models
-    llama70b_cost = sum(calculate_cost(usage, 'llama3-70b-8192')['total_cost'] for usage in st.session_state.token_usage)
-    gemini_cost = sum(calculate_cost(usage, 'gemini-1.5-flash')['total_cost'] for usage in st.session_state.token_usage)
-    
     return {
         'total_tokens': total_tokens,
         'prompt_tokens': total_prompt,
         'completion_tokens': total_completion,
-        'llama70b_cost': llama70b_cost,
-        'gemini_cost': gemini_cost,
         'query_count': len(st.session_state.token_usage)
     }
 
@@ -122,13 +69,13 @@ def add_token_usage(token_usage: dict):
     st.session_state.token_usage.append(token_usage)
 
 def display_session_usage():
-    """Displays the session token usage and cost information."""
+    """Displays the session token usage information."""
     stats = get_session_token_stats()
     if stats['query_count'] > 0:
         st.markdown("""
         <style>
             .usage-container {
-                background-color: #262730; /* Streamlit dark theme background */
+                background-color: #262730;
                 color: white;
                 padding: 15px;
                 border-radius: 10px;
@@ -137,9 +84,6 @@ def display_session_usage():
                 justify-content: space-around;
                 align-items: center;
                 flex-wrap: wrap;
-            }
-            .usage-container strong {
-                color: white;
             }
             .usage-stat {
                 font-size: 14px;
@@ -150,8 +94,6 @@ def display_session_usage():
                 font-weight: bold;
                 font-size: 16px;
             }
-            .llama-cost { color: #90EE90; } /* light green */
-            .gemini-cost { color: #87CEEB; } /* sky blue */
         </style>
         """, unsafe_allow_html=True)
 
@@ -160,8 +102,7 @@ def display_session_usage():
             <span class="usage-label">📊 Session Usage</span>
             <span class="usage-stat">🪙 Tokens: {stats['total_tokens']:,}</span>
             <span class="usage-stat">💬 Queries: {stats['query_count']}</span>
-            <span class="usage-stat llama-cost">🦙 Llama 70B: ${stats['llama70b_cost']:.6f}</span>
-            <span class="usage-stat gemini-cost">💎 Gemini Flash: ${stats['gemini_cost']:.6f}</span>
+            <span class="usage-stat">🏠 Local Phi3 Model</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -232,18 +173,16 @@ with st.sidebar:
         st.session_state.token_usage = []
         st.rerun()
     
-    # Show detailed pricing information
-    with st.expander("💰 Model Pricing (per 1M tokens)"):
+    # Show model information
+    with st.expander("🏠 Local Model Info"):
         st.markdown("""
-        **Groq Models:**
-        - 🦙 Llama 70B: $0.59 in / $0.79 out
-        - 🦙 Llama 8B: $0.05 in / $0.08 out
+        **Current Model:** Phi3 (3.8B parameters)
         
-        **Gemini 1.5 Flash:**
-        - 💎 ≤128k tokens: $0.075 in / $0.30 out
-        - 💎 >128k tokens: $0.15 in / $0.60 out
+        - **Inference:** Local via Ollama
+        - **Cost:** Free (no API charges)
+        - **Privacy:** All processing stays local
         
-        *Current app uses Llama 70B for main queries and Llama 8B for descriptions.*
+        *Token counts are estimated based on text length.*
         """)
     
     # Show session statistics
@@ -251,10 +190,6 @@ with st.sidebar:
         stats = get_session_token_stats()
         st.metric("Total Tokens", f"{stats['total_tokens']:,}")
         st.metric("Total Queries", stats['query_count'])
-        
-        st.markdown("**Estimated Costs:**")
-        st.markdown(f"🦙 Llama 70B: ${stats['llama70b_cost']:.6f}")
-        st.markdown(f"💎 Gemini Flash: ${stats['gemini_cost']:.6f}")
 
 # --------------------------------------------------------------------------- #
 #  Main interaction
@@ -280,8 +215,8 @@ if PAGE == "🔎 Chat":
                 if token_usage:
                     add_token_usage(token_usage)
                     
-            except Exception as exc:  # catch Groq or other errors
-                st.error(f"❌ LLM call failed: {exc}")
+            except Exception as exc:  # catch Ollama or other errors
+                st.error(f"❌ Ollama call failed: {exc}")
                 st.stop()
 
         # -------- Answer
@@ -290,8 +225,7 @@ if PAGE == "🔎 Chat":
         
         # -------- Token Usage for this query
         if token_usage:
-            cost_info = calculate_cost(token_usage)
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             
             with col1:
                 st.metric(
@@ -302,17 +236,9 @@ if PAGE == "🔎 Chat":
             
             with col2:
                 st.metric(
-                    label="🦙 Llama 70B Cost",
-                    value=f"${cost_info['total_cost']:.6f}",
-                    delta=f"In: ${cost_info['input_cost']:.6f} | Out: ${cost_info['output_cost']:.6f}"
-                )
-            
-            with col3:
-                gemini_cost = calculate_cost(token_usage, 'gemini-1.5-flash')
-                st.metric(
-                    label="💎 Gemini Flash Cost",
-                    value=f"${gemini_cost['total_cost']:.6f}",
-                    delta=f"In: ${gemini_cost['input_cost']:.6f} | Out: ${gemini_cost['output_cost']:.6f}"
+                    label="🏠 Local Phi3",
+                    value="Free",
+                    delta="No API costs"
                 )
 
         # -------- Sources (as tabs)
