@@ -3,6 +3,7 @@ import pathlib
 import pickle
 from typing import List
 import time
+import re
 
 from dotenv import load_dotenv, find_dotenv
 from langchain_ollama import OllamaEmbeddings
@@ -16,9 +17,12 @@ import streamlit as st
 load_dotenv(find_dotenv(), override=False)
 
 # Default paths - can be overridden by function parameters
-DEFAULT_DATA_DIR = pathlib.Path("~/Desktop/Test_SQL_Queries").expanduser().resolve()
+DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
 DEFAULT_INDEX_DIR = pathlib.Path(__file__).resolve().parent / "faiss_indices"
 LLM_MODEL_NAME = "phi3"  # Ollama Phi3 model
+
+# Regex pattern for virtual environment detection
+ENV_PATTERN = re.compile(r'.*(venv|env).*', re.IGNORECASE)
 
 
 def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
@@ -78,12 +82,16 @@ def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
         if dir_name in EXCLUDED_DIRS:
             return True
             
-        # Check patterns
+        # Check patterns for hidden directories
         if (dir_name.startswith('.') and len(dir_name) > 1 and 
             dir_name not in {'.sql', '.py'}):  # Skip hidden dirs but not file extensions
             return True
             
-        if dir_name.endswith('_env') or dir_name.endswith('_cache'):
+        # Simple regex for virtual environments - much cleaner than multiple string checks
+        if ENV_PATTERN.match(dir_name):
+            return True
+            
+        if dir_name.endswith('_cache'):
             return True
             
         return False
@@ -158,8 +166,13 @@ def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
         
         return sql_chunks
     
-    def process_directory(dir_path: pathlib.Path) -> None:
+    def process_directory(dir_path: pathlib.Path, depth: int = 0) -> None:
         """Recursively process directory and its subdirectories."""
+        # Safety: prevent infinite recursion
+        if depth > 20:  # Reasonable max depth
+            print(f"Skipping deep directory (depth {depth}): {dir_path.relative_to(source_directory)}")
+            return
+            
         if should_skip_directory(dir_path):
             stats['folders_skipped'] += 1
             print(f"Skipping excluded directory: {dir_path.relative_to(source_directory)}")
@@ -225,10 +238,14 @@ def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
                     stats['skipped_files'].append(f"{relative_path}: {e}")
                     print(f"Skipping {relative_path} due to read error: {e}")
         
-        # Recursively process subdirectories
-        for subdir in dir_path.iterdir():
-            if subdir.is_dir():
-                process_directory(subdir)
+        # Recursively process subdirectories (skip excluded dirs early for performance)
+        try:
+            for subdir in dir_path.iterdir():
+                if subdir.is_dir() and not should_skip_directory(subdir):
+                    process_directory(subdir, depth + 1)
+        except (PermissionError, OSError) as e:
+            print(f"Cannot access subdirectories in {dir_path.relative_to(source_directory)}: {e}")
+            stats['skipped_files'].append(f"{dir_path.relative_to(source_directory)}: {e}")
     
     print(f"Starting enhanced file discovery in: {source_directory}")
     process_directory(source_directory)
