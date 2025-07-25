@@ -15,20 +15,39 @@ import streamlit as st
 # Load .env regardless of current working directory
 load_dotenv(find_dotenv(), override=False)
 
-DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
-INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index"
+# Default paths - can be overridden by function parameters
+DEFAULT_DATA_DIR = pathlib.Path("~/Desktop/Test_SQL_Queries").expanduser().resolve()
+DEFAULT_INDEX_DIR = pathlib.Path(__file__).resolve().parent / "faiss_indices"
 LLM_MODEL_NAME = "phi3"  # Ollama Phi3 model
 
 
-def _load_source_files() -> List[Document]:
-    """Walk the retail_system directory and load .sql and .py files as Documents.
+def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
+    """Walk the specified directory and load .sql and .py files as Documents.
     
     Enhanced version that:
     - Recursively walks through nested folder structures
     - Avoids virtual environment and cache directories
     - Provides better logging and file organization
     - Extracts SQL from Python files with enhanced context
+    
+    Args:
+        source_directory: Path to the directory containing SQL files. 
+                         Defaults to DEFAULT_DATA_DIR if not specified.
     """
+    if source_directory is None:
+        source_directory = DEFAULT_DATA_DIR
+    
+    # Convert to Path object if string is passed
+    if isinstance(source_directory, str):
+        source_directory = pathlib.Path(source_directory).expanduser().resolve()
+    
+    if not source_directory.exists():
+        raise ValueError(f"Source directory does not exist: {source_directory}")
+    
+    if not source_directory.is_dir():
+        raise ValueError(f"Source path is not a directory: {source_directory}")
+    
+    print(f"Using source directory: {source_directory}")
     docs: List[Document] = []
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     
@@ -143,18 +162,18 @@ def _load_source_files() -> List[Document]:
         """Recursively process directory and its subdirectories."""
         if should_skip_directory(dir_path):
             stats['folders_skipped'] += 1
-            print(f"Skipping excluded directory: {dir_path.relative_to(DATA_DIR)}")
+            print(f"Skipping excluded directory: {dir_path.relative_to(source_directory)}")
             return
         
         stats['folders_processed'] += 1
-        print(f"Processing directory: {dir_path.relative_to(DATA_DIR)}")
+        print(f"Processing directory: {dir_path.relative_to(source_directory)}")
         
         # Process files in current directory
         for file_path in dir_path.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in {".sql", ".py"}:
                 try:
                     text = file_path.read_text(encoding="utf-8")
-                    relative_path = str(file_path.relative_to(DATA_DIR))
+                    relative_path = str(file_path.relative_to(source_directory))
                     
                     if file_path.suffix.lower() == ".sql":
                         stats['sql_files_found'] += 1
@@ -164,7 +183,7 @@ def _load_source_files() -> List[Document]:
                                 "source": relative_path,
                                 "chunk": i,
                                 "file_type": "direct_sql",
-                                "folder_path": str(file_path.parent.relative_to(DATA_DIR))
+                                "folder_path": str(file_path.parent.relative_to(source_directory))
                             }
                             docs.append(Document(page_content=chunk, metadata=metadata))
                             stats['total_chunks_created'] += 1
@@ -184,7 +203,7 @@ def _load_source_files() -> List[Document]:
                                         "source": relative_path,
                                         "chunk": i,
                                         "file_type": "python_sql",
-                                        "folder_path": str(file_path.parent.relative_to(DATA_DIR)),
+                                        "folder_path": str(file_path.parent.relative_to(source_directory)),
                                         "context": context,
                                         "line_number": line_num + 1
                                     }
@@ -197,7 +216,7 @@ def _load_source_files() -> List[Document]:
                                     "source": relative_path,
                                     "chunk": i,
                                     "file_type": "python_code",
-                                    "folder_path": str(file_path.parent.relative_to(DATA_DIR))
+                                    "folder_path": str(file_path.parent.relative_to(source_directory))
                                 }
                                 docs.append(Document(page_content=chunk, metadata=metadata))
                                 stats['total_chunks_created'] += 1
@@ -211,8 +230,8 @@ def _load_source_files() -> List[Document]:
             if subdir.is_dir():
                 process_directory(subdir)
     
-    print(f"Starting enhanced file discovery in: {DATA_DIR}")
-    process_directory(DATA_DIR)
+    print(f"Starting enhanced file discovery in: {source_directory}")
+    process_directory(source_directory)
     
     # Print discovery statistics
     print(f"\n=== File Discovery Summary ===")
@@ -233,35 +252,60 @@ def _load_source_files() -> List[Document]:
     return docs
 
 
-def _build_or_load_vector_store() -> FAISS:
+def _build_or_load_vector_store(source_directory: pathlib.Path = None, index_directory: pathlib.Path = None) -> FAISS:
     """
     Build a FAISS vector store using the recommended save_local/load_local methods,
     or load it from a local directory if it already exists.
+    
+    Args:
+        source_directory: Path to directory containing SQL files. Defaults to DEFAULT_DATA_DIR.
+        index_directory: Path to directory for storing FAISS index. Defaults to DEFAULT_INDEX_DIR.
     """
+    if source_directory is None:
+        source_directory = DEFAULT_DATA_DIR
+    if index_directory is None:
+        index_directory = DEFAULT_INDEX_DIR
+    
+    # Convert to Path objects if strings are passed
+    if isinstance(source_directory, str):
+        source_directory = pathlib.Path(source_directory).expanduser().resolve()
+    if isinstance(index_directory, str):
+        index_directory = pathlib.Path(index_directory).expanduser().resolve()
+    
+    # Create unique index path based on source directory
+    # Use a simpler approach - just the directory name and a short path identifier
+    source_name = source_directory.name
+    # Use last 2 parts of path to make it more unique
+    path_parts = source_directory.parts[-2:] if len(source_directory.parts) >= 2 else source_directory.parts
+    path_identifier = "_".join(path_parts).replace(" ", "_")
+    index_path = index_directory / f"index_{path_identifier}"
     embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-    if INDEX_PATH.exists() and INDEX_PATH.is_dir():
-        print(f"Loading existing FAISS index from {INDEX_PATH}")
+    if index_path.exists() and index_path.is_dir():
+        print(f"Loading existing FAISS index from {index_path}")
         # allow_dangerous_deserialization is required for loading pickled objects
         return FAISS.load_local(
-            str(INDEX_PATH),
+            str(index_path),
             embeddings,
             allow_dangerous_deserialization=True
         )
 
     print("Building new FAISS index...")
-    documents = _load_source_files()
+    documents = _load_source_files(source_directory)
     if not documents:
          raise ValueError(
-            "No source documents found. Ensure the 'retail_system' directory "
+            f"No source documents found. Ensure the directory '{source_directory}' "
             "contains .sql or .py files."
         )
 
     vector_store = FAISS.from_documents(documents, embeddings)
 
+    # Ensure index directory exists
+    index_path.parent.mkdir(parents=True, exist_ok=True)
+    
     # Persist index locally for future runs using the recommended method
-    print(f"Saving new FAISS index to {INDEX_PATH}")
-    vector_store.save_local(str(INDEX_PATH))
+    print(f"Saving new FAISS index to {index_path}")
+    vector_store.save_local(str(index_path))
     return vector_store
 
 
@@ -275,26 +319,33 @@ def _get_llm_client() -> ChatOllama:
 
 def answer_question(
     query: str,
-    vector_store: FAISS,
+    vector_store: FAISS = None,
     k: int = 4,
     *,
     return_docs: bool = False,
-    return_tokens: bool = False
+    return_tokens: bool = False,
+    source_directory: pathlib.Path = None,
+    index_directory: pathlib.Path = None
 ):
     """Answer a user question using Retrieval-Augmented Generation.
 
     Args:
         query: The user's question.
-        vector_store: The FAISS vector store to search.
+        vector_store: The FAISS vector store to search. If None, will build/load from directories.
         k: Number of relevant chunks to retrieve.
         return_docs: Whether to return the retrieved documents.
         return_tokens: Whether to return token usage information.
+        source_directory: Path to directory containing SQL files (if vector_store is None).
+        index_directory: Path to directory for storing FAISS index (if vector_store is None).
 
     Returns:
         The LLM-generated answer leveraging retrieved context.
         If return_docs=True, returns (answer, docs).
         If return_tokens=True, returns token usage info as well.
     """
+    # Build or load vector store if not provided
+    if vector_store is None:
+        vector_store = _build_or_load_vector_store(source_directory, index_directory)
     # Retrieve relevant context from the provided vector store
     retrieved_docs = vector_store.similarity_search(query, k=k)
 
@@ -394,13 +445,26 @@ def generate_description(query_text: str, model: str = "phi3") -> tuple[str, dic
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Simple RAG over retail_system SQL docs")
+    parser = argparse.ArgumentParser(description="Simple RAG over SQL documentation")
     parser.add_argument("question", type=str, help="Question to ask the RAG system")
     parser.add_argument("--k", type=int, default=4, help="Number of chunks to retrieve")
+    parser.add_argument("--source-dir", type=str, default=None, 
+                       help="Path to directory containing SQL files (defaults to retail_system)")
+    parser.add_argument("--index-dir", type=str, default=None,
+                       help="Path to directory for storing FAISS indices (defaults to faiss_indices)")
     args = parser.parse_args()
 
-    vector_store = _build_or_load_vector_store()
-    answer, docs, token_usage = answer_question(args.question, vector_store, k=args.k, return_docs=True, return_tokens=True)
+    source_dir = pathlib.Path(args.source_dir).expanduser().resolve() if args.source_dir else None
+    index_dir = pathlib.Path(args.index_dir).expanduser().resolve() if args.index_dir else None
+
+    answer, docs, token_usage = answer_question(
+        args.question, 
+        k=args.k, 
+        return_docs=True, 
+        return_tokens=True,
+        source_directory=source_dir,
+        index_directory=index_dir
+    )
 
     print("\n=== Answer ===\n")
     print(answer)

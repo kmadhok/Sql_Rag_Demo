@@ -35,7 +35,7 @@ APP_DIR = pathlib.Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.append(str(APP_DIR))
 
-from simple_rag import answer_question, DATA_DIR, _build_or_load_vector_store, generate_description  # noqa: E402  (after sys.path tweak)
+from simple_rag import answer_question, DEFAULT_DATA_DIR, _build_or_load_vector_store, generate_description  # noqa: E402  (after sys.path tweak)
 
 # Load environment variables from any .env up the tree
 load_dotenv(find_dotenv(), override=False)
@@ -117,13 +117,63 @@ st.set_page_config(page_title="Retail-SQL RAG", layout="wide")
 
 PAGE = st.sidebar.radio("Navigation", ["🔎 Chat", "📚 Catalog"], key="nav")
 
+# Directory selection
+with st.sidebar:
+    st.header("📁 Source Directory")
+    
+    # Initialize session state for directory
+    if 'source_directory' not in st.session_state:
+        st.session_state.source_directory = str(DEFAULT_DATA_DIR)
+    
+    # Directory input
+    new_directory = st.text_input(
+        "SQL Files Directory",
+        value=st.session_state.source_directory,
+        help="Path to directory containing SQL files (supports ~ for home directory)"
+    )
+    
+    # Add some common directory shortcuts
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📁 Retail System"):
+            new_directory = str(pathlib.Path(__file__).resolve().parent.parent / "retail_system")
+    with col2:
+        if st.button("🧪 Test Queries"):
+            new_directory = str(DEFAULT_DATA_DIR)
+    
+    # Check if directory changed
+    directory_changed = new_directory != st.session_state.source_directory
+    
+    if directory_changed:
+        st.session_state.source_directory = new_directory
+        # Clear the vector store cache when directory changes
+        if 'vector_store' in st.session_state:
+            del st.session_state.vector_store
+        st.rerun()
+    
+    # Show current directory info
+    try:
+        current_path = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
+        if current_path.exists():
+            st.success(f"✅ Directory: {current_path.name}")
+            st.caption(f"Path: {current_path}")
+        else:
+            st.error(f"❌ Directory not found: {current_path}")
+    except Exception as e:
+        st.error(f"❌ Invalid path: {e}")
+
 # Shared header
 st.title("🛍️  Retail SQL Knowledge Base")
 
 # --- Manage and cache the vector store in session state ---
 if 'vector_store' not in st.session_state:
-    with st.spinner("Building knowledge base from source files..."):
-        st.session_state.vector_store = _build_or_load_vector_store()
+    try:
+        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
+        with st.spinner(f"Building knowledge base from {source_dir.name}..."):
+            st.session_state.vector_store = _build_or_load_vector_store(source_directory=source_dir)
+    except Exception as e:
+        st.error(f"Failed to load knowledge base: {e}")
+        st.stop()
 # ---------------------------------------------------------
 
 # Token counter in top right corner is being moved below
@@ -274,7 +324,8 @@ if PAGE == "🔎 Chat":
 
                     # full file / query
                     try:
-                        full_text = (DATA_DIR / path).read_text(encoding="utf-8")
+                        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
+                        full_text = (source_dir / path).read_text(encoding="utf-8")
                     except Exception as exc:
                         st.error(f"Could not read full file: {exc}")
                         full_text = ""
@@ -352,12 +403,13 @@ else:
     join_rows = []  # list of dict rows
     
     # Gather .sql files in project
-    sql_files = sorted([p for p in DATA_DIR.rglob("*.sql")])
+    source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
+    sql_files = sorted([p for p in source_dir.rglob("*.sql")])
 
     for p in sql_files:
         joins = _scan_joins(p.read_text(encoding="utf-8"))
         for j in joins:
-            row = {"File": str(p.relative_to(DATA_DIR))}
+            row = {"File": str(p.relative_to(source_dir))}
             row.update(j)
             join_rows.append(row)
 
@@ -446,7 +498,7 @@ else:
         for p in sql_files:
             for t in _scan_transforms(p.read_text(encoding="utf-8")):
                 transform_rows.append(
-                    {"Transformation": t, "File": str(p.relative_to(DATA_DIR))}
+                    {"Transformation": t, "File": str(p.relative_to(source_dir))}
                 )
 
         if transform_rows:
@@ -488,7 +540,8 @@ else:
         if cached and not cached.startswith("Description unavailable"):
             return cached
 
-        full_sql = (DATA_DIR / path_str).read_text(encoding="utf-8")
+        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
+        full_sql = (source_dir / path_str).read_text(encoding="utf-8")
         
         try:
             desc, token_usage = generate_description(full_sql)
@@ -505,7 +558,7 @@ else:
         return desc
 
     for p in sql_files:
-        rel = str(p.relative_to(DATA_DIR))
+        rel = str(p.relative_to(source_dir))
         with st.expander(rel):
             st.markdown(f"*{_describe(rel)}*")
             st.code(_format_snippet(p.read_text(encoding="utf-8"), rel), language="sql")
