@@ -1,9 +1,15 @@
 import os
 import pathlib
 import pickle
-from typing import List
+from typing import List, Optional, Union, Dict
 import time
 import re
+import csv
+import json
+import hashlib
+from datetime import datetime
+from enum import Enum
+from dataclasses import dataclass
 
 from dotenv import load_dotenv, find_dotenv
 from langchain_ollama import OllamaEmbeddings
@@ -16,13 +22,270 @@ import streamlit as st
 # Load .env regardless of current working directory
 load_dotenv(find_dotenv(), override=False)
 
+
+class CSVChangeType(Enum):
+    """Enum representing different types of CSV changes detected."""
+    NO_CHANGE = "no_change"
+    ROWS_ADDED = "rows_added"
+    ROWS_MODIFIED = "rows_modified"
+    SCHEMA_CHANGED = "schema_changed"
+    FILE_MISSING = "file_missing"
+    FIRST_TIME = "first_time"
+
+
+@dataclass
+class CSVMetadata:
+    """Metadata about a CSV file for change detection."""
+    file_path: str
+    modification_time: float
+    row_count: int
+    column_hash: str
+    last_processed_timestamp: str
+    column_names: List[str]
+    file_size: int
+    
+    def to_dict(self) -> dict:
+        """Convert metadata to dictionary for JSON serialization."""
+        return {
+            'file_path': self.file_path,
+            'modification_time': self.modification_time,
+            'row_count': self.row_count,
+            'column_hash': self.column_hash,
+            'last_processed_timestamp': self.last_processed_timestamp,
+            'column_names': self.column_names,
+            'file_size': self.file_size
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'CSVMetadata':
+        """Create metadata instance from dictionary."""
+        return cls(
+            file_path=data['file_path'],
+            modification_time=data['modification_time'],
+            row_count=data['row_count'],
+            column_hash=data['column_hash'],
+            last_processed_timestamp=data['last_processed_timestamp'],
+            column_names=data['column_names'],
+            file_size=data['file_size']
+        )
+    
+    def save_to_file(self, metadata_path: pathlib.Path) -> None:
+        """Save metadata to JSON file."""
+        try:
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(metadata_path, 'w', encoding='utf-8') as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save CSV metadata: {e}")
+    
+    @classmethod
+    def load_from_file(cls, metadata_path: pathlib.Path) -> Optional['CSVMetadata']:
+        """Load metadata from JSON file."""
+        try:
+            if not metadata_path.exists():
+                return None
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return cls.from_dict(data)
+        except Exception as e:
+            print(f"Warning: Could not load CSV metadata: {e}")
+            return None
+
+
 # Default paths - can be overridden by function parameters
-DEFAULT_DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
+DEFAULT_DATA_DIR = pathlib.Path("~/Desktop/Test_SQL_Queries").expanduser().resolve()
 DEFAULT_INDEX_DIR = pathlib.Path(__file__).resolve().parent / "faiss_indices"
 LLM_MODEL_NAME = "phi3"  # Ollama Phi3 model
 
 # Regex pattern for virtual environment detection
 ENV_PATTERN = re.compile(r'.*(venv|env).*', re.IGNORECASE)
+
+
+def _compute_column_hash(column_names: List[str]) -> str:
+    """Compute a hash of the column names to detect schema changes."""
+    columns_str = "|".join(sorted(column_names))
+    return hashlib.md5(columns_str.encode('utf-8')).hexdigest()
+
+
+def get_csv_current_state(csv_path: Union[str, pathlib.Path]) -> CSVMetadata:
+    """Extract current metadata from a CSV file.
+    
+    Args:
+        csv_path: Path to the CSV file
+        
+    Returns:
+        CSVMetadata object with current file state
+        
+    Raises:
+        FileNotFoundError: If CSV file doesn't exist
+        ValueError: If CSV file is invalid or missing required columns
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    
+    if not csv_path.is_file():
+        raise ValueError(f"Path is not a file: {csv_path}")
+    
+    try:
+        # Get file metadata
+        file_stat = csv_path.stat()
+        modification_time = file_stat.st_mtime
+        file_size = file_stat.st_size
+        
+        # Read CSV to get structure and row count
+        with open(csv_path, 'r', encoding='utf-8') as csvfile:
+            sample = csvfile.read(1024)
+            csvfile.seek(0)
+            
+            # Detect delimiter
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            
+            reader = csv.DictReader(csvfile, delimiter=delimiter)
+            column_names = list(reader.fieldnames or [])
+            
+            if not column_names:
+                raise ValueError("CSV file appears to be empty or has no headers")
+            
+            if 'query' not in column_names:
+                raise ValueError(f"CSV must contain a 'query' column. Found: {column_names}")
+            
+            # Count non-empty rows
+            row_count = 0
+            for row in reader:
+                if row.get('query', '').strip():  # Only count rows with actual queries
+                    row_count += 1
+        
+        # Compute column hash for schema change detection
+        column_hash = _compute_column_hash(column_names)
+        
+        # Create timestamp
+        timestamp = datetime.now().isoformat()
+        
+        return CSVMetadata(
+            file_path=str(csv_path),
+            modification_time=modification_time,
+            row_count=row_count,
+            column_hash=column_hash,
+            last_processed_timestamp=timestamp,
+            column_names=column_names,
+            file_size=file_size
+        )
+        
+    except Exception as e:
+        raise ValueError(f"Error reading CSV file: {e}")
+
+
+def compare_csv_states(stored_metadata: Optional[CSVMetadata], 
+                      current_metadata: CSVMetadata) -> CSVChangeType:
+    """Compare stored metadata with current CSV state to detect changes.
+    
+    Args:
+        stored_metadata: Previously stored metadata (None if first time)
+        current_metadata: Current CSV file metadata
+        
+    Returns:
+        CSVChangeType indicating what type of change was detected
+    """
+    if stored_metadata is None:
+        return CSVChangeType.FIRST_TIME
+    
+    # Check if file path changed (shouldn't happen but good to verify)
+    if stored_metadata.file_path != current_metadata.file_path:
+        print(f"Warning: CSV file path changed from {stored_metadata.file_path} to {current_metadata.file_path}")
+        return CSVChangeType.FIRST_TIME
+    
+    # Check for schema changes (column structure)
+    if stored_metadata.column_hash != current_metadata.column_hash:
+        print(f"CSV schema changed. Old columns: {stored_metadata.column_names}, New columns: {current_metadata.column_names}")
+        return CSVChangeType.SCHEMA_CHANGED
+    
+    # Check for row count changes
+    if stored_metadata.row_count != current_metadata.row_count:
+        if current_metadata.row_count > stored_metadata.row_count:
+            rows_added = current_metadata.row_count - stored_metadata.row_count
+            print(f"CSV has {rows_added} new rows ({stored_metadata.row_count} -> {current_metadata.row_count})")
+            return CSVChangeType.ROWS_ADDED
+        else:
+            rows_removed = stored_metadata.row_count - current_metadata.row_count
+            print(f"CSV has {rows_removed} fewer rows ({stored_metadata.row_count} -> {current_metadata.row_count})")
+            return CSVChangeType.ROWS_MODIFIED
+    
+    # Check file modification time
+    if stored_metadata.modification_time != current_metadata.modification_time:
+        print("CSV file modification time changed, but row count is the same - likely row modifications")
+        return CSVChangeType.ROWS_MODIFIED
+    
+    # Check file size (additional validation)
+    if stored_metadata.file_size != current_metadata.file_size:
+        print("CSV file size changed, but other metrics unchanged - possible data modifications")
+        return CSVChangeType.ROWS_MODIFIED
+    
+    return CSVChangeType.NO_CHANGE
+
+
+def detect_csv_changes(csv_path: Union[str, pathlib.Path], 
+                      index_directory: pathlib.Path) -> tuple[CSVChangeType, CSVMetadata, Optional[CSVMetadata]]:
+    """Detect changes in a CSV file by comparing with stored metadata.
+    
+    Args:
+        csv_path: Path to the CSV file
+        index_directory: Directory where FAISS index and metadata are stored
+        
+    Returns:
+        Tuple of (change_type, current_metadata, stored_metadata)
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    # Define metadata file path
+    csv_filename = csv_path.stem
+    metadata_path = index_directory / f"index_csv_{csv_filename}" / "csv_metadata.json"
+    
+    try:
+        # Get current CSV state
+        current_metadata = get_csv_current_state(csv_path)
+        
+        # Load stored metadata if it exists
+        stored_metadata = CSVMetadata.load_from_file(metadata_path)
+        
+        # Compare states
+        change_type = compare_csv_states(stored_metadata, current_metadata)
+        
+        return change_type, current_metadata, stored_metadata
+        
+    except FileNotFoundError:
+        # CSV file was deleted - return file missing status
+        stored_metadata = CSVMetadata.load_from_file(metadata_path)
+        # Create dummy current metadata to represent missing file
+        dummy_metadata = CSVMetadata(
+            file_path=str(csv_path),
+            modification_time=0,
+            row_count=0,
+            column_hash="",
+            last_processed_timestamp="",
+            column_names=[],
+            file_size=0
+        )
+        return CSVChangeType.FILE_MISSING, dummy_metadata, stored_metadata
+    
+    except Exception as e:
+        print(f"Error detecting CSV changes: {e}")
+        # Treat errors as requiring rebuild
+        stored_metadata = CSVMetadata.load_from_file(metadata_path)
+        dummy_metadata = CSVMetadata(
+            file_path=str(csv_path),
+            modification_time=0,
+            row_count=0,
+            column_hash="",
+            last_processed_timestamp="",
+            column_names=[],
+            file_size=0
+        )
+        return CSVChangeType.FIRST_TIME, dummy_metadata, stored_metadata
 
 
 def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
@@ -269,14 +532,643 @@ def _load_source_files(source_directory: pathlib.Path = None) -> List[Document]:
     return docs
 
 
-def _build_or_load_vector_store(source_directory: pathlib.Path = None, index_directory: pathlib.Path = None) -> FAISS:
+def _load_queries_from_csv(csv_path: Union[str, pathlib.Path]) -> List[Document]:
+    """Load SQL queries from a CSV file with a 'query' column.
+    
+    Expected CSV structure:
+    - Required column: 'query' - contains the SQL query text
+    - Optional columns: Any additional columns will be included as metadata
+    
+    Args:
+        csv_path: Path to the CSV file containing queries
+        
+    Returns:
+        List of Document objects with query content and metadata
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+    
+    if not csv_path.is_file():
+        raise ValueError(f"CSV path is not a file: {csv_path}")
+    
+    print(f"Loading queries from CSV: {csv_path}")
+    
+    docs: List[Document] = []
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as csvfile:
+            # Detect delimiter
+            sample = csvfile.read(1024)
+            csvfile.seek(0)
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            
+            reader = csv.DictReader(csvfile, delimiter=delimiter)
+            
+            # Validate required column
+            if 'query' not in reader.fieldnames:
+                raise ValueError(f"CSV must contain a 'query' column. Found columns: {reader.fieldnames}")
+            
+            stats = {
+                'queries_processed': 0,
+                'chunks_created': 0,
+                'empty_queries_skipped': 0,
+                'error_queries': []
+            }
+            
+            for row_idx, row in enumerate(reader, start=1):
+                query_text = row.get('query', '').strip()
+                
+                if not query_text:
+                    stats['empty_queries_skipped'] += 1
+                    continue
+                
+                try:
+                    # Create base metadata from CSV row
+                    metadata = {
+                        'source': f"csv_row_{row_idx}",
+                        'file_type': 'csv_query',
+                        'csv_file': str(csv_path.name),
+                        'row_number': row_idx
+                    }
+                    
+                    # Add all other CSV columns as metadata (except 'query')
+                    for key, value in row.items():
+                        if key != 'query' and value:  # Skip empty values
+                            metadata[key] = value
+                    
+                    # Split query into chunks if needed
+                    chunks = splitter.split_text(query_text)
+                    
+                    for chunk_idx, chunk in enumerate(chunks):
+                        chunk_metadata = metadata.copy()
+                        chunk_metadata['chunk'] = chunk_idx
+                        
+                        # Add query context if this is part of a larger query
+                        if len(chunks) > 1:
+                            chunk_metadata['total_chunks'] = len(chunks)
+                        
+                        docs.append(Document(page_content=chunk, metadata=chunk_metadata))
+                        stats['chunks_created'] += 1
+                    
+                    stats['queries_processed'] += 1
+                    
+                except Exception as e:
+                    stats['error_queries'].append(f"Row {row_idx}: {e}")
+                    print(f"Error processing row {row_idx}: {e}")
+            
+    except Exception as e:
+        raise ValueError(f"Error reading CSV file: {e}")
+    
+    # Print statistics
+    print(f"\n=== CSV Loading Summary ===")
+    print(f"Queries processed: {stats['queries_processed']}")
+    print(f"Empty queries skipped: {stats['empty_queries_skipped']}")
+    print(f"Total chunks created: {stats['chunks_created']}")
+    
+    if stats['error_queries']:
+        print(f"\nErrors encountered ({len(stats['error_queries'])}):") 
+        for error in stats['error_queries'][:5]:  # Show first 5
+            print(f"  - {error}")
+        if len(stats['error_queries']) > 5:
+            print(f"  ... and {len(stats['error_queries']) - 5} more")
+    
+    print(f"\nTotal documents created: {len(docs)}")
+    return docs
+
+
+def _load_new_queries_from_csv(
+    csv_path: Union[str, pathlib.Path], 
+    last_processed_row: int,
+    expected_columns: Optional[List[str]] = None
+) -> List[Document]:
+    """Load only new SQL queries from a CSV file starting from a specific row.
+    
+    Args:
+        csv_path: Path to the CSV file containing queries
+        last_processed_row: The number of rows that were previously processed (0-indexed)
+        expected_columns: Optional list of expected column names for schema validation
+        
+    Returns:
+        List of Document objects with new query content and metadata
+        
+    Raises:
+        ValueError: If CSV schema has changed or file is invalid
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    if not csv_path.exists():
+        raise ValueError(f"CSV file does not exist: {csv_path}")
+    
+    print(f"Loading new queries from CSV: {csv_path} (starting from row {last_processed_row + 1})")
+    
+    docs: List[Document] = []
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+    
+    try:
+        with open(csv_path, 'r', encoding='utf-8') as csvfile:
+            # Detect delimiter
+            sample = csvfile.read(1024)
+            csvfile.seek(0)
+            sniffer = csv.Sniffer()
+            delimiter = sniffer.sniff(sample).delimiter
+            
+            reader = csv.DictReader(csvfile, delimiter=delimiter)
+            
+            # Validate schema if expected columns provided
+            current_columns = list(reader.fieldnames or [])
+            if expected_columns and set(current_columns) != set(expected_columns):
+                raise ValueError(
+                    f"CSV schema changed. Expected: {expected_columns}, Found: {current_columns}"
+                )
+            
+            # Validate required column
+            if 'query' not in current_columns:
+                raise ValueError(f"CSV must contain a 'query' column. Found columns: {current_columns}")
+            
+            stats = {
+                'new_queries_processed': 0,
+                'chunks_created': 0,
+                'empty_queries_skipped': 0,
+                'rows_processed': 0,
+                'error_queries': []
+            }
+            
+            # Skip to the starting row
+            for _ in range(last_processed_row):
+                try:
+                    next(reader)
+                    stats['rows_processed'] += 1
+                except StopIteration:
+                    # We've reached the end of file, no new rows
+                    print(f"No new rows found. Last processed row was {last_processed_row}, file has {stats['rows_processed']} total rows.")
+                    return docs
+            
+            # Process new rows
+            for row_idx, row in enumerate(reader, start=last_processed_row + 1):
+                query_text = row.get('query', '').strip()
+                
+                if not query_text:
+                    stats['empty_queries_skipped'] += 1
+                    continue
+                
+                try:
+                    # Create base metadata from CSV row
+                    metadata = {
+                        'source': f"csv_row_{row_idx}",
+                        'file_type': 'csv_query',
+                        'csv_file': str(csv_path.name),
+                        'row_number': row_idx,
+                        'is_new_row': True  # Flag to identify newly added rows
+                    }
+                    
+                    # Add all other CSV columns as metadata (except 'query')
+                    for key, value in row.items():
+                        if key != 'query' and value:  # Skip empty values
+                            metadata[key] = value
+                    
+                    # Split query into chunks if needed
+                    chunks = splitter.split_text(query_text)
+                    
+                    for chunk_idx, chunk in enumerate(chunks):
+                        chunk_metadata = metadata.copy()
+                        chunk_metadata['chunk'] = chunk_idx
+                        
+                        # Add context for multi-chunk queries
+                        if len(chunks) > 1:
+                            chunk_metadata['total_chunks'] = len(chunks)
+                        
+                        # Create unique document ID for tracking
+                        chunk_metadata['document_id'] = f"{csv_path.stem}_row_{row_idx}_chunk_{chunk_idx}"
+                        
+                        docs.append(Document(page_content=chunk, metadata=chunk_metadata))
+                        stats['chunks_created'] += 1
+                    
+                    stats['new_queries_processed'] += 1
+                    
+                except Exception as e:
+                    stats['error_queries'].append(f"Row {row_idx}: {e}")
+                    print(f"Error processing new row {row_idx}: {e}")
+                    
+    except Exception as e:
+        raise ValueError(f"Error reading CSV file: {e}")
+    
+    # Print statistics
+    print(f"\n=== New CSV Rows Loading Summary ===")
+    print(f"Starting from row: {last_processed_row + 1}")
+    print(f"New queries processed: {stats['new_queries_processed']}")
+    print(f"Empty queries skipped: {stats['empty_queries_skipped']}")
+    print(f"Total chunks created: {stats['chunks_created']}")
+    
+    if stats['error_queries']:
+        print(f"\nErrors encountered ({len(stats['error_queries'])}):") 
+        for error in stats['error_queries'][:5]:  # Show first 5
+            print(f"  - {error}")
+        if len(stats['error_queries']) > 5:
+            print(f"  ... and {len(stats['error_queries']) - 5} more")
+    
+    print(f"\nTotal new documents created: {len(docs)}")
+    return docs
+
+
+def ensure_description_column(csv_path: Union[str, pathlib.Path]) -> bool:
+    """Ensure the CSV has a 'description' column, add it if missing.
+    
+    Args:
+        csv_path: Path to the CSV file
+        
+    Returns:
+        True if column was added, False if it already existed
+        
+    Raises:
+        Exception: If CSV cannot be read or written
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    # Validate file exists and is readable
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+    
+    if not csv_path.is_file():
+        raise ValueError(f"Path is not a file: {csv_path}")
+    
+    # Check file permissions
+    if not os.access(csv_path, os.R_OK):
+        raise PermissionError(f"Cannot read CSV file: {csv_path}")
+        
+    if not os.access(csv_path, os.W_OK):
+        raise PermissionError(f"Cannot write to CSV file: {csv_path}")
+    
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        
+        # Validate required 'query' column exists
+        if 'query' not in df.columns:
+            raise ValueError(f"CSV file missing required 'query' column. Found columns: {list(df.columns)}")
+        
+        if 'description' in df.columns:
+            return False  # Column already exists
+        
+        # Add empty description column
+        df['description'] = ""
+        
+        # Create backup
+        backup_path = csv_path.with_suffix('.csv.backup')
+        csv_path.rename(backup_path)
+        
+        # Write updated CSV
+        df.to_csv(csv_path, index=False)
+        print(f"Added 'description' column to {csv_path.name}")
+        
+        # Remove backup if successful
+        backup_path.unlink()
+        return True
+        
+    except Exception as e:
+        # Restore backup if it exists
+        backup_path = csv_path.with_suffix('.csv.backup')
+        if backup_path.exists():
+            backup_path.rename(csv_path)
+        raise Exception(f"Failed to add description column: {e}")
+
+
+def find_queries_without_descriptions(csv_path: Union[str, pathlib.Path]) -> List[tuple]:
+    """Find queries in CSV that are missing descriptions.
+    
+    Args:
+        csv_path: Path to the CSV file
+        
+    Returns:
+        List of tuples: (row_idx, query_text) for queries without descriptions
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    # Validate file exists and is readable
+    if not csv_path.exists():
+        print(f"Warning: CSV file not found: {csv_path}")
+        return []
+    
+    if not os.access(csv_path, os.R_OK):
+        print(f"Warning: Cannot read CSV file: {csv_path}")
+        return []
+    
+    queries_needing_descriptions = []
+    
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        
+        # Validate required 'query' column exists
+        if 'query' not in df.columns:
+            print(f"Error: CSV file missing required 'query' column. Found columns: {list(df.columns)}")
+            return []
+        
+        # Ensure description column exists
+        if 'description' not in df.columns:
+            result = []
+            for idx, row in df.iterrows():
+                query_text = row.get('query', '')
+                if not pd.isna(query_text) and str(query_text).strip():
+                    result.append((idx, str(query_text).strip()))
+            return result
+        
+        # Find rows with empty or missing descriptions
+        for idx, row in df.iterrows():
+            # Handle NaN values properly
+            query_text = row.get('query', '')
+            if pd.isna(query_text):
+                query_text = ''
+            else:
+                query_text = str(query_text).strip()
+            
+            description = row.get('description', '')
+            if pd.isna(description):
+                description = ''
+            else:
+                description = str(description).strip()
+            
+            # Debug output
+            print(f"Row {idx}: query_exists={bool(query_text)}, description_exists={bool(description)}, description_value='{description}'")
+            
+            if query_text and not description:
+                queries_needing_descriptions.append((idx, query_text))
+                print(f"  -> Added row {idx} to queries needing descriptions")
+        
+        return queries_needing_descriptions
+        
+    except Exception as e:
+        print(f"Error finding queries without descriptions: {e}")
+        return []
+
+
+def update_csv_descriptions(csv_path: Union[str, pathlib.Path], 
+                          descriptions: Dict[int, str]) -> bool:
+    """Update CSV file with generated descriptions.
+    
+    Args:
+        csv_path: Path to the CSV file
+        descriptions: Dictionary mapping row indices to descriptions
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    # Validate file exists and is writable
+    if not csv_path.exists():
+        print(f"Error: CSV file not found: {csv_path}")
+        return False
+    
+    if not os.access(csv_path, os.R_OK | os.W_OK):
+        print(f"Error: Insufficient permissions for CSV file: {csv_path}")
+        return False
+    
+    if not descriptions:
+        return True  # Nothing to update
+    
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        
+        # Validate required 'query' column exists
+        if 'query' not in df.columns:
+            print(f"Error: CSV file missing required 'query' column. Found columns: {list(df.columns)}")
+            return False
+        
+        # Ensure description column exists
+        if 'description' not in df.columns:
+            df['description'] = ""
+        
+        # Create backup
+        backup_path = csv_path.with_suffix('.csv.backup')
+        df.to_csv(backup_path, index=False)
+        
+        # Update descriptions
+        for row_idx, description in descriptions.items():
+            if row_idx < len(df):
+                df.at[row_idx, 'description'] = description
+        
+        # Write updated CSV
+        df.to_csv(csv_path, index=False)
+        
+        # Remove backup if successful
+        backup_path.unlink()
+        
+        print(f"Updated {len(descriptions)} descriptions in {csv_path.name}")
+        return True
+        
+    except Exception as e:
+        print(f"Error updating CSV descriptions: {e}")
+        # Restore backup if it exists
+        backup_path = csv_path.with_suffix('.csv.backup')
+        if backup_path.exists():
+            try:
+                import pandas as pd
+                backup_df = pd.read_csv(backup_path)
+                backup_df.to_csv(csv_path, index=False)
+                backup_path.unlink()
+                print("Restored CSV from backup after update failure")
+            except Exception as restore_error:
+                print(f"Failed to restore backup: {restore_error}")
+        return False
+
+
+def merge_documents_into_vector_store(
+    vector_store: FAISS,
+    new_documents: List[Document],
+    index_path: pathlib.Path,
+    backup: bool = True
+) -> FAISS:
+    """Merge new documents into an existing FAISS vector store.
+    
+    Args:
+        vector_store: Existing FAISS vector store
+        new_documents: List of new documents to add
+        index_path: Path where the vector store is saved
+        backup: Whether to create a backup before merging
+        
+    Returns:
+        Updated FAISS vector store
+        
+    Raises:
+        Exception: If merging fails and backup restoration is needed
+    """
+    if not new_documents:
+        print("No new documents to merge.")
+        return vector_store
+    
+    print(f"Merging {len(new_documents)} new documents into existing vector store...")
+    
+    backup_path = None
+    if backup:
+        # Create backup directory
+        backup_path = index_path.parent / f"{index_path.name}_backup_{int(time.time())}"
+        try:
+            print(f"Creating backup at {backup_path}")
+            backup_path.mkdir(parents=True, exist_ok=True)
+            vector_store.save_local(str(backup_path))
+        except Exception as e:
+            print(f"Warning: Could not create backup: {e}")
+            backup_path = None
+    
+    try:
+        # Create embeddings for new documents
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        
+        # Extract texts and metadatas from documents
+        texts = [doc.page_content for doc in new_documents]
+        metadatas = [doc.metadata for doc in new_documents]
+        
+        print(f"Generating embeddings for {len(texts)} new document chunks...")
+        
+        # Add new documents to the existing vector store
+        # FAISS.add_texts() is the method for incremental additions
+        vector_store.add_texts(texts=texts, metadatas=metadatas)
+        
+        # Save the updated vector store
+        print(f"Saving updated vector store to {index_path}")
+        vector_store.save_local(str(index_path))
+        
+        # Clean up backup if successful
+        if backup_path and backup_path.exists():
+            try:
+                import shutil
+                shutil.rmtree(backup_path)
+                print("Backup cleaned up successfully")
+            except Exception as e:
+                print(f"Warning: Could not remove backup: {e}")
+        
+        print(f"Successfully merged {len(new_documents)} documents into vector store")
+        return vector_store
+        
+    except Exception as e:
+        print(f"Error during vector store merge: {e}")
+        
+        # Attempt to restore from backup
+        if backup_path and backup_path.exists():
+            try:
+                print(f"Restoring vector store from backup: {backup_path}")
+                embeddings = OllamaEmbeddings(model="nomic-embed-text")
+                restored_store = FAISS.load_local(
+                    str(backup_path),
+                    embeddings,
+                    allow_dangerous_deserialization=True
+                )
+                
+                # Save restored backup to original location
+                restored_store.save_local(str(index_path))
+                print("Vector store restored from backup")
+                
+                # Clean up backup
+                import shutil
+                shutil.rmtree(backup_path)
+                
+                # Re-raise the original error
+                raise Exception(f"Vector store merge failed, restored from backup: {e}")
+                
+            except Exception as restore_error:
+                print(f"Failed to restore from backup: {restore_error}")
+                raise Exception(f"Vector store merge failed and backup restoration failed: {e}")
+        else:
+            raise Exception(f"Vector store merge failed and no backup available: {e}")
+
+
+def update_csv_vector_store_incrementally(
+    csv_path: Union[str, pathlib.Path],
+    index_directory: pathlib.Path,
+    stored_metadata: CSVMetadata,
+    current_metadata: CSVMetadata
+) -> FAISS:
+    """Update vector store incrementally when new rows are added to CSV.
+    
+    Args:
+        csv_path: Path to the CSV file
+        index_directory: Directory containing the FAISS index
+        stored_metadata: Previously stored CSV metadata
+        current_metadata: Current CSV metadata
+        
+    Returns:
+        Updated FAISS vector store
+        
+    Raises:
+        Exception: If incremental update fails
+    """
+    if isinstance(csv_path, str):
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
+    
+    csv_filename = csv_path.stem
+    index_path = index_directory / f"index_csv_{csv_filename}"
+    
+    print(f"Performing incremental update for {csv_path}")
+    
+    try:
+        # Load existing vector store
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        vector_store = FAISS.load_local(
+            str(index_path),
+            embeddings,
+            allow_dangerous_deserialization=True
+        )
+        
+        # Load only the new rows
+        last_processed_row = stored_metadata.row_count
+        new_documents = _load_new_queries_from_csv(
+            csv_path, 
+            last_processed_row,
+            expected_columns=stored_metadata.column_names
+        )
+        
+        if not new_documents:
+            print("No new documents found for incremental update")
+            return vector_store
+        
+        # Merge new documents into existing vector store
+        updated_vector_store = merge_documents_into_vector_store(
+            vector_store, 
+            new_documents, 
+            index_path,
+            backup=True
+        )
+        
+        # Update and save metadata
+        metadata_path = index_path / "csv_metadata.json"
+        current_metadata.save_to_file(metadata_path)
+        print(f"Updated CSV metadata saved to {metadata_path}")
+        
+        return updated_vector_store
+        
+    except Exception as e:
+        print(f"Incremental update failed: {e}")
+        print("Falling back to full rebuild...")
+        raise
+
+
+def _build_or_load_vector_store(
+    source_directory: pathlib.Path = None, 
+    index_directory: pathlib.Path = None,
+    csv_path: Optional[Union[str, pathlib.Path]] = None,
+    force_rebuild: bool = False
+) -> FAISS:
     """
     Build a FAISS vector store using the recommended save_local/load_local methods,
     or load it from a local directory if it already exists.
     
+    For CSV mode, automatically detects changes and rebuilds/updates the index as needed.
+    
     Args:
         source_directory: Path to directory containing SQL files. Defaults to DEFAULT_DATA_DIR.
         index_directory: Path to directory for storing FAISS index. Defaults to DEFAULT_INDEX_DIR.
+        csv_path: Optional path to CSV file with 'query' column. If provided, loads from CSV instead of directory.
+        force_rebuild: If True, rebuild index regardless of change detection.
     """
     if source_directory is None:
         source_directory = DEFAULT_DATA_DIR
@@ -288,41 +1180,103 @@ def _build_or_load_vector_store(source_directory: pathlib.Path = None, index_dir
         source_directory = pathlib.Path(source_directory).expanduser().resolve()
     if isinstance(index_directory, str):
         index_directory = pathlib.Path(index_directory).expanduser().resolve()
+    if isinstance(csv_path, str) and csv_path:
+        csv_path = pathlib.Path(csv_path).expanduser().resolve()
     
-    # Create unique index path based on source directory
-    # Use a simpler approach - just the directory name and a short path identifier
-    source_name = source_directory.name
-    # Use last 2 parts of path to make it more unique
-    path_parts = source_directory.parts[-2:] if len(source_directory.parts) >= 2 else source_directory.parts
-    path_identifier = "_".join(path_parts).replace(" ", "_")
-    index_path = index_directory / f"index_{path_identifier}"
+    # Create unique index path based on source
+    if csv_path:
+        # CSV mode - use CSV filename for index path
+        source_identifier = f"csv_{csv_path.stem}"
+        print(f"CSV mode: Using CSV file {csv_path}")
+    else:
+        # Directory mode - use directory name for index path
+        source_name = source_directory.name
+        path_parts = source_directory.parts[-2:] if len(source_directory.parts) >= 2 else source_directory.parts
+        source_identifier = "_".join(path_parts).replace(" ", "_")
+        print(f"Directory mode: Using directory {source_directory}")
+    
+    index_path = index_directory / f"index_{source_identifier}"
     embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-    if index_path.exists() and index_path.is_dir():
-        print(f"Loading existing FAISS index from {index_path}")
-        # allow_dangerous_deserialization is required for loading pickled objects
-        return FAISS.load_local(
-            str(index_path),
-            embeddings,
-            allow_dangerous_deserialization=True
-        )
+    # For CSV mode with description processing
+    if csv_path:
+        # Always rebuild embeddings (fast) but handle descriptions separately
+        try:
+            # 1. Ensure description column exists
+            ensure_description_column(csv_path)
+            
+            # 2. Find queries that need descriptions
+            print(f"🔍 Checking which queries need descriptions...")
+            queries_needing_descriptions = find_queries_without_descriptions(csv_path)
+            print(f"📝 Found {len(queries_needing_descriptions)} queries needing descriptions")
+            
+            # 3. Generate missing descriptions if needed
+            if queries_needing_descriptions:
+                print(f"📝 Generating {len(queries_needing_descriptions)} missing descriptions...")
+                descriptions = {}
+                total = len(queries_needing_descriptions)
+                
+                for i, (row_idx, query_text) in enumerate(queries_needing_descriptions, 1):
+                    try:
+                        print(f"  Processing query {i}/{total} (row {row_idx + 1})...")
+                        description, _ = generate_description(query_text)
+                        descriptions[row_idx] = description
+                        print(f"  ✅ Generated description for query {row_idx + 1}")
+                    except Exception as e:
+                        print(f"  ❌ Failed to generate description for query {row_idx + 1}: {e}")
+                        descriptions[row_idx] = "Description generation failed"
+                
+                # 4. Update CSV with descriptions
+                if descriptions:
+                    print(f"💾 Updating CSV with {len(descriptions)} new descriptions...")
+                    success = update_csv_descriptions(csv_path, descriptions)
+                    if success:
+                        print(f"✅ Successfully updated {len(descriptions)} descriptions in CSV")
+                    else:
+                        print(f"❌ Failed to update descriptions in CSV")
+            else:
+                print("✅ All queries already have descriptions")
+            
+        except Exception as e:
+            print(f"Warning: Description processing failed: {e}")
+    
+    # Skip loading existing index - always rebuild for simplicity and team consistency
+    if not force_rebuild and index_path.exists() and index_path.is_dir():
+        print(f"Note: Rebuilding vector embeddings for consistency (takes ~30 seconds)")
 
     print("Building new FAISS index...")
-    documents = _load_source_files(source_directory)
-    if not documents:
-         raise ValueError(
-            f"No source documents found. Ensure the directory '{source_directory}' "
-            "contains .sql or .py files."
-        )
+    
+    if csv_path:
+        documents = _load_queries_from_csv(csv_path)
+        if not documents:
+            raise ValueError(
+                f"No queries found in CSV file '{csv_path}'. "
+                "Ensure the CSV contains a 'query' column with SQL queries."
+            )
+        print(f"📊 Loaded {len(documents)} queries from {csv_path.name}")
+        print(f"🔧 Creating vector embeddings for {len(documents)} queries...")
+    else:
+        documents = _load_source_files(source_directory)
+        if not documents:
+            raise ValueError(
+                f"No source documents found. Ensure the directory '{source_directory}' "
+                "contains .sql or .py files."
+            )
 
     vector_store = FAISS.from_documents(documents, embeddings)
+    print(f"✅ Vector embeddings created successfully for {len(documents)} queries")
 
     # Ensure index directory exists
     index_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Persist index locally for future runs using the recommended method
-    print(f"Saving new FAISS index to {index_path}")
+    print(f"💾 Saving FAISS index to {index_path}")
     vector_store.save_local(str(index_path))
+    print(f"✅ Vector index saved successfully")
+    
+    # Note: Simplified approach - no metadata tracking needed for embeddings
+    # Descriptions are managed directly in CSV file
+    
     return vector_store
 
 
@@ -342,18 +1296,20 @@ def answer_question(
     return_docs: bool = False,
     return_tokens: bool = False,
     source_directory: pathlib.Path = None,
-    index_directory: pathlib.Path = None
+    index_directory: pathlib.Path = None,
+    csv_path: Optional[Union[str, pathlib.Path]] = None
 ):
     """Answer a user question using Retrieval-Augmented Generation.
 
     Args:
         query: The user's question.
-        vector_store: The FAISS vector store to search. If None, will build/load from directories.
+        vector_store: The FAISS vector store to search. If None, will build/load from directories or CSV.
         k: Number of relevant chunks to retrieve.
         return_docs: Whether to return the retrieved documents.
         return_tokens: Whether to return token usage information.
         source_directory: Path to directory containing SQL files (if vector_store is None).
         index_directory: Path to directory for storing FAISS index (if vector_store is None).
+        csv_path: Path to CSV file with 'query' column (if vector_store is None and CSV mode desired).
 
     Returns:
         The LLM-generated answer leveraging retrieved context.
@@ -362,7 +1318,7 @@ def answer_question(
     """
     # Build or load vector store if not provided
     if vector_store is None:
-        vector_store = _build_or_load_vector_store(source_directory, index_directory)
+        vector_store = _build_or_load_vector_store(source_directory, index_directory, csv_path)
     # Retrieve relevant context from the provided vector store
     retrieved_docs = vector_store.similarity_search(query, k=k)
 
@@ -461,6 +1417,7 @@ def generate_description(query_text: str, model: str = "phi3") -> tuple[str, dic
 
 if __name__ == "__main__":
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="Simple RAG over SQL documentation")
     parser.add_argument("question", type=str, help="Question to ask the RAG system")
@@ -469,10 +1426,18 @@ if __name__ == "__main__":
                        help="Path to directory containing SQL files (defaults to retail_system)")
     parser.add_argument("--index-dir", type=str, default=None,
                        help="Path to directory for storing FAISS indices (defaults to faiss_indices)")
+    parser.add_argument("--csv", type=str, default=None,
+                       help="Path to CSV file with 'query' column containing SQL queries")
     args = parser.parse_args()
 
     source_dir = pathlib.Path(args.source_dir).expanduser().resolve() if args.source_dir else None
     index_dir = pathlib.Path(args.index_dir).expanduser().resolve() if args.index_dir else None
+    csv_file = pathlib.Path(args.csv).expanduser().resolve() if args.csv else None
+
+    # Validation: can't use both CSV and source directory
+    if csv_file and source_dir:
+        print("Error: Cannot specify both --csv and --source-dir. Choose one.")
+        sys.exit(1)
 
     answer, docs, token_usage = answer_question(
         args.question, 
@@ -480,7 +1445,8 @@ if __name__ == "__main__":
         return_docs=True, 
         return_tokens=True,
         source_directory=source_dir,
-        index_directory=index_dir
+        index_directory=index_dir,
+        csv_path=csv_file
     )
 
     print("\n=== Answer ===\n")

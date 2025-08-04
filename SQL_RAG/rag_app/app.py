@@ -35,7 +35,7 @@ APP_DIR = pathlib.Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.append(str(APP_DIR))
 
-from simple_rag import answer_question, DEFAULT_DATA_DIR, _build_or_load_vector_store, generate_description  # noqa: E402  (after sys.path tweak)
+from simple_rag import answer_question, _build_or_load_vector_store  # noqa: E402  (after sys.path tweak)
 
 # Load environment variables from any .env up the tree
 load_dotenv(find_dotenv(), override=False)
@@ -115,62 +115,38 @@ st.set_page_config(page_title="Retail-SQL RAG", layout="wide")
 #  Top-level navigation (Chat vs. Catalog)
 # --------------------------------------------------------------------------- #
 
-PAGE = st.sidebar.radio("Navigation", ["🔎 Chat", "📚 Catalog"], key="nav")
+PAGE = st.sidebar.radio("Navigation", ["🔎 Query Search", "📚 Browse Queries"], key="nav")
 
-# Directory selection
-with st.sidebar:
-    st.header("📁 Source Directory")
-    
-    # Initialize session state for directory
-    if 'source_directory' not in st.session_state:
-        st.session_state.source_directory = str(DEFAULT_DATA_DIR)
-    
-    # Directory input
-    new_directory = st.text_input(
-        "SQL Files Directory",
-        value=st.session_state.source_directory,
-        help="Path to directory containing SQL files (supports ~ for home directory)"
-    )
-    
-    # Add some common directory shortcuts
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("📁 Retail System"):
-            new_directory = str(pathlib.Path(__file__).resolve().parent.parent / "retail_system")
-    with col2:
-        if st.button("🧪 Test Queries"):
-            new_directory = str(DEFAULT_DATA_DIR)
-    
-    # Check if directory changed
-    directory_changed = new_directory != st.session_state.source_directory
-    
-    if directory_changed:
-        st.session_state.source_directory = new_directory
-        # Clear the vector store cache when directory changes
-        if 'vector_store' in st.session_state:
-            del st.session_state.vector_store
-        st.rerun()
-    
-    # Show current directory info
-    try:
-        current_path = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
-        if current_path.exists():
-            st.success(f"✅ Directory: {current_path.name}")
-            st.caption(f"Path: {current_path}")
-        else:
-            st.error(f"❌ Directory not found: {current_path}")
-    except Exception as e:
-        st.error(f"❌ Invalid path: {e}")
+# Hardcoded CSV path - no user selection needed
+SAMPLE_QUERIES_CSV = pathlib.Path(__file__).resolve().parent.parent / "sample_queries.csv"
 
 # Shared header
 st.title("🛍️  Retail SQL Knowledge Base")
+st.caption(f"📄 {SAMPLE_QUERIES_CSV.name} • Auto-generated descriptions • Local Phi3 model")
 
 # --- Manage and cache the vector store in session state ---
 if 'vector_store' not in st.session_state:
     try:
-        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
-        with st.spinner(f"Building knowledge base from {source_dir.name}..."):
-            st.session_state.vector_store = _build_or_load_vector_store(source_directory=source_dir)
+        # Check if sample_queries.csv exists
+        if not SAMPLE_QUERIES_CSV.exists():
+            st.error(f"❌ Required file not found: {SAMPLE_QUERIES_CSV}")
+            st.error("Please ensure sample_queries.csv exists in the project root directory.")
+            st.stop()
+        
+        # Always rebuild vector embeddings (fast) and generate missing descriptions (slow)
+        with st.spinner(f"🔄 Processing queries from {SAMPLE_QUERIES_CSV.name}..."):
+            st.session_state.vector_store = _build_or_load_vector_store(csv_path=SAMPLE_QUERIES_CSV, force_rebuild=True)
+        
+        # Count total queries for confirmation
+        import pandas as pd
+        try:
+            df = pd.read_csv(SAMPLE_QUERIES_CSV)
+            query_count = len(df)
+            st.success(f"✅ Knowledge base ready! Processed {query_count} queries from {SAMPLE_QUERIES_CSV.name}")
+            st.info(f"📊 Vector embeddings and descriptions generated for all {query_count} queries")
+        except Exception:
+            st.success(f"✅ Knowledge base ready! Processed {SAMPLE_QUERIES_CSV.name}")
+        
     except Exception as e:
         st.error(f"Failed to load knowledge base: {e}")
         st.stop()
@@ -178,23 +154,7 @@ if 'vector_store' not in st.session_state:
 
 # Token counter in top right corner is being moved below
 
-DESC_PATH = APP_DIR / "query_descriptions.json"
-
-def _load_desc_cache() -> dict[str, str]:
-    if DESC_PATH.exists():
-        try:
-            return json.loads(DESC_PATH.read_text())
-        except Exception:
-            return {}
-    return {}
-
-_DESC_CACHE: dict[str, str] = _load_desc_cache()
-
-def _save_desc_cache() -> None:
-    try:
-        DESC_PATH.write_text(json.dumps(_DESC_CACHE, indent=2))
-    except Exception:
-        pass
+# Note: Descriptions are now stored directly in CSV file, no separate cache needed
 
 def _format_snippet(text: str, suffix: str) -> str:
     """Prettify SQL snippets – leaves Python untouched."""
@@ -235,8 +195,10 @@ with st.sidebar:
         *Token counts are estimated based on text length.*
         """)
     
+
     # Show session statistics
     if 'token_usage' in st.session_state and st.session_state.token_usage:
+        st.divider()
         stats = get_session_token_stats()
         st.metric("Total Tokens", f"{stats['total_tokens']:,}")
         st.metric("Total Queries", stats['query_count'])
@@ -244,7 +206,7 @@ with st.sidebar:
 # --------------------------------------------------------------------------- #
 #  Main interaction
 # --------------------------------------------------------------------------- #
-if PAGE == "🔎 Chat":
+if PAGE == "🔎 Query Search":
     query = st.text_input("Ask a question about the retail codebase:", placeholder="e.g. Which query joins inventory with sales?")
 
     display_session_usage()
@@ -322,13 +284,8 @@ if PAGE == "🔎 Chat":
                             lang = "sql" if path.endswith(".sql") else "python"
                             st.code(snippet, language=lang)
 
-                    # full file / query
-                    try:
-                        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
-                        full_text = (source_dir / path).read_text(encoding="utf-8")
-                    except Exception as exc:
-                        st.error(f"Could not read full file: {exc}")
-                        full_text = ""
+                    # For CSV mode, we don't have full files to display
+                    full_text = ""
 
                     if full_text:
                         with st.expander("📄 Show full query / file"):
@@ -350,7 +307,7 @@ if PAGE == "🔎 Chat":
 # --------------------------------------------------------------------------- #
 else:
 
-    st.subheader("📚 Query Catalog")
+    st.subheader("📚 Browse All Queries")
 
     # ------------------------------------------------------
     # 1. Build join map (table1 -> table2) from all SQL files
@@ -402,16 +359,27 @@ else:
 
     join_rows = []  # list of dict rows
     
-    # Gather .sql files in project
-    source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
-    sql_files = sorted([p for p in source_dir.rglob("*.sql")])
-
-    for p in sql_files:
-        joins = _scan_joins(p.read_text(encoding="utf-8"))
-        for j in joins:
-            row = {"File": str(p.relative_to(source_dir))}
-            row.update(j)
-            join_rows.append(row)
+    # CSV mode - analyze joins from queries in sample_queries.csv
+    try:
+        import pandas as pd
+        df = pd.read_csv(SAMPLE_QUERIES_CSV)
+        
+        if 'query' in df.columns:
+            for idx, row in df.iterrows():
+                query_text = row['query']
+                if not query_text or pd.isna(query_text):
+                    continue
+                
+                # Apply join analysis to each query
+                joins = _scan_joins(str(query_text))
+                if joins:  # Only add if joins were found
+                    for j in joins:
+                        join_row = {"File": f"Query {idx + 1}"}
+                        join_row.update(j)
+                        join_rows.append(join_row)
+    except Exception as e:
+        st.error(f"Error analyzing joins from CSV: {e}")
+        join_rows = []
 
     if join_rows:
         df_join = st.session_state.get("_df_join")
@@ -494,22 +462,7 @@ else:
                 if re.search(pat, sql_text, flags=re.IGNORECASE)
             ]
 
-        transform_rows = []
-        for p in sql_files:
-            for t in _scan_transforms(p.read_text(encoding="utf-8")):
-                transform_rows.append(
-                    {"Transformation": t, "File": str(p.relative_to(source_dir))}
-                )
-
-        if transform_rows:
-            st.subheader("🛠️ SQL Transformations")
-            import pandas as pd
-            df_trans = (
-                pd.DataFrame(transform_rows)
-                .sort_values(["Transformation", "File"])
-                .reset_index(drop=True)
-            )
-            st.dataframe(df_trans, use_container_width=True, hide_index=True)
+        # No transformation analysis for CSV mode
 
     st.divider()
 
@@ -533,32 +486,48 @@ else:
     # Continue with description listing
     # ------------------------------------------------------
 
-    @st.cache_data(show_spinner="Generating descriptions …")
-    def _describe(path_str: str) -> str:
-        """Return cached description, generating & persisting if missing."""
-        cached = _DESC_CACHE.get(path_str)
-        if cached and not cached.startswith("Description unavailable"):
-            return cached
-
-        source_dir = pathlib.Path(st.session_state.source_directory).expanduser().resolve()
-        full_sql = (source_dir / path_str).read_text(encoding="utf-8")
+    # Show queries from hardcoded CSV  
+    st.subheader(f"📊 Queries from {SAMPLE_QUERIES_CSV.name}")
+    
+    try:
+        # Read CSV and display queries
+        import pandas as pd
+        df = pd.read_csv(SAMPLE_QUERIES_CSV)
         
-        try:
-            desc, token_usage = generate_description(full_sql)
-            
-            # Track token usage for description generation
-            if token_usage and token_usage.get('total_tokens', 0) > 0:
-                add_token_usage(token_usage)
+        if 'query' in df.columns:
+            for idx, row in df.iterrows():
+                query_text = row['query']
+                if not query_text or pd.isna(query_text):
+                    continue
+                    
+                # Create title using description or row number
+                if 'description' in df.columns and not pd.isna(row.get('description')) and row.get('description'):
+                    description = str(row['description'])
+                    # Use first 60 characters of description as title
+                    title = f"Query {idx + 1}: {description[:60]}{'...' if len(description) > 60 else ''}"
+                else:
+                    title = f"Query {idx + 1} (no description)"
                 
-        except Exception as exc:
-            desc = f"Description unavailable ({exc})"
-
-        _DESC_CACHE[path_str] = desc
-        _save_desc_cache()
-        return desc
-
-    for p in sql_files:
-        rel = str(p.relative_to(source_dir))
-        with st.expander(rel):
-            st.markdown(f"*{_describe(rel)}*")
-            st.code(_format_snippet(p.read_text(encoding="utf-8"), rel), language="sql")
+                with st.expander(title):
+                    # Show description prominently if available
+                    if 'description' in df.columns and not pd.isna(row.get('description')) and row.get('description'):
+                        st.markdown(f"**Description:** {row['description']}")
+                        st.divider()
+                    
+                    # Show other metadata if available
+                    metadata_cols = [col for col in df.columns if col not in ['query', 'description']]
+                    if metadata_cols:
+                        st.markdown("**Additional Metadata:**")
+                        for col in metadata_cols:
+                            if not pd.isna(row.get(col)) and row.get(col):
+                                st.markdown(f"- **{col}**: {row[col]}")
+                        st.divider()
+                    
+                    # Show the query
+                    st.markdown("**SQL Query:**")
+                    st.code(_format_snippet(str(query_text), "query.sql"), language="sql")
+        else:
+            st.error("CSV file must contain a 'query' column")
+            
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
