@@ -63,6 +63,6 @@ DEFAULT_JSON_FILE    = "sql_catalog_combined_descriptions.json"
 # ─────────────────────────────────────────────────────────────
 # Ollama model / run-time settings
 # ─────────────────────────────────────────────────────────────
-DEFAULT_MODEL    = "qwen2.5-coder:3b"   # change to whatever model tag you like
+DEFAULT_MODEL    = "phi3"   # Ollama Phi3 model for local inference
 OLLAMA_TIMEOUT   = 45                   # seconds allowed for each ollama call
 MAX_QUERY_LENGTH = 1_000                # characters to keep when truncating
