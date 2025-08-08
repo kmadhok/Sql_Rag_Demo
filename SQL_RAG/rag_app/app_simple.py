@@ -217,53 +217,88 @@ def parse_tables_column(tables_value: str) -> List[str]:
         logger.warning(f"Failed to parse tables column '{tables_value}': {e}")
         return []
 
-def parse_joins_column(joins_value: str) -> Optional[Dict[str, Any]]:
+def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
     """
-    Parse joins column supporting both JSON object format and simple string format
+    Parse joins column supporting arrays of JSON objects, single objects, and simple string format
     
-    JSON format: {"left_table":"project.dataset.table", "left_column":"campaign_id", 
-                  "right_table":"project.dataset.table", "right_column":"id", 
-                  "join_type":"LEFT JOIN", "transformation":"complex_condition"}
+    JSON array format: [{"left_table":"project.dataset.table", "left_column":"campaign_id", 
+                         "right_table":"project.dataset.table", "right_column":"id", 
+                         "join_type":"LEFT JOIN", "transformation":"complex_condition"}, {...}]
+    JSON single format: {"left_table":"project.dataset.table", ...}
     Simple format: "o.customer_id = c.customer_id"
     
     Returns:
-        Dictionary with join information or None if no joins
+        List of dictionaries with join information (empty list if no joins)
     """
     if not joins_value or joins_value.strip() == '':
-        return None
+        return []
+    
+    def clean_table_name(table_name: str) -> str:
+        """Clean and extract table name from BigQuery format"""
+        clean_name = str(table_name).strip('`"\'')
+        # Handle BigQuery format: project.dataset.table -> table
+        if '.' in clean_name:
+            clean_name = clean_name.split('.')[-1]
+        return clean_name
+    
+    def process_single_join(join_obj: Dict) -> Dict[str, Any]:
+        """Process a single join object"""
+        left_table = clean_table_name(join_obj.get('left_table', ''))
+        right_table = clean_table_name(join_obj.get('right_table', ''))
+        left_column = str(join_obj.get('left_column', '')).strip()
+        right_column = str(join_obj.get('right_column', '')).strip()
+        join_type = str(join_obj.get('join_type', 'JOIN')).strip()
+        transformation = str(join_obj.get('transformation', '')).strip()
+        
+        # Build condition
+        if transformation:
+            condition = transformation
+        elif left_column and right_column:
+            condition = f"{left_table}.{left_column} = {right_table}.{right_column}"
+        else:
+            condition = f"{left_table} ↔ {right_table}"
+        
+        return {
+            'left_table': left_table,
+            'right_table': right_table,
+            'left_column': left_column,
+            'right_column': right_column,
+            'join_type': join_type,
+            'transformation': transformation,
+            'condition': condition,
+            'format': 'json'
+        }
     
     try:
-        # Try to parse as JSON object first
-        join_json = json.loads(joins_value)
-        if isinstance(join_json, dict):
-            # Extract and clean table names
-            left_table = str(join_json.get('left_table', '')).strip('`"\'')
-            right_table = str(join_json.get('right_table', '')).strip('`"\'')
+        # Try to parse as JSON first
+        joins_json = json.loads(joins_value)
+        
+        if isinstance(joins_json, list):
+            # Array of join objects
+            join_list = []
+            for i, join_obj in enumerate(joins_json):
+                if isinstance(join_obj, dict):
+                    try:
+                        processed_join = process_single_join(join_obj)
+                        join_list.append(processed_join)
+                        logger.debug(f"Parsed JSON join {i+1}: {processed_join}")
+                    except Exception as e:
+                        logger.warning(f"Failed to process join object {i+1}: {e}")
+                        continue
             
-            # Handle BigQuery format: project.dataset.table -> table
-            if '.' in left_table:
-                left_table = left_table.split('.')[-1]
-            if '.' in right_table:
-                right_table = right_table.split('.')[-1]
+            logger.debug(f"Parsed {len(join_list)} joins from JSON array")
+            return join_list
             
-            join_info = {
-                'left_table': left_table,
-                'right_table': right_table,
-                'left_column': join_json.get('left_column', ''),
-                'right_column': join_json.get('right_column', ''),
-                'join_type': join_json.get('join_type', 'JOIN'),
-                'transformation': join_json.get('transformation', ''),
-                'condition': f"{left_table}.{join_json.get('left_column', '')} = {right_table}.{join_json.get('right_column', '')}",
-                'format': 'json'
-            }
-            
-            # If transformation exists, use it as the condition
-            if join_info['transformation']:
-                join_info['condition'] = join_info['transformation']
-            
-            logger.debug(f"Parsed JSON join: {join_info}")
-            return join_info
-            
+        elif isinstance(joins_json, dict):
+            # Single join object - treat as array of one
+            try:
+                processed_join = process_single_join(joins_json)
+                logger.debug(f"Parsed single JSON join: {processed_join}")
+                return [processed_join]
+            except Exception as e:
+                logger.warning(f"Failed to process single join object: {e}")
+                return []
+                
     except (json.JSONDecodeError, TypeError):
         # Fall back to simple string parsing
         pass
@@ -289,10 +324,10 @@ def parse_joins_column(joins_value: str) -> Optional[Dict[str, Any]]:
                 }
                 
                 logger.debug(f"Parsed string join: {join_info}")
-                return join_info
+                return [join_info]
             else:
                 # Generic join condition
-                return {
+                join_info = {
                     'left_table': 'unknown',
                     'right_table': 'unknown', 
                     'left_column': '',
@@ -302,12 +337,13 @@ def parse_joins_column(joins_value: str) -> Optional[Dict[str, Any]]:
                     'condition': joins_str,
                     'format': 'string'
                 }
+                return [join_info]
                 
     except Exception as e:
         logger.warning(f"Failed to parse joins column '{joins_value}': {e}")
-        return None
+        return []
     
-    return None
+    return []
 
 def display_query_card(row, index: int):
     """Display a single query card with graceful missing data handling"""
@@ -318,13 +354,19 @@ def display_query_card(row, index: int):
     
     # Parse tables and joins using new functions
     tables_list = parse_tables_column(tables_raw)
-    join_info = parse_joins_column(joins_raw)
+    joins_list = parse_joins_column(joins_raw)  # Now returns list
     
     # Create title based on available data
     if description:
         title = f"Query {index + 1}: {description[:60]}{'...' if len(description) > 60 else ''}"
     else:
         title = f"Query {index + 1}: {query[:40]}{'...' if len(query) > 40 else ''}"
+    
+    # Add join count to title if multiple joins
+    if len(joins_list) > 1:
+        title += f" • {len(joins_list)} joins"
+    elif len(joins_list) == 1:
+        title += " • 1 join"
     
     with st.expander(title):
         # Always show the SQL query
@@ -345,40 +387,52 @@ def display_query_card(row, index: int):
                 st.markdown(f"**Tables:** {', '.join(tables_list)}")
             metadata_shown = True
         
-        if join_info:
-            st.markdown("**Join Information:**")
-            
-            # Display join details in a structured way
-            if join_info['format'] == 'json':
-                # Rich display for JSON format
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"- **Join Type:** {join_info['join_type']}")
-                    st.markdown(f"- **Left Table:** {join_info['left_table']}")
-                    st.markdown(f"- **Right Table:** {join_info['right_table']}")
-                
-                with col2:
-                    if join_info['left_column'] and join_info['right_column']:
-                        st.markdown(f"- **Left Column:** {join_info['left_column']}")
-                        st.markdown(f"- **Right Column:** {join_info['right_column']}")
-                
-                if join_info['transformation']:
-                    st.markdown(f"- **Transformation:** `{join_info['transformation']}`")
-                else:
-                    st.markdown(f"- **Condition:** `{join_info['condition']}`")
+        if joins_list:
+            if len(joins_list) == 1:
+                st.markdown("**Join Information:**")
+                display_single_join(joins_list[0])
             else:
-                # Simple display for string format
-                st.markdown(f"- **Condition:** `{join_info['condition']}`")
-                if join_info['left_table'] != 'unknown':
-                    st.markdown(f"- **Tables:** {join_info['left_table']} ↔ {join_info['right_table']}")
+                st.markdown(f"**Join Information ({len(joins_list)} joins):**")
+                for i, join_info in enumerate(joins_list, 1):
+                    st.markdown(f"**Join {i}:**")
+                    display_single_join(join_info, indent=True)
+                    if i < len(joins_list):  # Add separator between joins
+                        st.markdown("---")
             
             metadata_shown = True
         
-        if not metadata_shown and not (description or tables_list or join_info):
+        if not metadata_shown and not (description or tables_list or joins_list):
             st.caption("_No additional metadata available_")
 
+def display_single_join(join_info: Dict[str, Any], indent: bool = False):
+    """Display a single join with structured information"""
+    prefix = "  " if indent else ""
+    
+    if join_info['format'] == 'json':
+        # Rich display for JSON format
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"{prefix}- **Join Type:** {join_info['join_type']}")
+            st.markdown(f"{prefix}- **Left Table:** {join_info['left_table']}")
+            st.markdown(f"{prefix}- **Right Table:** {join_info['right_table']}")
+        
+        with col2:
+            if join_info['left_column'] and join_info['right_column']:
+                st.markdown(f"{prefix}- **Left Column:** {join_info['left_column']}")
+                st.markdown(f"{prefix}- **Right Column:** {join_info['right_column']}")
+        
+        if join_info['transformation']:
+            st.markdown(f"{prefix}- **Transformation:** `{join_info['transformation']}`")
+        else:
+            st.markdown(f"{prefix}- **Condition:** `{join_info['condition']}`")
+    else:
+        # Simple display for string format
+        st.markdown(f"{prefix}- **Condition:** `{join_info['condition']}`")
+        if join_info['left_table'] != 'unknown':
+            st.markdown(f"{prefix}- **Tables:** {join_info['left_table']} ↔ {join_info['right_table']}")
+
 def analyze_joins(df: pd.DataFrame) -> Dict:
-    """Analyze join patterns from the dataframe with enhanced JSON parsing"""
+    """Analyze join patterns from the dataframe with enhanced multi-join array parsing"""
     join_analysis = {
         'relationships': [],
         'table_usage': defaultdict(int),
@@ -388,6 +442,9 @@ def analyze_joins(df: pd.DataFrame) -> Dict:
         'queries_with_joins': 0,
         'queries_with_descriptions': 0,
         'queries_with_tables': 0,
+        'total_individual_joins': 0,
+        'max_joins_per_query': 0,
+        'join_count_distribution': defaultdict(int),
         'json_format_count': 0,
         'string_format_count': 0
     }
@@ -400,29 +457,38 @@ def analyze_joins(df: pd.DataFrame) -> Dict:
         
         # Parse using new functions
         tables_list = parse_tables_column(tables_raw)
-        join_info = parse_joins_column(joins_raw)
+        joins_list = parse_joins_column(joins_raw)  # Now returns list
         
         # Count metadata availability
         if description:
             join_analysis['queries_with_descriptions'] += 1
         if tables_list:
             join_analysis['queries_with_tables'] += 1
-        if join_info:
+        if joins_list:
             join_analysis['queries_with_joins'] += 1
             
-            # Track format types
-            if join_info['format'] == 'json':
-                join_analysis['json_format_count'] += 1
-            else:
-                join_analysis['string_format_count'] += 1
+            # Track join count distribution
+            join_count = len(joins_list)
+            join_analysis['join_count_distribution'][join_count] += 1
+            join_analysis['total_individual_joins'] += join_count
+            join_analysis['max_joins_per_query'] = max(join_analysis['max_joins_per_query'], join_count)
+        else:
+            # Query with no joins
+            join_analysis['join_count_distribution'][0] += 1
         
-        # Process table usage
+        # Process table usage from tables column
         for table in tables_list:
             if table:
                 join_analysis['table_usage'][table] += 1
         
-        # Process join relationships
-        if join_info:
+        # Process each individual join
+        for join_info in joins_list:
+            # Track format types (per individual join)
+            if join_info['format'] == 'json':
+                join_analysis['json_format_count'] += 1
+            else:
+                join_analysis['string_format_count'] += 1
+            
             # Track join type
             join_type = join_info.get('join_type', 'JOIN')
             join_analysis['join_types'][join_type] += 1
@@ -432,6 +498,12 @@ def analyze_joins(df: pd.DataFrame) -> Dict:
                 join_analysis['join_patterns'].append(join_info['transformation'])
             else:
                 join_analysis['join_patterns'].append(join_info['condition'])
+            
+            # Add table usage from joins (in case tables column is missing)
+            if join_info['left_table'] and join_info['left_table'] != 'unknown':
+                join_analysis['table_usage'][join_info['left_table']] += 1
+            if join_info['right_table'] and join_info['right_table'] != 'unknown':
+                join_analysis['table_usage'][join_info['right_table']] += 1
             
             # Create relationship entry
             relationship = {
@@ -455,7 +527,7 @@ def analyze_joins(df: pd.DataFrame) -> Dict:
     return join_analysis
 
 def display_join_analysis(join_analysis: Dict):
-    """Display enhanced join analysis with JSON format support"""
+    """Display enhanced join analysis with multi-join array support"""
     st.subheader("📊 Data Statistics")
     
     # Display main statistics
@@ -473,16 +545,47 @@ def display_join_analysis(join_analysis: Dict):
     with col4:
         st.metric("With Joins", join_analysis['queries_with_joins'])
     
+    # Join complexity statistics
+    if join_analysis['total_individual_joins'] > 0:
+        st.subheader("🔗 Join Complexity")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Total Individual Joins", join_analysis['total_individual_joins'])
+        
+        with col2:
+            avg_joins = join_analysis['total_individual_joins'] / max(join_analysis['queries_with_joins'], 1)
+            st.metric("Avg Joins per Query", f"{avg_joins:.1f}")
+        
+        with col3:
+            st.metric("Max Joins in Single Query", join_analysis['max_joins_per_query'])
+        
+        # Join count distribution
+        if join_analysis['join_count_distribution']:
+            st.subheader("📊 Join Count Distribution")
+            distribution_data = []
+            for join_count, query_count in sorted(join_analysis['join_count_distribution'].items()):
+                if join_count == 0:
+                    label = "No joins"
+                elif join_count == 1:
+                    label = "1 join"
+                else:
+                    label = f"{join_count} joins"
+                distribution_data.append({'Join Count': label, 'Queries': query_count})
+            
+            distribution_df = pd.DataFrame(distribution_data)
+            st.dataframe(distribution_df, use_container_width=True, hide_index=True)
+    
     # Format statistics (if there are joins)
-    if join_analysis['queries_with_joins'] > 0:
+    if join_analysis['total_individual_joins'] > 0:
         st.subheader("📋 Format Statistics")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("JSON Format", join_analysis['json_format_count'])
+            st.metric("JSON Format Joins", join_analysis['json_format_count'])
         
         with col2:
-            st.metric("String Format", join_analysis['string_format_count'])
+            st.metric("String Format Joins", join_analysis['string_format_count'])
     
     # Join type distribution
     if join_analysis['join_types']:
@@ -643,10 +746,10 @@ def create_query_catalog_page(df: pd.DataFrame):
                     match = True
                     break
             
-            # Search in parsed joins
+            # Search in parsed joins (now a list)
             joins_raw = safe_get_value(row, 'joins')
-            join_info = parse_joins_column(joins_raw)
-            if join_info:
+            joins_list = parse_joins_column(joins_raw)
+            for join_info in joins_list:
                 # Search in join details
                 searchable_join_text = ' '.join([
                     join_info.get('left_table', ''),
@@ -660,6 +763,7 @@ def create_query_catalog_page(df: pd.DataFrame):
                 
                 if search_lower in searchable_join_text:
                     match = True
+                    break
             
             mask_list.append(match)
         
