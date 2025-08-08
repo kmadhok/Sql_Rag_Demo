@@ -1,0 +1,3 @@
+query,description,prompt_tokens,completion_tokens,total_tokens
+"SELECT product_id, SUM(quantity) FROM sales GROUP BY product_id",This query uses the `sales` table to calculate the total quantity sold for each product. Its business purpose is to identify the aggregate sales volume of individual products.,67,32,99
+"SELECT customer_name, COUNT(*) FROM orders WHERE order_date > '2023-01-01' GROUP BY customer_name","This query counts the number of orders placed after January 1, 2023, for each customer, helping to understand customer activity and order volume. It utilizes the `orders` table, showing `customer_name` and the calculated order count.",82,52,134

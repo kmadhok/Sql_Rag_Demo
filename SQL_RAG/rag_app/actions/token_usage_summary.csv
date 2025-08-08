@@ -1,0 +1,2 @@
+total_queries,total_prompt_tokens,total_completion_tokens,total_tokens,avg_tokens_per_query
+4852,4218301,285227,4503528,928.1797197032151

@@ -2,3 +2,12 @@
 Demo_recording.mov
 SQL_Demo_recording.mov
 sql_rag_env
+__pycache__/
+BigQuery_Data_Pull/sample_queries.csv
+BigQuery_Data_Pull/
+pull_personal_queries.py
+bigquery_test_description.py
+multi_thread_test.py
+archive/
+rag_app/faiss_indices/
+archive

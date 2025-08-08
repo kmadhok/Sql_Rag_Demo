@@ -1,0 +1,13 @@
+{
+  "is_complete": false,
+  "background_task_running": false,
+  "processed_queries": 0,
+  "total_queries": 0,
+  "current_batch": 0,
+  "total_batches": 0,
+  "batches_complete": [],
+  "last_updated": "2025-08-07T17:13:28.061238",
+  "created_at": "2025-08-07T17:13:28.061238",
+  "vector_store_exists": false,
+  "error": null
+}

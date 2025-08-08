@@ -9,18 +9,24 @@ from __future__ import annotations
 import pathlib
 import sys
 from typing import List, Dict
-
+from google.cloud import bigquery
 import sqlparse
 import streamlit as st
 from functools import lru_cache
 import json
 import re
 import os
+import hashlib
+import threading
+import time
+import logging
 
 from collections import defaultdict
 import graphviz
 from rapidfuzz import fuzz
 from dotenv import load_dotenv, find_dotenv
+from langchain_ollama import OllamaEmbeddings
+from langchain_community.vectorstores import FAISS
 
 # Interactive graph support
 try:
@@ -34,9 +40,71 @@ except ImportError:  # graceful degradation if pyvis not installed yet
 APP_DIR = pathlib.Path(__file__).resolve().parent
 if str(APP_DIR) not in sys.path:
     sys.path.append(str(APP_DIR))
+    
+# Define persistent paths
+VECTOR_STORE_PATH = APP_DIR / "faiss_indices" 
+EMBEDDING_STATUS_PATH = APP_DIR / "embedding_status.json"  # New status file path
+QUERY_CSV_PATH = APP_DIR.parent.parent / "archive" / "sample_queries.csv"  # Path to sample queries
+os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 
-from simple_rag import answer_question, _build_or_load_vector_store  # noqa: E402  (after sys.path tweak)
+from simple_rag import answer_question  # noqa: E402  (after sys.path tweak)
+from actions import build_or_load_vector_store, append_to_host_table
+from actions.progressive_embeddings import build_progressive_vector_store
+from actions.embedding_manager import EmbeddingManager
+from actions import initialize_vector_store_with_background_processing
+from actions.rebuild_embeddings import force_rebuild_embeddings
+from langchain_ollama import OllamaEmbeddings
+from langchain_community.vectorstores import FAISS
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize embedding manager once (using st.cache_resource for persistence)
+@st.cache_resource
+def get_embedding_manager():
+    """Get or create the embedding manager singleton"""
+    return EmbeddingManager(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+
+@st.cache_resource
+def get_vector_store_with_background_processing(_query_df, csv_file_path=None):
+    """
+    Get or initialize the vector store with background processing for improved performance.
+    This function will:
+    1. Load the existing vector store if available
+    2. If not available, process an initial batch quickly (first 100 queries)
+    3. Process the remaining queries in the background using ThreadPoolExecutor
+    
+    Args:
+        _query_df: DataFrame containing queries (not used if vector store exists)
+        csv_file_path: Optional path to CSV file
+    
+    Returns:
+        FAISS vector store and background thread if processing is ongoing
+    """
+    # Check if vector store exists
+    vector_store_path = str(VECTOR_STORE_PATH)
+    vector_store_dir = os.path.dirname(vector_store_path)
+    
+    if os.path.exists(vector_store_path):
+        # Load existing vector store
+        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        vector_store = FAISS.load_local(vector_store_path, embeddings)
+        return vector_store, None
+    
+    # Vector store doesn't exist - process data with parallel processing
+    # First batch for immediate results + background processing for the rest
+    return initialize_vector_store_with_background_processing(
+        csv_file_path=csv_file_path,
+        index_dir=vector_store_dir,
+        initial_batch_size=100,
+        max_workers=4,
+        batch_size=25,
+        status_file_path=str(EMBEDDING_STATUS_PATH)
+    )
 # Load environment variables from any .env up the tree
 load_dotenv(find_dotenv(), override=False)
 
@@ -117,39 +185,62 @@ st.set_page_config(page_title="Retail-SQL RAG", layout="wide")
 
 PAGE = st.sidebar.radio("Navigation", ["🔎 Query Search", "📚 Browse Queries"], key="nav")
 
-# Hardcoded CSV path - no user selection needed
-SAMPLE_QUERIES_CSV = pathlib.Path(__file__).resolve().parent.parent / "sample_queries.csv"
+# Load query data directly from BigQuery into session state
+if 'query_df' not in st.session_state:
+    with st.spinner("Loading queries from BigQuery..."):
+        bq_client = bigquery.Client(project='wmt-dv-bq-analytics')
+        st.session_state.query_df = append_to_host_table(bq_client)
 
 # Shared header
 st.title("🛍️  Retail SQL Knowledge Base")
-st.caption(f"📄 {SAMPLE_QUERIES_CSV.name} • Auto-generated descriptions • Local Phi3 model")
+st.caption("📄 BigQuery Queries • Auto-generated descriptions • Local Phi3 model")
 
 # --- Manage and cache the vector store in session state ---
 if 'vector_store' not in st.session_state:
     try:
-        # Check if sample_queries.csv exists
-        if not SAMPLE_QUERIES_CSV.exists():
-            st.error(f"❌ Required file not found: {SAMPLE_QUERIES_CSV}")
-            st.error("Please ensure sample_queries.csv exists in the project root directory.")
-            st.stop()
+        # Use the new efficient approach with parallel processing
+        csv_file_path = str(QUERY_CSV_PATH)
         
-        # Always rebuild vector embeddings (fast) and generate missing descriptions (slow)
-        with st.spinner(f"🔄 Processing queries from {SAMPLE_QUERIES_CSV.name}..."):
-            st.session_state.vector_store = _build_or_load_vector_store(csv_path=SAMPLE_QUERIES_CSV, force_rebuild=True)
-        
-        # Count total queries for confirmation
-        import pandas as pd
-        try:
-            df = pd.read_csv(SAMPLE_QUERIES_CSV)
-            query_count = len(df)
-            st.success(f"✅ Knowledge base ready! Processed {query_count} queries from {SAMPLE_QUERIES_CSV.name}")
-            st.info(f"📊 Vector embeddings and descriptions generated for all {query_count} queries")
-        except Exception:
-            st.success(f"✅ Knowledge base ready! Processed {SAMPLE_QUERIES_CSV.name}")
-        
+        with st.spinner("🔄 Loading or building vector store..."):
+            vector_store, background_thread = get_vector_store_with_background_processing(
+                st.session_state.query_df,
+                csv_file_path=csv_file_path
+            )
+            
+            st.session_state.vector_store = vector_store
+            st.session_state.background_processing = background_thread is not None
+            
+            if background_thread:
+                st.info("✅ Initial batch processed! Background processing ongoing...")
+                logger.info("Initial batch processed, background processing started")
+            else:
+                st.success("✅ Loaded existing vector store!")
+                logger.info("Loaded existing vector store")
+                
     except Exception as e:
-        st.error(f"Failed to load knowledge base: {e}")
+        logger.error(f"Failed to load knowledge base: {str(e)}", exc_info=True)
+        st.error(f"Failed to load knowledge base: {str(e)}")
         st.stop()
+        
+# Show progress indicator based on embedding status file
+if 'background_processing' in st.session_state and st.session_state.background_processing:
+    # Check the status file directly
+    if os.path.exists(EMBEDDING_STATUS_PATH):
+        try:
+            with open(EMBEDDING_STATUS_PATH, 'r') as f:
+                status = json.load(f)
+                
+                if not status["is_complete"] and status["background_task_running"]:
+                    # Calculate progress percentage
+                    total = max(1, status["total_queries"])
+                    processed = status["processed_queries"]
+                    progress_pct = min(1.0, processed / total)
+                    
+                    # Display progress bar
+                    st.progress(progress_pct, text=f"Processing embeddings: {processed:,}/{total:,} queries")
+                    st.caption(f"⚡ Background embedding in progress - you can still use the app while this completes")
+        except Exception as e:
+            logger.error(f"Error reading status file: {e}", exc_info=True)
 # ---------------------------------------------------------
 
 # Token counter in top right corner is being moved below
@@ -175,6 +266,23 @@ with st.sidebar:
         """
     )
     
+    # Vector store controls
+    st.divider()
+    st.header("🗃️ Vector Database")
+    
+    if st.button("🔄 Rebuild Vector Store", help="Force rebuild the vector embeddings database"):
+        with st.spinner("Clearing existing vector store..."):
+            # Force rebuild by clearing files and status
+            force_rebuild_embeddings(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+            
+            # Clear from session state to trigger rebuild
+            if 'vector_store' in st.session_state:
+                del st.session_state.vector_store
+        
+        st.success("Vector store cleared! Rebuilding on next refresh...")
+        time.sleep(1)  # Brief pause to show the message
+        st.rerun()  # Trigger app rerun to rebuild vector store
+    
     # Token usage controls
     st.divider()
     st.header("📊 Token Tracking")
@@ -195,6 +303,39 @@ with st.sidebar:
         *Token counts are estimated based on text length.*
         """)
     
+    # Embedding Status Info
+    with st.expander("🔄 Embedding Status"):
+        # Check the status file directly
+        if os.path.exists(EMBEDDING_STATUS_PATH):
+            try:
+                with open(EMBEDDING_STATUS_PATH, 'r') as f:
+                    status = json.load(f)
+                    
+                    if status["is_complete"]:
+                        st.success(f"✅ All {status['total_queries']:,} queries embedded")
+                    elif status["background_task_running"]:
+                        progress = status["processed_queries"] / max(1, status["total_queries"])
+                        st.progress(progress, text=f"{status['processed_queries']:,}/{status['total_queries']:,}")
+                        st.info(f"⏳ Background processing active")
+                        
+                        # Show last update time
+                        if "last_updated" in status:
+                            from datetime import datetime
+                            try:
+                                last_update = datetime.fromisoformat(status["last_updated"])
+                                st.caption(f"Last updated: {last_update.strftime('%H:%M:%S')}")
+                            except (ValueError, TypeError):
+                                pass
+                    else:
+                        if "error" in status and status["error"]:
+                            st.error(f"❌ Error: {status['error']}")
+                        else:
+                            st.warning(f"⚠️ Processing paused or incomplete")
+                            st.caption(f"Processed {status['processed_queries']:,}/{status['total_queries']:,} queries")
+            except Exception as e:
+                st.error(f"Error reading status file: {e}")
+        else:
+            st.info("No embedding status information available.")
 
     # Show session statistics
     if 'token_usage' in st.session_state and st.session_state.token_usage:
@@ -202,6 +343,14 @@ with st.sidebar:
         stats = get_session_token_stats()
         st.metric("Total Tokens", f"{stats['total_tokens']:,}")
         st.metric("Total Queries", stats['query_count'])
+
+# Show progress indicator for background embedding generation
+if 'embedding_status' in st.session_state:
+    status = st.session_state.embedding_status
+    if not status['is_complete'] and status['background_task_running']:
+        progress_pct = status['processed_queries'] / max(1, status['total_queries'])
+        st.progress(progress_pct, text=f"Processing embeddings: {status['processed_queries']}/{status['total_queries']} queries")
+        st.caption(f"⚡ Background embedding in progress - you can still use the app while this completes")
 
 # --------------------------------------------------------------------------- #
 #  Main interaction
@@ -359,10 +508,9 @@ else:
 
     join_rows = []  # list of dict rows
     
-    # CSV mode - analyze joins from queries in sample_queries.csv
+    # Analyze joins from queries in DataFrame
     try:
-        import pandas as pd
-        df = pd.read_csv(SAMPLE_QUERIES_CSV)
+        df = st.session_state.query_df
         
         if 'query' in df.columns:
             for idx, row in df.iterrows():
@@ -378,7 +526,7 @@ else:
                         join_row.update(j)
                         join_rows.append(join_row)
     except Exception as e:
-        st.error(f"Error analyzing joins from CSV: {e}")
+        st.error(f"Error analyzing joins from DataFrame: {e}")
         join_rows = []
 
     if join_rows:
@@ -486,13 +634,13 @@ else:
     # Continue with description listing
     # ------------------------------------------------------
 
-    # Show queries from hardcoded CSV  
-    st.subheader(f"📊 Queries from {SAMPLE_QUERIES_CSV.name}")
+    # Show queries from DataFrame stored in session state
+    st.subheader("📊 Queries from BigQuery")
     
     try:
-        # Read CSV and display queries
+        # Use DataFrame from session state
         import pandas as pd
-        df = pd.read_csv(SAMPLE_QUERIES_CSV)
+        df = st.session_state.query_df
         
         if 'query' in df.columns:
             for idx, row in df.iterrows():
