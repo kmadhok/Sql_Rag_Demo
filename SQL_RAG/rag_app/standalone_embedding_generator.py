@@ -45,6 +45,50 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def process_document_batch_worker(batch_data):
+    """
+    Windows-safe worker function for processing a batch of documents
+    
+    This function must be defined at module level to be pickable by multiprocessing.
+    It accepts only serializable data to avoid Windows pickle issues.
+    
+    Args:
+        batch_data: Tuple of (doc_data_list, model_name)
+        
+    Returns:
+        FAISS vector store or None if failed
+    """
+    try:
+        # Unpack serializable data
+        doc_data_list, model_name = batch_data
+        
+        # Import here to avoid pickle issues
+        from langchain_ollama import OllamaEmbeddings
+        from langchain_community.vectorstores import FAISS
+        from langchain_core.documents import Document
+        
+        # Initialize embeddings in this process
+        embeddings = OllamaEmbeddings(model=model_name)
+        
+        # Recreate Document objects from serializable data
+        documents = []
+        for doc_data in doc_data_list:
+            doc = Document(
+                page_content=doc_data['content'],
+                metadata=doc_data['metadata']
+            )
+            documents.append(doc)
+        
+        # Create vector store from reconstructed documents
+        vector_store = FAISS.from_documents(documents, embeddings)
+        return vector_store
+        
+    except Exception as e:
+        # Use print instead of logger to avoid pickle issues
+        print(f"❌ Error processing batch in worker: {e}")
+        return None
+
+
 class StandaloneEmbeddingGenerator:
     """Standalone embedding generator with Windows-compatible multiprocessing"""
     
@@ -228,19 +272,17 @@ class StandaloneEmbeddingGenerator:
             if self.verbose:
                 print(f"⚠️  Could not save progress: {e}")
     
-    def _process_document_batch(self, docs_batch: List[Document]) -> Optional[FAISS]:
-        """Process a single batch of documents - Windows-safe function"""
-        try:
-            # Re-initialize embeddings in this process
-            embeddings = OllamaEmbeddings(model="nomic-embed-text")
-            
-            # Create vector store from batch
-            vector_store = FAISS.from_documents(docs_batch, embeddings)
-            return vector_store
-            
-        except Exception as e:
-            print(f"❌ Error processing batch: {e}")
-            return None
+    def _prepare_batch_data(self, docs_batch: List[Document]) -> Tuple[List[Dict], str]:
+        """Convert Document objects to serializable data for Windows multiprocessing"""
+        doc_data_list = []
+        for doc in docs_batch:
+            doc_data = {
+                'content': doc.page_content,
+                'metadata': dict(doc.metadata)  # Ensure metadata is serializable
+            }
+            doc_data_list.append(doc_data)
+        
+        return doc_data_list, "nomic-embed-text"
     
     def _generate_embeddings_parallel(self, documents: List[Document], resume: bool = False) -> FAISS:
         """Generate embeddings using Windows-compatible multiprocessing"""
@@ -269,24 +311,32 @@ class StandaloneEmbeddingGenerator:
             remaining_batches = batches[progress['completed_batches']:]
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all remaining batches
+            # Prepare serializable batch data for Windows multiprocessing
+            batch_data_list = []
+            for batch in remaining_batches:
+                batch_data = self._prepare_batch_data(batch)
+                batch_data_list.append(batch_data)
+            
+            # Submit all remaining batches with serializable data
             future_to_batch = {
-                executor.submit(self._process_document_batch, batch): (i, batch) 
-                for i, batch in enumerate(remaining_batches)
+                executor.submit(process_document_batch_worker, batch_data): (i, batch_data) 
+                for i, batch_data in enumerate(batch_data_list)
             }
             
             # Process completed batches
             with tqdm(total=len(remaining_batches), desc="Processing batches", unit="batch") as pbar:
                 for future in as_completed(future_to_batch):
-                    batch_idx, batch = future_to_batch[future]
+                    batch_idx, batch_data = future_to_batch[future]
                     
                     try:
                         vector_store = future.result()
                         if vector_store:
                             vector_stores.append(vector_store)
                             
-                            # Update progress
-                            batch_hash = self._calculate_batch_hash(batch)
+                            # Update progress (calculate hash from batch data)
+                            doc_data_list, _ = batch_data
+                            content = "\n".join([doc_data['content'] for doc_data in doc_data_list])
+                            batch_hash = hashlib.md5(content.encode()).hexdigest()
                             self.processed_hashes.add(batch_hash)
                             progress['completed_batches'] += 1
                             
