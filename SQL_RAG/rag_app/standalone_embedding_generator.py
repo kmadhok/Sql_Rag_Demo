@@ -30,7 +30,7 @@ import argparse
 import hashlib
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
@@ -286,6 +286,157 @@ class GPUStandaloneEmbeddingGenerator:
         except Exception as e:
             print(f"❌ Error loading CSV: {e}")
             raise
+
+    def _calculate_csv_hash(self, df: pd.DataFrame) -> str:
+        """Calculate hash of CSV content for change detection"""
+        try:
+            # Create a string representation of the dataframe content
+            content_string = ""
+            
+            # Sort by a stable column if available, otherwise by index
+            sorted_df = df.sort_index()
+            
+            for _, row in sorted_df.iterrows():
+                # Create a unique string for each row
+                row_parts = []
+                for col in ['query', 'description', 'table', 'joins']:
+                    if col in row:
+                        value = str(row[col]) if pd.notna(row[col]) else ""
+                        row_parts.append(f"{col}:{value}")
+                
+                content_string += "|".join(row_parts) + "\n"
+            
+            # Return MD5 hash of the content
+            return hashlib.md5(content_string.encode('utf-8')).hexdigest()
+            
+        except Exception as e:
+            logger.warning(f"Failed to calculate CSV hash: {e}")
+            return ""
+    
+    def _create_query_fingerprint(self, row: pd.Series) -> str:
+        """Create unique fingerprint for a single query"""
+        try:
+            # Combine key fields to create unique identifier
+            parts = []
+            for col in ['query', 'description', 'table', 'joins']:
+                if col in row:
+                    value = str(row[col]) if pd.notna(row[col]) else ""
+                    parts.append(value)
+            
+            content = "|".join(parts)
+            return hashlib.md5(content.encode('utf-8')).hexdigest()
+            
+        except Exception as e:
+            logger.warning(f"Failed to create query fingerprint: {e}")
+            return ""
+    
+    def _load_processing_status(self) -> Dict:
+        """Load detailed processing status with incremental tracking"""
+        csv_name = self.csv_path.stem
+        status_file = self.output_dir / f"status_{csv_name}.json"
+        
+        if not status_file.exists():
+            return {
+                'csv_file': str(self.csv_path),
+                'csv_name': csv_name,
+                'csv_hash': '',
+                'csv_modification_time': '',
+                'processed_query_fingerprints': [],
+                'total_documents': 0,
+                'last_processed': '',
+                'processing_history': []
+            }
+        
+        try:
+            import json
+            with open(status_file, 'r') as f:
+                status = json.load(f)
+            
+            # Ensure all required fields exist for backward compatibility
+            if 'processed_query_fingerprints' not in status:
+                status['processed_query_fingerprints'] = []
+            if 'csv_hash' not in status:
+                status['csv_hash'] = ''
+            if 'csv_modification_time' not in status:
+                status['csv_modification_time'] = ''
+            if 'processing_history' not in status:
+                status['processing_history'] = []
+            
+            return status
+            
+        except Exception as e:
+            logger.warning(f"Failed to load processing status: {e}")
+            # Return empty status instead of recursion
+            return {
+                'csv_file': str(self.csv_path),
+                'csv_name': self.csv_path.stem,
+                'csv_hash': '',
+                'csv_modification_time': '',
+                'processed_query_fingerprints': [],
+                'total_documents': 0,
+                'last_processed': '',
+                'processing_history': []
+            }
+    
+    def _identify_new_queries(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+        """
+        Identify new queries that haven't been processed yet
+        
+        Returns:
+            Tuple of (new_queries_df, new_fingerprints_list)
+        """
+        status = self._load_processing_status()
+        processed_fingerprints = set(status.get('processed_query_fingerprints', []))
+        
+        new_rows = []
+        new_fingerprints = []
+        
+        for idx, row in df.iterrows():
+            fingerprint = self._create_query_fingerprint(row)
+            
+            if fingerprint not in processed_fingerprints:
+                new_rows.append(row)
+                new_fingerprints.append(fingerprint)
+        
+        if new_rows:
+            new_df = pd.DataFrame(new_rows)
+            new_df.reset_index(drop=True, inplace=True)
+        else:
+            new_df = pd.DataFrame()
+        
+        return new_df, new_fingerprints
+    
+    def _has_csv_changed(self, df: pd.DataFrame) -> Tuple[bool, str]:
+        """
+        Check if CSV content has changed since last processing
+        
+        Returns:
+            Tuple of (has_changed, reason)
+        """
+        try:
+            status = self._load_processing_status()
+            current_hash = self._calculate_csv_hash(df)
+            stored_hash = status.get('csv_hash', '')
+            
+            # Get file modification time
+            csv_mod_time = os.path.getmtime(self.csv_path)
+            csv_mod_str = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(csv_mod_time))
+            stored_mod_time = status.get('csv_modification_time', '')
+            
+            if not stored_hash:
+                return True, "No previous processing found"
+            
+            if current_hash != stored_hash:
+                return True, f"CSV content changed (hash: {stored_hash[:8]} → {current_hash[:8]})"
+            
+            if csv_mod_str != stored_mod_time:
+                return True, f"CSV file modified (time: {stored_mod_time} → {csv_mod_str})"
+            
+            return False, "No changes detected"
+            
+        except Exception as e:
+            logger.warning(f"Error checking CSV changes: {e}")
+            return True, "Error during change detection"
     
     def _create_documents(self, df: pd.DataFrame) -> List[Document]:
         """Create LangChain documents from DataFrame"""
@@ -495,8 +646,9 @@ class GPUStandaloneEmbeddingGenerator:
         
         return main_store
     
-    def _save_vector_store(self, vector_store: FAISS, csv_name: str):
-        """Save vector store to disk (converts GPU index to CPU for storage)"""
+    def _save_vector_store(self, vector_store: FAISS, csv_name: str, df: pd.DataFrame = None, 
+                          new_fingerprints: List[str] = None, is_incremental: bool = False):
+        """Save vector store to disk with enhanced incremental tracking"""
         index_path = self.output_dir / f"index_{csv_name}"
         
         try:
@@ -516,12 +668,17 @@ class GPUStandaloneEmbeddingGenerator:
             
             vector_store.save_local(str(index_path))
             
-            # Create enhanced status file with GPU information
-            status = {
+            # Load existing status for incremental updates
+            status = self._load_processing_status()
+            
+            # Update status with new information
+            current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+            
+            status.update({
                 'csv_file': str(self.csv_path),
                 'csv_name': csv_name,
                 'total_documents': len(vector_store.docstore._dict),
-                'created_at': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'last_processed': current_time,
                 'batch_size': self.batch_size,
                 'max_workers': self.max_workers,
                 'gpu_acceleration': {
@@ -530,7 +687,54 @@ class GPUStandaloneEmbeddingGenerator:
                     'gpu_memory_mb': self.gpu_available.get('gpu_memory', 0),
                     'gpu_accelerated_processing': gpu_accelerated
                 }
-            }
+            })
+            
+            # Update incremental tracking data
+            if df is not None:
+                # Update CSV hash and modification time
+                status['csv_hash'] = self._calculate_csv_hash(df)
+                csv_mod_time = os.path.getmtime(self.csv_path)
+                status['csv_modification_time'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(csv_mod_time))
+                
+                if is_incremental and new_fingerprints:
+                    # Add new fingerprints to processed list
+                    existing_fingerprints = set(status.get('processed_query_fingerprints', []))
+                    existing_fingerprints.update(new_fingerprints)
+                    status['processed_query_fingerprints'] = list(existing_fingerprints)
+                    
+                    # Add to processing history
+                    if 'processing_history' not in status:
+                        status['processing_history'] = []
+                    
+                    status['processing_history'].append({
+                        'timestamp': current_time,
+                        'type': 'incremental',
+                        'new_queries_added': len(new_fingerprints),
+                        'total_queries_after': len(existing_fingerprints)
+                    })
+                else:
+                    # Full rebuild - create all fingerprints
+                    all_fingerprints = []
+                    for _, row in df.iterrows():
+                        fingerprint = self._create_query_fingerprint(row)
+                        if fingerprint:
+                            all_fingerprints.append(fingerprint)
+                    
+                    status['processed_query_fingerprints'] = all_fingerprints
+                    
+                    # Add to processing history
+                    if 'processing_history' not in status:
+                        status['processing_history'] = []
+                    
+                    status['processing_history'].append({
+                        'timestamp': current_time,
+                        'type': 'full_rebuild',
+                        'total_queries': len(all_fingerprints)
+                    })
+            
+            # Maintain backward compatibility
+            if 'created_at' not in status:
+                status['created_at'] = current_time
             
             import json
             status_file = self.output_dir / f"status_{csv_name}.json"
@@ -540,17 +744,21 @@ class GPUStandaloneEmbeddingGenerator:
             print(f"📁 Vector store saved to: {index_path}")
             print(f"📄 Status saved to: {status_file}")
             
+            if is_incremental and new_fingerprints:
+                print(f"🔄 Incremental update: Added {len(new_fingerprints)} new queries")
+            
         except Exception as e:
             print(f"❌ Error saving vector store: {e}")
             raise
     
-    def generate(self, resume: bool = False, force_rebuild: bool = False) -> bool:
+    def generate(self, resume: bool = False, force_rebuild: bool = False, incremental: bool = False) -> bool:
         """
-        Generate embeddings from CSV file
+        Generate embeddings from CSV file with incremental update support
         
         Args:
             resume: Resume interrupted processing
             force_rebuild: Rebuild even if vector store exists
+            incremental: Only process new queries (detect changes)
             
         Returns:
             True if successful, False otherwise
@@ -559,13 +767,76 @@ class GPUStandaloneEmbeddingGenerator:
             csv_name = self.csv_path.stem
             index_path = self.output_dir / f"index_{csv_name}"
             
-            # Check if vector store already exists
-            if index_path.exists() and not force_rebuild and not resume:
+            # Load and validate CSV first (needed for all modes)
+            df = self._load_and_validate_csv()
+            print(f"📊 Loaded {len(df)} queries from CSV")
+            
+            # Incremental mode logic
+            if incremental and index_path.exists() and not force_rebuild:
+                print("🔍 Incremental mode: Checking for changes...")
+                
+                has_changed, reason = self._has_csv_changed(df)
+                
+                if not has_changed:
+                    print(f"✅ No changes detected: {reason}")
+                    print("Vector store is up to date!")
+                    return True
+                
+                print(f"📝 Changes detected: {reason}")
+                
+                # Identify new queries
+                new_df, new_fingerprints = self._identify_new_queries(df)
+                
+                if new_df.empty:
+                    print("ℹ️  File changed but no new queries found (modifications to existing queries)")
+                    print("💡 Use --force-rebuild to rebuild with modified queries")
+                    return True
+                
+                print(f"🆕 Found {len(new_df)} new queries to process")
+                
+                # Load existing vector store
+                print("📂 Loading existing vector store...")
+                existing_vector_store = self._load_existing_vector_store(index_path)
+                if not existing_vector_store:
+                    print("⚠️  Could not load existing vector store, falling back to full rebuild")
+                    force_rebuild = True
+                    incremental = False
+                else:
+                    # Process only new queries
+                    print("🔄 Processing new queries with GPU acceleration...")
+                    new_documents = self._create_documents(new_df)
+                    new_split_documents = self._split_documents(new_documents)
+                    
+                    # Generate embeddings for new documents
+                    new_vector_store = self._generate_embeddings_gpu_parallel(new_split_documents, resume=False)
+                    
+                    # Merge with existing vector store
+                    print("🔗 Merging with existing vector store...")
+                    existing_vector_store.merge_from(new_vector_store)
+                    
+                    # Save merged vector store with incremental tracking
+                    self._save_vector_store(existing_vector_store, csv_name, df, new_fingerprints, is_incremental=True)
+                    
+                    print("✅ Incremental update completed successfully!")
+                    print(f"📊 Added {len(new_df)} new queries to existing {len(existing_vector_store.docstore._dict) - len(new_df)} queries")
+                    print("🚀 You can now run 'streamlit run app.py'")
+                    
+                    return True
+            
+            # Standard processing (full rebuild or first time)
+            if not incremental and index_path.exists() and not force_rebuild and not resume:
                 print(f"✅ Vector store already exists: {index_path}")
-                print("Use --force-rebuild to rebuild or --resume to continue interrupted processing")
+                print("Use --force-rebuild to rebuild, --resume to continue interrupted processing, or --incremental for smart updates")
                 return True
             
-            print("🔄 GPU-accelerated embedding generation starting...")
+            # Report processing mode
+            if force_rebuild:
+                print("🔄 Force rebuild mode: Recreating entire vector store...")
+            elif resume:
+                print("▶️  Resume mode: Continuing interrupted processing...")
+            else:
+                print("🔄 GPU-accelerated embedding generation starting...")
+            
             print("🚀 Leveraging Ollama GPU acceleration with ThreadPoolExecutor")
             
             # Report GPU capabilities
@@ -587,10 +858,6 @@ class GPUStandaloneEmbeddingGenerator:
             if not self._initialize_embeddings():
                 return False
             
-            # Load and validate CSV
-            df = self._load_and_validate_csv()
-            print(f"📊 Loaded {len(df)} queries from CSV")
-            
             # Create documents
             documents = self._create_documents(df)
             split_documents = self._split_documents(documents)
@@ -598,8 +865,8 @@ class GPUStandaloneEmbeddingGenerator:
             # Generate embeddings with GPU-accelerated threading
             vector_store = self._generate_embeddings_gpu_parallel(split_documents, resume=resume)
             
-            # Save vector store
-            self._save_vector_store(vector_store, csv_name)
+            # Save vector store with full tracking
+            self._save_vector_store(vector_store, csv_name, df, is_incremental=False)
             
             # Clean up progress file on successful completion
             if self.progress_file.exists():
@@ -621,6 +888,26 @@ class GPUStandaloneEmbeddingGenerator:
                 import traceback
                 traceback.print_exc()
             return False
+    
+    def _load_existing_vector_store(self, index_path) -> Optional:
+        """Load existing FAISS vector store from disk"""
+        try:
+            from langchain_ollama import OllamaEmbeddings
+            from langchain_community.vectorstores import FAISS
+            
+            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            vector_store = FAISS.load_local(
+                str(index_path),
+                embeddings,
+                allow_dangerous_deserialization=True
+            )
+            
+            print(f"✅ Loaded existing vector store with {len(vector_store.docstore._dict)} documents")
+            return vector_store
+            
+        except Exception as e:
+            print(f"❌ Error loading existing vector store: {e}")
+            return None
 
 
 def main():
@@ -645,8 +932,12 @@ Examples:
   # Force rebuild existing store
   python standalone_embedding_generator.py --csv "data.csv" --force-rebuild
   
+  # Incremental updates (smart - only process new queries)
+  python standalone_embedding_generator.py --csv "data.csv" --incremental
+  
 Performance Notes:
   - GPU acceleration provides 20-50x speedup over CPU-only processing
+  - Incremental mode processes only new queries (seconds vs minutes)
   - Higher batch sizes recommended for systems with 16GB+ RAM
   - More workers leverage GPU concurrency (recommend 12-20 for RTX A1000)
   - Set OLLAMA_NUM_PARALLEL=16 environment variable for optimal GPU utilization
@@ -681,6 +972,11 @@ Performance Notes:
     parser.add_argument(
         '--force-rebuild', action='store_true',
         help='Rebuild even if vector store exists'
+    )
+    
+    parser.add_argument(
+        '--incremental', action='store_true',
+        help='Smart incremental updates - only process new queries'
     )
     
     parser.add_argument(
@@ -728,7 +1024,8 @@ Performance Notes:
         # Generate embeddings
         success = generator.generate(
             resume=args.resume,
-            force_rebuild=args.force_rebuild
+            force_rebuild=args.force_rebuild,
+            incremental=args.incremental
         )
         
         return 0 if success else 1
