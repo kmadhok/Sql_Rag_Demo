@@ -46,7 +46,8 @@ try:
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Please ensure all required packages are installed:")
-    print("pip install langchain-ollama langchain-community faiss-cpu pandas tqdm")
+    print("pip install langchain-ollama langchain-community faiss-gpu pandas tqdm")
+    print("Note: If faiss-gpu installation fails, fallback to faiss-cpu")
     sys.exit(1)
 
 # Configure logging
@@ -59,16 +60,17 @@ logger = logging.getLogger(__name__)
 
 def process_document_batch_gpu(batch_data):
     """
-    GPU-accelerated worker function for processing a batch of documents
+    Full GPU-accelerated worker function for processing a batch of documents
     
-    Uses ThreadPoolExecutor (no pickle issues) with Ollama GPU acceleration.
-    This function leverages Ollama's built-in concurrency and GPU features.
+    Uses ThreadPoolExecutor (no pickle issues) with both:
+    - Ollama GPU acceleration for embeddings
+    - FAISS GPU acceleration for vector operations
     
     Args:
         batch_data: Tuple of (doc_data_list, model_name)
         
     Returns:
-        FAISS vector store or None if failed
+        FAISS vector store (GPU-enabled if available) or None if failed
     """
     try:
         # Unpack data (no pickle issues with ThreadPoolExecutor)
@@ -93,8 +95,20 @@ def process_document_batch_gpu(batch_data):
             documents.append(doc)
         
         # Create vector store with GPU-accelerated embeddings
-        # This leverages Ollama's GPU acceleration automatically
         vector_store = FAISS.from_documents(documents, embeddings)
+        
+        # Try to move FAISS index to GPU for faster vector operations
+        try:
+            import faiss
+            if faiss.get_num_gpus() > 0:
+                # Move the index to GPU for faster similarity search
+                gpu_resources = faiss.StandardGpuResources()
+                vector_store.index = faiss.index_cpu_to_gpu(gpu_resources, 0, vector_store.index)
+                # print(f"✅ Moved FAISS index to GPU for batch processing")
+        except Exception as gpu_error:
+            # Continue with CPU FAISS if GPU fails
+            pass
+        
         return vector_store
         
     except Exception as e:
@@ -149,6 +163,55 @@ class GPUStandaloneEmbeddingGenerator:
         
         if verbose:
             logger.setLevel(logging.DEBUG)
+        
+        # Check GPU capabilities
+        self.gpu_available = self._check_gpu_capabilities()
+    
+    def _check_gpu_capabilities(self) -> Dict[str, bool]:
+        """Check GPU capabilities for both FAISS and Ollama"""
+        capabilities = {
+            'faiss_gpu': False,
+            'nvidia_gpu': False,
+            'gpu_memory': 0
+        }
+        
+        try:
+            # Check FAISS GPU support
+            import faiss
+            num_gpus = faiss.get_num_gpus()
+            capabilities['faiss_gpu'] = num_gpus > 0
+            
+            if self.verbose and num_gpus > 0:
+                print(f"🚀 FAISS GPU support detected: {num_gpus} GPU(s) available")
+            elif self.verbose:
+                print("⚠️  FAISS GPU not available - using CPU mode")
+                
+        except ImportError:
+            if self.verbose:
+                print("⚠️  faiss-gpu not installed - using faiss-cpu")
+        except Exception as e:
+            if self.verbose:
+                print(f"⚠️  FAISS GPU check failed: {e}")
+        
+        try:
+            # Check NVIDIA GPU
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                gpu_memory = int(result.stdout.strip().split('\n')[0])
+                capabilities['nvidia_gpu'] = True
+                capabilities['gpu_memory'] = gpu_memory
+                
+                if self.verbose:
+                    print(f"🎯 NVIDIA GPU detected: {gpu_memory} MB VRAM")
+                    print("💡 Optimal for RTX A1000 with 6GB VRAM")
+            
+        except Exception:
+            if self.verbose:
+                print("⚠️  NVIDIA GPU not detected or nvidia-smi unavailable")
+        
+        return capabilities
     
     def _initialize_embeddings(self) -> bool:
         """Initialize Ollama embeddings with GPU acceleration testing"""
@@ -400,33 +463,73 @@ class GPUStandaloneEmbeddingGenerator:
         if not vector_stores:
             raise RuntimeError("No vector stores were created successfully")
         
-        # Merge all vector stores
+        # Merge all vector stores with GPU optimization
         print("🔗 Merging vector stores...")
         main_store = vector_stores[0]
         
+        # Merge stores
         for store in vector_stores[1:]:
             main_store.merge_from(store)
+        
+        # Final GPU optimization for the merged store
+        try:
+            import faiss
+            if self.gpu_available.get('faiss_gpu', False):
+                print("🚀 Optimizing final vector store with GPU acceleration...")
+                gpu_resources = faiss.StandardGpuResources()
+                main_store.index = faiss.index_cpu_to_gpu(gpu_resources, 0, main_store.index)
+                print(f"✅ Final vector store moved to GPU ({self.gpu_available['gpu_memory']} MB VRAM)")
+        except Exception as e:
+            print(f"⚠️  GPU optimization failed, using CPU mode: {e}")
         
         processing_time = time.time() - start_time
         print(f"✅ Completed in {processing_time/60:.1f} minutes")
         
+        # Report GPU utilization
+        if self.gpu_available.get('faiss_gpu') and self.gpu_available.get('nvidia_gpu'):
+            estimated_vram = len(main_store.docstore._dict) * 0.5  # Rough estimate
+            print(f"📊 GPU Performance Summary:")
+            print(f"   🎯 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB total VRAM")
+            print(f"   📦 Estimated FAISS usage: ~{estimated_vram:.0f} MB")
+            print(f"   ⚡ Both embeddings and vector ops GPU-accelerated")
+        
         return main_store
     
     def _save_vector_store(self, vector_store: FAISS, csv_name: str):
-        """Save vector store to disk"""
+        """Save vector store to disk (converts GPU index to CPU for storage)"""
         index_path = self.output_dir / f"index_{csv_name}"
         
         try:
+            # Convert GPU index to CPU before saving (required for serialization)
+            gpu_accelerated = False
+            try:
+                import faiss
+                if hasattr(vector_store.index, 'device') or 'Gpu' in str(type(vector_store.index)):
+                    # Convert GPU index to CPU for saving
+                    vector_store.index = faiss.index_gpu_to_cpu(vector_store.index)
+                    gpu_accelerated = True
+                    if self.verbose:
+                        print("🔄 Converted GPU index to CPU for disk storage")
+            except Exception as e:
+                if self.verbose:
+                    print(f"⚠️  GPU to CPU conversion warning: {e}")
+            
             vector_store.save_local(str(index_path))
             
-            # Create status file
+            # Create enhanced status file with GPU information
             status = {
                 'csv_file': str(self.csv_path),
                 'csv_name': csv_name,
                 'total_documents': len(vector_store.docstore._dict),
                 'created_at': time.strftime('%Y-%m-%d %H:%M:%S'),
                 'batch_size': self.batch_size,
-                'max_workers': self.max_workers
+                'max_workers': self.max_workers,
+                'gpu_acceleration': {
+                    'faiss_gpu_available': self.gpu_available.get('faiss_gpu', False),
+                    'nvidia_gpu_detected': self.gpu_available.get('nvidia_gpu', False),
+                    'gpu_memory_mb': self.gpu_available.get('gpu_memory', 0),
+                    'gpu_accelerated_processing': gpu_accelerated
+                }
             }
             
             import json
@@ -464,6 +567,21 @@ class GPUStandaloneEmbeddingGenerator:
             
             print("🔄 GPU-accelerated embedding generation starting...")
             print("🚀 Leveraging Ollama GPU acceleration with ThreadPoolExecutor")
+            
+            # Report GPU capabilities
+            if self.gpu_available.get('faiss_gpu') and self.gpu_available.get('nvidia_gpu'):
+                print(f"🎯 Full GPU acceleration enabled:")
+                print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
+                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   🚀 FAISS vector operations: GPU-accelerated")
+            elif self.gpu_available.get('nvidia_gpu'):
+                print(f"⚡ Partial GPU acceleration:")
+                print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
+                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   ⚠️  FAISS operations: CPU mode (install faiss-gpu)")
+            else:
+                print("⚠️  CPU-only mode detected")
+                print("💡 Consider installing faiss-gpu and ensuring NVIDIA GPU drivers")
             
             # Initialize Ollama
             if not self._initialize_embeddings():

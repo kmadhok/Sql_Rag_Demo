@@ -100,6 +100,30 @@ def check_required_model():
         print("⚠️  Could not check available models")
         return False
 
+def check_faiss_gpu():
+    """Check FAISS GPU support"""
+    print("\n🔍 Checking FAISS GPU support...")
+    
+    try:
+        import faiss
+        num_gpus = faiss.get_num_gpus()
+        
+        if num_gpus > 0:
+            print(f"✅ FAISS GPU support: {num_gpus} GPU(s) available")
+            return True
+        else:
+            print("❌ FAISS GPU not available")
+            print("💡 Install faiss-gpu: pip uninstall faiss-cpu && pip install faiss-gpu")
+            return False
+            
+    except ImportError:
+        print("❌ FAISS not installed")
+        print("💡 Install faiss-gpu: pip install faiss-gpu")
+        return False
+    except Exception as e:
+        print(f"⚠️  FAISS GPU check failed: {e}")
+        return False
+
 def test_embedding_performance():
     """Test embedding generation performance"""
     print("\n🔍 Testing embedding performance...")
@@ -153,7 +177,9 @@ def test_embedding_performance():
             
     except ImportError:
         print("❌ LangChain Ollama not installed")
-        print("💡 Install with: pip install langchain-ollama")
+        print("💡 Install required packages:")
+        print("   pip install langchain-ollama langchain-community")
+        print("   pip install faiss-gpu  # or faiss-cpu if GPU not available")
         return False
     except Exception as e:
         print(f"❌ Embedding test failed: {e}")
@@ -180,7 +206,7 @@ def set_optimal_environment():
         else:
             print(f"   export {var}={value}")
 
-def provide_recommendations(gpu_detected, model_available, performance_good):
+def provide_recommendations(gpu_detected, faiss_gpu_available, model_available, performance_good):
     """Provide optimization recommendations based on test results"""
     print("\n🎯 Recommendations for optimal performance:")
     
@@ -195,20 +221,32 @@ def provide_recommendations(gpu_detected, model_available, performance_good):
         print("   1. Download model: ollama pull nomic-embed-text")
         print("   2. Verify installation: ollama list")
     
-    if gpu_detected and model_available:
+    if not faiss_gpu_available and gpu_detected:
+        print("📦 FAISS GPU Setup:")
+        print("   1. Uninstall CPU version: pip uninstall faiss-cpu")
+        print("   2. Install GPU version: pip install faiss-gpu")
+        print("   3. Restart Python to reload FAISS")
+    
+    if gpu_detected and faiss_gpu_available and model_available:
         if performance_good:
-            print("🚀 Optimal Configuration Detected!")
-            print("   Recommended settings for your system:")
+            print("🚀 Full GPU Acceleration Available!")
+            print("   Optimal settings for RTX A1000+ systems:")
             print("   python standalone_embedding_generator.py \\")
             print("     --csv 'your_data.csv' \\")
             print("     --batch-size 300 \\")
             print("     --workers 16")
+            print("   Expected: Both embeddings and vector ops GPU-accelerated")
         else:
             print("⚡ Performance Tuning:")
             print("   1. Check GPU memory usage during processing")
             print("   2. Start with conservative settings:")
             print("      --batch-size 150 --workers 8")
             print("   3. Gradually increase if system handles well")
+    elif gpu_detected and model_available:
+        print("⚡ Partial GPU Acceleration:")
+        print("   Ollama: GPU-accelerated ✅")
+        print("   FAISS: CPU mode (install faiss-gpu for full acceleration)")
+        print("   Recommended: --batch-size 200 --workers 12")
     
     print("\n🔧 General Optimization:")
     print("   1. Keep Ollama server running: ollama serve")
@@ -230,6 +268,7 @@ def main():
     
     ollama_running = check_ollama_running()
     gpu_detected = check_gpu_support()
+    faiss_gpu_available = check_faiss_gpu()
     model_available = check_required_model()
     
     if ollama_running and model_available:
@@ -242,19 +281,27 @@ def main():
         set_optimal_environment()
     
     # Provide recommendations
-    provide_recommendations(gpu_detected, model_available, performance_good)
+    provide_recommendations(gpu_detected, faiss_gpu_available, model_available, performance_good)
     
     # Overall status
     print("\n" + "=" * 50)
     print("📋 Setup Status Summary:")
     print(f"   Ollama installed: {'✅' if ollama_installed else '❌'}")
     print(f"   Ollama running: {'✅' if ollama_running else '❌'}")
-    print(f"   GPU detected: {'✅' if gpu_detected else '⚠️'}")
+    print(f"   NVIDIA GPU detected: {'✅' if gpu_detected else '⚠️'}")
+    print(f"   FAISS GPU support: {'✅' if faiss_gpu_available else '⚠️'}")
     print(f"   Model available: {'✅' if model_available else '❌'}")
     print(f"   Performance good: {'✅' if performance_good else '⚠️'}")
     
     if ollama_installed and ollama_running and model_available:
-        print("\n🎉 Ready for GPU-accelerated embedding generation!")
+        if gpu_detected and faiss_gpu_available:
+            print("\n🎉 Ready for FULL GPU-accelerated embedding generation!")
+            print("🚀 Both Ollama and FAISS will use GPU acceleration")
+        elif gpu_detected:
+            print("\n⚡ Ready for partial GPU-accelerated embedding generation!")
+            print("🚀 Ollama will use GPU, FAISS will use CPU")
+        else:
+            print("\n✅ Ready for CPU-based embedding generation")
         return 0
     else:
         print("\n⚠️  Some setup steps needed before optimal performance")
