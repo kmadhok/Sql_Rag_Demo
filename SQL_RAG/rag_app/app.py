@@ -9,9 +9,10 @@ from __future__ import annotations
 import pathlib
 import sys
 from typing import List, Dict
-from google.cloud import bigquery
+# from google.cloud import bigquery  # Commented out for local testing
 import sqlparse
 import streamlit as st
+import pandas as pd
 from functools import lru_cache
 import json
 import re
@@ -48,10 +49,9 @@ QUERY_CSV_PATH = APP_DIR.parent.parent / "archive" / "sample_queries.csv"  # Pat
 os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 
 from simple_rag import answer_question  # noqa: E402  (after sys.path tweak)
-from actions import build_or_load_vector_store, append_to_host_table
-from actions.progressive_embeddings import build_progressive_vector_store
-from actions.embedding_manager import EmbeddingManager
-from actions import initialize_vector_store_with_background_processing
+# from actions import append_to_host_table  # Commented out for local testing
+from smart_embedding_processor import SmartEmbeddingProcessor
+from data_source_manager import DataSourceManager, load_data_with_fallback
 from actions.rebuild_embeddings import force_rebuild_embeddings
 from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -63,48 +63,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize embedding manager once (using st.cache_resource for persistence)
+# Initialize smart embedding processor once (using st.cache_resource for persistence)
 @st.cache_resource
-def get_embedding_manager():
-    """Get or create the embedding manager singleton"""
-    return EmbeddingManager(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+def get_smart_processor():
+    """Get or create the smart embedding processor singleton"""
+    return SmartEmbeddingProcessor(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
 
-@st.cache_resource
-def get_vector_store_with_background_processing(_query_df, csv_file_path=None):
-    """
-    Get or initialize the vector store with background processing for improved performance.
-    This function will:
-    1. Load the existing vector store if available
-    2. If not available, process an initial batch quickly (first 100 queries)
-    3. Process the remaining queries in the background using ThreadPoolExecutor
-    
-    Args:
-        _query_df: DataFrame containing queries (not used if vector store exists)
-        csv_file_path: Optional path to CSV file
-    
-    Returns:
-        FAISS vector store and background thread if processing is ongoing
-    """
-    # Check if vector store exists
-    vector_store_path = str(VECTOR_STORE_PATH)
-    vector_store_dir = os.path.dirname(vector_store_path)
-    
-    if os.path.exists(vector_store_path):
-        # Load existing vector store
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
-        vector_store = FAISS.load_local(vector_store_path, embeddings)
-        return vector_store, None
-    
-    # Vector store doesn't exist - process data with parallel processing
-    # First batch for immediate results + background processing for the rest
-    return initialize_vector_store_with_background_processing(
-        csv_file_path=csv_file_path,
-        index_dir=vector_store_dir,
-        initial_batch_size=100,
-        max_workers=4,
-        batch_size=25,
-        status_file_path=str(EMBEDDING_STATUS_PATH)
-    )
 # Load environment variables from any .env up the tree
 load_dotenv(find_dotenv(), override=False)
 
@@ -170,7 +134,7 @@ def display_session_usage():
             <span class="usage-label">📊 Session Usage</span>
             <span class="usage-stat">🪙 Tokens: {stats['total_tokens']:,}</span>
             <span class="usage-stat">💬 Queries: {stats['query_count']}</span>
-            <span class="usage-stat">🏠 Local Phi3 Model</span>
+            <span class="usage-stat">🏠 Ollama Phi3 Model</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -185,62 +149,162 @@ st.set_page_config(page_title="Retail-SQL RAG", layout="wide")
 
 PAGE = st.sidebar.radio("Navigation", ["🔎 Query Search", "📚 Browse Queries"], key="nav")
 
-# Load query data directly from BigQuery into session state
-if 'query_df' not in st.session_state:
-    with st.spinner("Loading queries from BigQuery..."):
-        bq_client = bigquery.Client(project='wmt-dv-bq-analytics')
-        st.session_state.query_df = append_to_host_table(bq_client)
+# Load query data using smart data source manager
+if 'query_df' not in st.session_state or 'data_source_info' not in st.session_state:
+    try:
+        # Create data source with fallback
+        csv_path = '/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/queries_with_descriptions (1).csv'
+        
+        # Try to detect BigQuery first, fall back to CSV
+        try:
+            data_source = DataSourceManager.auto_detect_source(
+                csv_path=csv_path,
+                bigquery_project=os.getenv('BIGQUERY_PROJECT'),  # From environment
+                prefer_bigquery=False  # Prefer CSV for now, change to True for production
+            )
+        except Exception:
+            # Direct CSV fallback
+            data_source = DataSourceManager.create_csv_source(csv_path)
+        
+        # Load data with fallback
+        st.session_state.query_df, source_info = load_data_with_fallback(
+            data_source, 
+            fallback_csv_path=csv_path
+        )
+        st.session_state.data_source_info = source_info
+        
+        # Debug info
+        st.info(f"📊 Loaded {len(st.session_state.query_df)} rows from {data_source.get_source_name()}")
+        st.caption(f"Columns: {list(st.session_state.query_df.columns)}")
+        
+    except Exception as e:
+        st.error(f"❌ Failed to load data: {e}")
+        # Fallback to sample data
+        st.session_state.query_df = pd.DataFrame({
+            'query': ['SELECT 1 as test'],
+            'description': ['Test query']
+        })
+        st.session_state.data_source_info = "fallback_sample_data"
+        st.warning("Using fallback sample data")
+    # pd.DataFrame({
+    #     'query': [
+    #         'SELECT customer_id, SUM(amount) as total_spent FROM transactions WHERE date >= "2024-01-01" GROUP BY customer_id ORDER BY total_spent DESC',
+    #         'SELECT p.product_name, COUNT(*) as purchase_count FROM products p JOIN order_items oi ON p.id = oi.product_id GROUP BY p.product_name',
+    #         'WITH monthly_sales AS (SELECT DATE_TRUNC(date, MONTH) as month, SUM(amount) as sales FROM transactions GROUP BY month) SELECT * FROM monthly_sales ORDER BY month'
+    #     ],
+    #     'description': [
+    #         'Customer spending analysis showing total amount spent by each customer since January 2024',
+    #         'Product popularity report counting how many times each product has been purchased', 
+    #         'Monthly sales trend analysis using window functions to show sales by month'
+    #     ]
+    # })
 
 # Shared header
 st.title("🛍️  Retail SQL Knowledge Base")
-st.caption("📄 BigQuery Queries • Auto-generated descriptions • Local Phi3 model")
+st.caption("📄 Local Test Queries • Auto-generated descriptions • Ollama Phi3 model")
 
-# --- Manage and cache the vector store in session state ---
+# --- Smart vector store management with incremental updates ---
 if 'vector_store' not in st.session_state:
     try:
-        # Use the new efficient approach with parallel processing
-        csv_file_path = str(QUERY_CSV_PATH)
+        processor = get_smart_processor()  # Already cached
         
-        with st.spinner("🔄 Loading or building vector store..."):
-            vector_store, background_thread = get_vector_store_with_background_processing(
-                st.session_state.query_df,
-                csv_file_path=csv_file_path
-            )
+        # Check if existing vector store can be loaded
+        existing_vector_store = processor.load_existing_vector_store()
+        
+        if existing_vector_store:
+            # Check if data has changed and needs incremental update
+            st.info("🔍 Checking for data changes...")
             
-            st.session_state.vector_store = vector_store
-            st.session_state.background_processing = background_thread is not None
+            try:
+                # Process with incremental updates (fast if no changes)
+                with st.spinner("Processing embeddings (incremental updates enabled)..."):
+                    start_time = time.time()
+                    vector_store, stats = processor.process_dataframe(
+                        st.session_state.query_df,
+                        source_name="query_data",
+                        source_info=st.session_state.data_source_info,
+                        initial_batch_size=100
+                    )
+                    elapsed = time.time() - start_time
+                    
+                    st.session_state.vector_store = vector_store
+                    
+                    # Show processing stats
+                    if stats.get('cache_hit'):
+                        st.success("✅ Data unchanged - loaded existing embeddings!")
+                    else:
+                        st.success(f"✅ Processed {stats['new_documents']} documents in {stats['processing_time']:.1f}s")
+                        if stats.get('background_time', 0) > 0:
+                            st.info(f"⚡ Background processing: {stats['background_time']:.1f}s")
+                        
+            except Exception as e:
+                st.error(f"❌ Error during smart processing: {e}")
+                logger.error(f"Smart processing error: {e}", exc_info=True)
+                # Fallback to existing vector store
+                st.session_state.vector_store = existing_vector_store
+                st.warning("⚠️ Using existing vector store due to processing error")
+                
+        else:
+            # No existing vector store - create new one
+            st.info(f"🔄 Creating new embeddings for {len(st.session_state.query_df)} queries...")
             
-            if background_thread:
-                st.info("✅ Initial batch processed! Background processing ongoing...")
-                logger.info("Initial batch processed, background processing started")
-            else:
-                st.success("✅ Loaded existing vector store!")
-                logger.info("Loaded existing vector store")
+            # Check Ollama availability first
+            try:
+                from actions.ollama_llm_client import check_ollama_availability
+                available, status_msg = check_ollama_availability()
+                if not available:
+                    st.error(f"❌ Ollama not available: {status_msg}")
+                    st.stop()
+                else:
+                    st.info(f"✅ Ollama status: {status_msg}")
+            except Exception as e:
+                st.warning(f"⚠️ Could not check Ollama status: {e}")
+            
+            with st.spinner("Processing embeddings with smart batching..."):
+                try:
+                    start_time = time.time()
+                    vector_store, stats = processor.process_dataframe(
+                        st.session_state.query_df,
+                        source_name="query_data", 
+                        source_info=st.session_state.data_source_info,
+                        initial_batch_size=100
+                    )
+                    elapsed = time.time() - start_time
+                    st.session_state.vector_store = vector_store
+                    
+                    st.success(f"✅ Created embeddings for {stats['total_processed']} documents!")
+                    st.info(f"⏱️ Initial batch: {stats['initial_batch_time']:.1f}s | Total: {stats['processing_time']:.1f}s")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error creating embeddings: {e}")
+                    logger.error(f"Embedding creation error: {e}", exc_info=True)
+                    st.stop()
+            
+            st.success("✅ Ready to use! Background processing continues...")
+            logger.info("Initial batch processed, background processing started")
                 
     except Exception as e:
         logger.error(f"Failed to load knowledge base: {str(e)}", exc_info=True)
         st.error(f"Failed to load knowledge base: {str(e)}")
         st.stop()
         
-# Show progress indicator based on embedding status file
-if 'background_processing' in st.session_state and st.session_state.background_processing:
-    # Check the status file directly
-    if os.path.exists(EMBEDDING_STATUS_PATH):
-        try:
-            with open(EMBEDDING_STATUS_PATH, 'r') as f:
-                status = json.load(f)
-                
-                if not status["is_complete"] and status["background_task_running"]:
-                    # Calculate progress percentage
-                    total = max(1, status["total_queries"])
-                    processed = status["processed_queries"]
-                    progress_pct = min(1.0, processed / total)
-                    
-                    # Display progress bar
-                    st.progress(progress_pct, text=f"Processing embeddings: {processed:,}/{total:,} queries")
-                    st.caption(f"⚡ Background embedding in progress - you can still use the app while this completes")
-        except Exception as e:
-            logger.error(f"Error reading status file: {e}", exc_info=True)
+# Show processing status from smart processor
+if 'vector_store' in st.session_state:
+    try:
+        processor = get_smart_processor()
+        status = processor.get_processing_status()
+        
+        # Show data source info
+        if 'data_source_info' in st.session_state:
+            st.caption(f"📊 Data source: {st.session_state.data_source_info}")
+        
+        # Show processing summary
+        total_processed = status.get('total_processed', 0)
+        if total_processed > 0:
+            st.caption(f"✅ {total_processed:,} documents embedded | Last updated: {status.get('last_updated', 'unknown')}")
+            
+    except Exception as e:
+        logger.error(f"Error reading smart processor status: {e}", exc_info=True)
 # ---------------------------------------------------------
 
 # Token counter in top right corner is being moved below
@@ -271,17 +335,34 @@ with st.sidebar:
     st.header("🗃️ Vector Database")
     
     if st.button("🔄 Rebuild Vector Store", help="Force rebuild the vector embeddings database"):
-        with st.spinner("Clearing existing vector store..."):
-            # Force rebuild by clearing files and status
-            force_rebuild_embeddings(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
-            
-            # Clear from session state to trigger rebuild
-            if 'vector_store' in st.session_state:
-                del st.session_state.vector_store
-        
-        st.success("Vector store cleared! Rebuilding on next refresh...")
-        time.sleep(1)  # Brief pause to show the message
-        st.rerun()  # Trigger app rerun to rebuild vector store
+        with st.spinner("Rebuilding vector store..."):
+            try:
+                # Clear existing files
+                force_rebuild_embeddings(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+                
+                # Clear from session state and cache
+                if 'vector_store' in st.session_state:
+                    del st.session_state.vector_store
+                    
+                # Clear cached processor to force reinitialization
+                st.cache_resource.clear()
+                
+                # Force rebuild with smart processor
+                processor = SmartEmbeddingProcessor(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+                vector_store, stats = processor.process_dataframe(
+                    st.session_state.query_df,
+                    source_name="query_data",
+                    source_info=st.session_state.get('data_source_info', ''),
+                    force_rebuild=True
+                )
+                st.session_state.vector_store = vector_store
+                
+                st.success(f"✅ Rebuilt vector store with {stats['total_processed']} documents!")
+                st.info(f"⏱️ Processing time: {stats['processing_time']:.1f}s")
+                
+            except Exception as e:
+                st.error(f"❌ Error rebuilding vector store: {e}")
+                logger.error(f"Rebuild error: {e}", exc_info=True)
     
     # Token usage controls
     st.divider()
@@ -292,50 +373,68 @@ with st.sidebar:
         st.rerun()
     
     # Show model information
-    with st.expander("🏠 Local Model Info"):
+    with st.expander("🏠 Ollama Model Info"):
         st.markdown("""
-        **Current Model:** Phi3 (3.8B parameters)
+        **Current Model:** Phi3:3.8B via Ollama
         
-        - **Inference:** Local via Ollama
+        - **Inference:** Local Ollama service
         - **Cost:** Free (no API charges)
         - **Privacy:** All processing stays local
+        - **Performance:** Optimized for local hardware
         
         *Token counts are estimated based on text length.*
         """)
     
-    # Embedding Status Info
-    with st.expander("🔄 Embedding Status"):
-        # Check the status file directly
-        if os.path.exists(EMBEDDING_STATUS_PATH):
-            try:
-                with open(EMBEDDING_STATUS_PATH, 'r') as f:
-                    status = json.load(f)
-                    
-                    if status["is_complete"]:
-                        st.success(f"✅ All {status['total_queries']:,} queries embedded")
-                    elif status["background_task_running"]:
-                        progress = status["processed_queries"] / max(1, status["total_queries"])
-                        st.progress(progress, text=f"{status['processed_queries']:,}/{status['total_queries']:,}")
-                        st.info(f"⏳ Background processing active")
+    # Smart Processor Status Info  
+    with st.expander("🔄 Smart Embedding Status"):
+        try:
+            processor = get_smart_processor()
+            status = processor.get_processing_status()
+            
+            total_processed = status.get('total_processed', 0)
+            processed_sources = status.get('processed_sources', [])
+            
+            if total_processed > 0:
+                st.success(f"✅ {total_processed:,} documents embedded")
+                
+                # Show data sources
+                if processed_sources:
+                    st.markdown("**Data Sources:**")
+                    for source in processed_sources[-3:]:  # Show last 3 sources
+                        source_name = source.get('name', 'unknown')
+                        doc_count = source.get('document_count', 0)
+                        last_proc = source.get('last_processed', '')
                         
-                        # Show last update time
-                        if "last_updated" in status:
+                        try:
                             from datetime import datetime
-                            try:
-                                last_update = datetime.fromisoformat(status["last_updated"])
-                                st.caption(f"Last updated: {last_update.strftime('%H:%M:%S')}")
-                            except (ValueError, TypeError):
-                                pass
-                    else:
-                        if "error" in status and status["error"]:
-                            st.error(f"❌ Error: {status['error']}")
-                        else:
-                            st.warning(f"⚠️ Processing paused or incomplete")
-                            st.caption(f"Processed {status['processed_queries']:,}/{status['total_queries']:,} queries")
-            except Exception as e:
-                st.error(f"Error reading status file: {e}")
-        else:
-            st.info("No embedding status information available.")
+                            time_str = datetime.fromisoformat(last_proc).strftime('%Y-%m-%d %H:%M')
+                        except:
+                            time_str = last_proc[:16] if last_proc else 'unknown'
+                        
+                        st.caption(f"• {source_name}: {doc_count:,} docs ({time_str})")
+                
+                # Show vector store status
+                vector_exists = status.get('vector_store_exists', False)
+                if vector_exists:
+                    st.info("🗃️ Vector store ready for queries")
+                else:
+                    st.warning("⚠️ Vector store not found")
+                    
+            else:
+                st.info("No embeddings processed yet")
+                
+            # Show last update
+            last_updated = status.get('last_updated', '')
+            if last_updated:
+                try:
+                    from datetime import datetime
+                    update_time = datetime.fromisoformat(last_updated)
+                    st.caption(f"Last updated: {update_time.strftime('%H:%M:%S')}")
+                except:
+                    pass
+                    
+        except Exception as e:
+            st.error(f"Error reading smart processor status: {e}")
 
     # Show session statistics
     if 'token_usage' in st.session_state and st.session_state.token_usage:
@@ -344,13 +443,6 @@ with st.sidebar:
         st.metric("Total Tokens", f"{stats['total_tokens']:,}")
         st.metric("Total Queries", stats['query_count'])
 
-# Show progress indicator for background embedding generation
-if 'embedding_status' in st.session_state:
-    status = st.session_state.embedding_status
-    if not status['is_complete'] and status['background_task_running']:
-        progress_pct = status['processed_queries'] / max(1, status['total_queries'])
-        st.progress(progress_pct, text=f"Processing embeddings: {status['processed_queries']}/{status['total_queries']} queries")
-        st.caption(f"⚡ Background embedding in progress - you can still use the app while this completes")
 
 # --------------------------------------------------------------------------- #
 #  Main interaction
@@ -377,7 +469,7 @@ if PAGE == "🔎 Query Search":
                     add_token_usage(token_usage)
                     
             except Exception as exc:  # catch Ollama or other errors
-                st.error(f"❌ Ollama call failed: {exc}")
+                st.error(f"❌ Ollama Phi3 call failed: {exc}")
                 st.stop()
 
         # -------- Answer
@@ -397,7 +489,7 @@ if PAGE == "🔎 Query Search":
             
             with col2:
                 st.metric(
-                    label="🏠 Local Phi3",
+                    label="🏠 Ollama Phi3",
                     value="Free",
                     delta="No API costs"
                 )
@@ -635,7 +727,7 @@ else:
     # ------------------------------------------------------
 
     # Show queries from DataFrame stored in session state
-    st.subheader("📊 Queries from BigQuery")
+    st.subheader("📊 Local Test Queries")
     
     try:
         # Use DataFrame from session state

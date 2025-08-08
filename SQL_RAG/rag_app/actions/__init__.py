@@ -13,6 +13,12 @@ from .llm_interaction import (
     generate_answer_from_context,
     initialize_llm_client
 )
+from .ollama_llm_client import (
+    generate_answer_with_ollama,
+    initialize_ollama_client,
+    check_ollama_availability,
+    list_available_phi3_models
+)
 from .background_status import (
     BackgroundProcessingStatus
 )
@@ -30,6 +36,10 @@ __all__ = [
     "initialize_vector_store_with_background_processing",
     "generate_answer_from_context",
     "initialize_llm_client",
+    "generate_answer_with_ollama",
+    "initialize_ollama_client", 
+    "check_ollama_availability",
+    "list_available_phi3_models",
     "append_to_host_table",
     "BackgroundProcessingStatus"
 ]

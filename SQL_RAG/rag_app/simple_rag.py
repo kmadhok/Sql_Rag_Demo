@@ -10,7 +10,7 @@ import hashlib
 from datetime import datetime
 from enum import Enum
 from dataclasses import dataclass
-from actions import build_or_load_vector_store, _create_embedding_batch,_create_embeddings_parallel,generate_answer_from_context
+from actions import build_or_load_vector_store, _create_embedding_batch,_create_embeddings_parallel,generate_answer_with_ollama
 from actions.progressive_embeddings import build_progressive_vector_store
 from dotenv import load_dotenv, find_dotenv
 from langchain_ollama import OllamaEmbeddings
@@ -18,19 +18,10 @@ from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
 #from langchain_ollama import ChatOllama
-from google import genai  # Add this import
-
 import streamlit as st
 
 # Load .env regardless of current working directory
 #load_dotenv(find_dotenv(), override=False)
-
-# Initialize Google GenAI client
-genai_client = genai.Client(
-    vertexai=True,
-    project="wmt-dv-bq-analytics",
-    location="global",
-)
 
 class CSVChangeType(Enum):
     """Enum representing different types of CSV changes detected."""
@@ -104,8 +95,7 @@ class CSVMetadata:
 # Default paths - can be overridden by function parameters
 DEFAULT_DATA_DIR = pathlib.Path("~/Desktop/Test_SQL_Queries").expanduser().resolve()
 DEFAULT_INDEX_DIR = pathlib.Path(__file__).resolve().parent / "faiss_indices"
-#LLM_MODEL_NAME = "phi3.5:3.8b"  # Ollama Phi3 model
-GENAI_MODEL_NAME = "gemini-2.5-pro"  # Google GenAI model
+OLLAMA_MODEL_NAME = "phi3:3.8b"  # Local Ollama Phi3 model
 
 # Regex pattern for virtual environment detection
 # ENV_PATTERN = re.compile(r'.*(venv|env).*', re.IGNORECASE)
@@ -957,7 +947,8 @@ def _get_llm_client():
     
     No authentication required for local Ollama instance.
     """
-    return genai_client
+    from actions.ollama_llm_client import initialize_ollama_client
+    return initialize_ollama_client()
 
 def answer_question(
     query: str,
@@ -1008,43 +999,7 @@ def answer_question(
         [f"Source: {doc.metadata['source']}\n{doc.page_content}" for doc in retrieved_docs]
     )
 
-    answer_text, token_usage=generate_answer_from_context(query, context)
-    # prompt = (
-    #     "You are an expert SQL analyst helping answer questions about a retail analytics codebase. "
-    #     "Use ONLY the provided context to answer the user's question. If the answer is not contained "
-    #     "within the context, respond with 'I don't know based on the provided context.'\n\n"
-    #     f"Context:\n{context}\n\nUser question: {query}\n\nAnswer:"
-    # )
-
-    # client = _get_llm_client()
-
-    # Resilient call with simple exponential backoff
-    # retries = 3
-    # completion = None
-    # for attempt in range(1, retries + 1):
-    #     try:
-    #         response = client.models.generate_content(
-    #             model=GENAI_MODEL_NAME,
-    #             contents=prompt
-    #         )
-    #         answer_text = response.text.strip()
-            
-    #         # Estimate token usage (Google GenAI doesn't provide detailed counts)
-    #         prompt_tokens = len(prompt.split()) * 1.3  # Rough estimate
-    #         completion_tokens = len(answer_text.split()) * 1.3  # Rough estimate
-    #         token_usage = {
-    #             'prompt_tokens': int(prompt_tokens),
-    #             'completion_tokens': int(completion_tokens),
-    #             'total_tokens': int(prompt_tokens + completion_tokens),
-    #             'model': GENAI_MODEL_NAME
-    #         }
-    #         break  # success → exit loop
-    #     except Exception as exc:  # covers connection and other errors
-    #         if attempt == retries:
-    #             raise  # re-throw after last attempt
-    #         wait_secs = 2 ** attempt
-    #         print(f"Google GenAI API error ({exc}). Retrying in {wait_secs}s …")
-    #         time.sleep(wait_secs)
+    answer_text, token_usage = generate_answer_with_ollama(query, context, model_name=OLLAMA_MODEL_NAME)
 
 
     # Return based on flags

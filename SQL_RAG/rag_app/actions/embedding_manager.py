@@ -111,7 +111,9 @@ class EmbeddingManager:
         Returns:
             Tuple of (vector_store, documents)
         """
-        logger.info(f"Processing initial batch of {chunk_size} documents")
+        logger.info(f"Processing initial batch of {chunk_size} documents from DataFrame with {len(df)} total rows")
+        print(f"🔍 DataFrame columns: {list(df.columns)}")
+        print(f"🔍 DataFrame shape: {df.shape}")
         
         # Set status
         with self.lock:
@@ -127,17 +129,22 @@ class EmbeddingManager:
         
         # Process initial batch
         initial_batch = df.head(chunk_size)
+        print(f"🔍 Initial batch size: {len(initial_batch)} rows")
         documents = []
         
-        for _, row in initial_batch.iterrows():
-            query = row['query']
-            description = row.get('description', '')
+        print(f"🔄 Creating documents from initial batch...")
+        for i, (_, row) in enumerate(initial_batch.iterrows()):
+            if i % 10 == 0:  # Progress every 10 items
+                print(f"🔄 Processing document {i+1}/{len(initial_batch)}")
+                
+            query = row['query'] if 'query' in row else ''
+            description = row.get('description', '') if 'description' in df.columns else ''
             
             if pd.notna(query) and isinstance(query, str) and query.strip():
                 doc = Document(
                     page_content=f"SQL QUERY: {query}\n\nDESCRIPTION: {description}",
                     metadata={
-                        "source": str(row.get('query_id', 'unknown')),
+                        "source": str(row.get('query_id', f'row_{i}')),
                         "query": query,
                         "description": description
                     }
@@ -145,17 +152,55 @@ class EmbeddingManager:
                 documents.append(doc)
         
         logger.info(f"Created {len(documents)} documents from initial batch")
+        print(f"✅ Created {len(documents)} documents from initial batch")
         
         try:
             # Create vector store with initial documents
             if len(documents) > 0:
-                vector_store = FAISS.from_documents(documents, self.embedding_function)
+                print(f"🔄 Creating FAISS vector store with {len(documents)} documents...")
+                print(f"🔍 Using embedding function: {type(self.embedding_function).__name__}")
+                
+                start_embed = time.time()
+                
+                # Process in smaller batches to avoid Ollama timeouts
+                batch_size = 10
+                if len(documents) <= batch_size:
+                    # Small batch - process all at once
+                    vector_store = FAISS.from_documents(documents, self.embedding_function)
+                else:
+                    # Large batch - process in chunks
+                    print(f"🔄 Processing {len(documents)} documents in batches of {batch_size}...")
+                    
+                    # Create first batch
+                    first_batch = documents[:batch_size]
+                    vector_store = FAISS.from_documents(first_batch, self.embedding_function)
+                    print(f"✅ Created initial vector store with {len(first_batch)} documents")
+                    
+                    # Add remaining documents in batches
+                    remaining = documents[batch_size:]
+                    for i in range(0, len(remaining), batch_size):
+                        batch = remaining[i:i + batch_size]
+                        print(f"🔄 Adding batch {i//batch_size + 2}: {len(batch)} documents...")
+                        
+                        # Extract texts and metadata
+                        texts = [doc.page_content for doc in batch]
+                        metadatas = [doc.metadata for doc in batch]
+                        
+                        # Add to existing vector store
+                        vector_store.add_texts(texts=texts, metadatas=metadatas)
+                
+                embed_time = time.time() - start_embed
+                print(f"⏱️ FAISS creation took {embed_time:.1f} seconds")
                 
                 # Ensure directory exists
+                print(f"🔄 Saving vector store to {self.vector_store_path}")
                 self.vector_store_path.mkdir(parents=True, exist_ok=True)
                 
                 # Save vector store
+                start_save = time.time()
                 vector_store.save_local(str(self.vector_store_path))
+                save_time = time.time() - start_save
+                print(f"⏱️ Vector store save took {save_time:.1f} seconds")
                 logger.info(f"Saved vector store to {self.vector_store_path}")
                 
                 # Update status
@@ -164,6 +209,7 @@ class EmbeddingManager:
                     self.status["vector_store_exists"] = True
                     self._save_status()
                 
+                print(f"✅ Vector store created and saved successfully!")
                 return vector_store, documents
             else:
                 logger.warning("No valid documents found in initial batch")

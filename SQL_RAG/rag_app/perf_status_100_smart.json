@@ -1,0 +1,15 @@
+{
+  "processed_sources": [
+    {
+      "name": "perf_test_100",
+      "hash": "4fb9a280ca2406ddd5f9046146cd6ed2",
+      "row_count": 100,
+      "document_count": 100,
+      "last_processed": "2025-08-07T21:28:49.157406",
+      "source_info": "performance_test_100_docs"
+    }
+  ],
+  "last_updated": "2025-08-07T21:28:49.157420",
+  "total_processed": 100,
+  "vector_store_exists": true
+}

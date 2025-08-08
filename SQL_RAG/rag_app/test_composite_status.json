@@ -1,0 +1,15 @@
+{
+  "processed_sources": [
+    {
+      "name": "composite_test",
+      "hash": "03248bf63f9a1d8ce8106b1f39748dd7",
+      "row_count": 3,
+      "document_count": 3,
+      "last_processed": "2025-08-07T21:27:06.083433",
+      "source_info": "composite_fields_test"
+    }
+  ],
+  "last_updated": "2025-08-07T21:27:06.083445",
+  "total_processed": 3,
+  "vector_store_exists": true
+}
