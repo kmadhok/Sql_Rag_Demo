@@ -51,6 +51,7 @@ os.makedirs(VECTOR_STORE_PATH, exist_ok=True)
 from simple_rag import answer_question  # noqa: E402  (after sys.path tweak)
 # from actions import append_to_host_table  # Commented out for local testing
 from smart_embedding_processor import SmartEmbeddingProcessor
+from windows_embedding_processor import get_embedding_processor
 from data_source_manager import DataSourceManager, load_data_with_fallback
 from actions.rebuild_embeddings import force_rebuild_embeddings
 from langchain_ollama import OllamaEmbeddings
@@ -63,11 +64,71 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize smart embedding processor once (using st.cache_resource for persistence)
+# Initialize embedding processor with automatic Windows detection (using st.cache_resource for persistence)
 @st.cache_resource
 def get_smart_processor():
-    """Get or create the smart embedding processor singleton"""
-    return SmartEmbeddingProcessor(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+    """Get or create the cross-platform embedding processor singleton"""
+    import platform
+    from pathlib import Path
+    
+    if platform.system() == 'Windows':
+        # Use Windows-compatible processor with adapter for interface compatibility
+        logger.info("🖥️ Windows system detected - using compatible embedding processor")
+        
+        # Create a Windows processor adapter that matches SmartEmbeddingProcessor interface
+        class WindowsProcessorAdapter:
+            def __init__(self, vector_store_path, status_file_path):
+                self.vector_store_path = Path(vector_store_path)
+                self.status_file_path = Path(status_file_path)
+                self.windows_processor = get_embedding_processor(
+                    initial_batch_size=100,
+                    chunk_size=1000,
+                    chunk_overlap=150
+                )
+            
+            def load_existing_vector_store(self):
+                """Load existing vector store if available"""
+                # Check for existing FAISS indices in the directory
+                for index_dir in self.vector_store_path.glob("index_*"):
+                    if index_dir.is_dir():
+                        try:
+                            from langchain_ollama import OllamaEmbeddings
+                            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+                            vector_store = FAISS.load_local(
+                                str(index_dir), 
+                                embeddings, 
+                                allow_dangerous_deserialization=True
+                            )
+                            logger.info(f"✅ Loaded existing Windows vector store from {index_dir}")
+                            return vector_store
+                        except Exception as e:
+                            logger.warning(f"Could not load existing store: {e}")
+                return None
+            
+            def process_dataframe(self, df, source_name, source_info, initial_batch_size=100):
+                """Process dataframe with Windows compatibility"""
+                def progress_callback(message):
+                    logger.info(message)
+                
+                vector_store = self.windows_processor.process_embeddings(
+                    df, source_name, source_info, progress_callback
+                )
+                
+                # Return stats compatible with original interface
+                stats = {
+                    'cache_hit': False,  # Windows processor always processes
+                    'new_documents': len(df),
+                    'total_documents': len(vector_store.docstore._dict),
+                    'processing_time': 0  # Would need to track separately
+                }
+                
+                return vector_store, stats
+        
+        return WindowsProcessorAdapter(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
+    else:
+        # Use original processor for non-Windows systems
+        logger.info("🐧 Non-Windows system detected - using standard embedding processor")
+        return SmartEmbeddingProcessor(VECTOR_STORE_PATH, EMBEDDING_STATUS_PATH)
 
 # Load environment variables from any .env up the tree
 load_dotenv(find_dotenv(), override=False)
