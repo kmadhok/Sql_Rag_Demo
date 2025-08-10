@@ -950,6 +950,133 @@ def _get_llm_client():
     from actions.ollama_llm_client import initialize_ollama_client
     return initialize_ollama_client()
 
+def _deduplicate_chunks(docs: List, similarity_threshold: float = 0.8) -> List:
+    """Remove highly similar chunks to avoid redundant context."""
+    if len(docs) <= 1:
+        return docs
+    
+    filtered_docs = []
+    
+    for doc in docs:
+        is_duplicate = False
+        doc_content = doc.page_content.lower()
+        
+        for existing_doc in filtered_docs:
+            existing_content = existing_doc.page_content.lower()
+            
+            # Simple similarity check based on common words
+            doc_words = set(doc_content.split())
+            existing_words = set(existing_content.split())
+            
+            if doc_words and existing_words:
+                intersection = len(doc_words & existing_words)
+                union = len(doc_words | existing_words)
+                jaccard_similarity = intersection / union if union > 0 else 0
+                
+                if jaccard_similarity > similarity_threshold:
+                    is_duplicate = True
+                    break
+        
+        if not is_duplicate:
+            filtered_docs.append(doc)
+    
+    return filtered_docs
+
+def _prioritize_diverse_content(docs: List, query: str) -> List:
+    """Prioritize diverse content types for comprehensive context."""
+    # Group by content type indicators
+    join_docs = [doc for doc in docs if 'join' in doc.page_content.lower()]
+    aggregation_docs = [doc for doc in docs if any(keyword in doc.page_content.lower() 
+                                                   for keyword in ['group by', 'count', 'sum', 'avg'])]
+    description_docs = [doc for doc in docs if doc.metadata.get('description')]
+    other_docs = [doc for doc in docs if doc not in join_docs + aggregation_docs + description_docs]
+    
+    # Ensure diversity by taking from different categories
+    diverse_docs = []
+    for doc_list in [join_docs, aggregation_docs, description_docs, other_docs]:
+        diverse_docs.extend(doc_list[:len(docs)//4 + 1])  # Take portion from each category
+    
+    # Remove duplicates while preserving order
+    seen_sources = set()
+    final_docs = []
+    for doc in diverse_docs:
+        source_id = f"{doc.metadata.get('source', '')}_{doc.metadata.get('chunk', '')}"
+        if source_id not in seen_sources:
+            seen_sources.add(source_id)
+            final_docs.append(doc)
+    
+    return final_docs
+
+def _build_enhanced_context(docs: List, query: str, max_tokens: int = 800000) -> str:
+    """Build enhanced context optimized for large context windows like Gemini's."""
+    if not docs:
+        return ""
+    
+    # Estimate tokens (rough approximation: 4 chars = 1 token)
+    def estimate_tokens(text):
+        return len(text) // 4
+    
+    query_tokens = estimate_tokens(query)
+    available_tokens = max_tokens - query_tokens - 10000  # Reserve for response
+    
+    context_parts = []
+    used_tokens = 0
+    
+    # Add query context first
+    context_parts.append(f"Query: {query}\n")
+    context_parts.append("="*50 + "\n")
+    
+    # Group documents by type for better organization
+    docs_with_descriptions = [doc for doc in docs if doc.metadata.get('description')]
+    docs_without_descriptions = [doc for doc in docs if not doc.metadata.get('description')]
+    
+    # Process docs with descriptions first (higher quality)
+    for doc in docs_with_descriptions:
+        description = doc.metadata.get('description', '')
+        tables = doc.metadata.get('table', '') or doc.metadata.get('tables', '')
+        joins = doc.metadata.get('joins', '')
+        
+        # Build enhanced chunk with metadata
+        chunk_content = f"Source: {doc.metadata.get('source', 'Unknown')}\n"
+        
+        if description:
+            chunk_content += f"Description: {description}\n"
+        if tables:
+            chunk_content += f"Tables: {tables}\n"
+        if joins:
+            chunk_content += f"Joins: {joins}\n"
+        
+        chunk_content += f"SQL Query:\n{doc.page_content}\n"
+        chunk_content += "-" * 40 + "\n\n"
+        
+        chunk_tokens = estimate_tokens(chunk_content)
+        
+        if used_tokens + chunk_tokens > available_tokens:
+            break
+        
+        context_parts.append(chunk_content)
+        used_tokens += chunk_tokens
+    
+    # Add remaining docs if space allows
+    for doc in docs_without_descriptions:
+        chunk_content = f"Source: {doc.metadata.get('source', 'Unknown')}\n"
+        chunk_content += f"SQL Query:\n{doc.page_content}\n"
+        chunk_content += "-" * 40 + "\n\n"
+        
+        chunk_tokens = estimate_tokens(chunk_content)
+        
+        if used_tokens + chunk_tokens > available_tokens:
+            break
+            
+        context_parts.append(chunk_content)
+        used_tokens += chunk_tokens
+    
+    # Add summary footer
+    context_parts.append(f"\nTotal Context: {len([p for p in context_parts if 'Source:' in p])} relevant SQL examples")
+    context_parts.append(f"Estimated tokens used: {used_tokens:,}")
+    
+    return "".join(context_parts)
+
 def answer_question(
     query: str,
     vector_store: FAISS = None,
@@ -961,7 +1088,8 @@ def answer_question(
     index_directory: pathlib.Path = None,
     csv_path: Optional[Union[str, pathlib.Path]] = None,
     batch_size: int = 100,
-    max_workers: int = 8
+    max_workers: int = 8,
+    gemini_mode: bool = False
 ):
     """Answer a user question using Retrieval-Augmented Generation.
 
@@ -976,6 +1104,7 @@ def answer_question(
         csv_path: Path to CSV file with 'query' column (if vector_store is None and CSV mode desired).
         batch_size: Number of documents to process per batch for parallel processing (default: 100).
         max_workers: Maximum number of parallel workers (default: 4).
+        gemini_mode: Whether to optimize for Gemini's large context window (default: False).
 
     Returns:
         The LLM-generated answer leveraging retrieved context.
@@ -992,12 +1121,24 @@ def answer_question(
             batch_size=batch_size,
             max_workers=max_workers
         )
+    
     # Retrieve relevant context from the provided vector store
     retrieved_docs = vector_store.similarity_search(query, k=k)
-
-    context = "\n\n".join(
-        [f"Source: {doc.metadata['source']}\n{doc.page_content}" for doc in retrieved_docs]
-    )
+    
+    # Apply smart context optimization for large context windows
+    if gemini_mode or k > 20:
+        # For large context windows, apply deduplication and diversity
+        retrieved_docs = _deduplicate_chunks(retrieved_docs, similarity_threshold=0.7)
+        retrieved_docs = _prioritize_diverse_content(retrieved_docs, query)
+        
+        # Use enhanced context building
+        max_tokens = 1000000 if gemini_mode else 100000  # Gemini vs other models
+        context = _build_enhanced_context(retrieved_docs, query, max_tokens)
+    else:
+        # Simple context building for smaller models
+        context = "\n\n".join(
+            [f"Source: {doc.metadata['source']}\n{doc.page_content}" for doc in retrieved_docs]
+        )
 
     answer_text, token_usage = generate_answer_with_ollama(query, context, model_name=OLLAMA_MODEL_NAME)
 

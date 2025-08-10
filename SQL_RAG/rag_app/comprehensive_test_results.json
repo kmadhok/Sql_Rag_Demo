@@ -1,0 +1,471 @@
+{
+  "FAISS Indices Integrity": {
+    "indices_found": [
+      "index_bigquery_data",
+      "root_index",
+      "index_csv_simple_queries",
+      "index_Desktop_Test_SQL_Queries",
+      "index_csv_sample_queries"
+    ],
+    "indices_loaded": [
+      "index_bigquery_data",
+      "root_index",
+      "index_csv_simple_queries",
+      "index_Desktop_Test_SQL_Queries",
+      "index_csv_sample_queries"
+    ],
+    "document_counts": {
+      "index_bigquery_data": 3104,
+      "root_index": 1038,
+      "index_csv_simple_queries": 6,
+      "index_Desktop_Test_SQL_Queries": 22,
+      "index_csv_sample_queries": 100
+    },
+    "errors": []
+  },
+  "CSV Data Validation": {
+    "csv_files_found": [
+      "/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/queries_with_descriptions.csv",
+      "/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/sample_queries_v1.csv",
+      "/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/sample_test.csv"
+    ],
+    "data_quality": {
+      "queries_with_descriptions.csv": {
+        "total_rows": 100,
+        "empty_queries": "0",
+        "empty_descriptions": "0",
+        "has_table_info": 0,
+        "has_join_info": 0,
+        "avg_query_length": 89.08
+      },
+      "sample_queries_v1.csv": {
+        "total_rows": 5,
+        "empty_queries": "0",
+        "empty_descriptions": "0",
+        "has_table_info": 0,
+        "has_join_info": 0,
+        "avg_query_length": 307.8
+      },
+      "sample_test.csv": {
+        "total_rows": 1038,
+        "empty_queries": "0",
+        "empty_descriptions": 0,
+        "has_table_info": 0,
+        "has_join_info": 0,
+        "avg_query_length": 91.92581888246629
+      }
+    },
+    "schema_validation": {
+      "queries_with_descriptions.csv": {
+        "columns": [
+          "query",
+          "description",
+          "tables_present",
+          "joins_present"
+        ],
+        "required_columns_present": {
+          "query": true,
+          "description": true,
+          "table": false,
+          "joins": false
+        },
+        "row_count": 100
+      },
+      "sample_queries_v1.csv": {
+        "columns": [
+          "query",
+          "description"
+        ],
+        "required_columns_present": {
+          "query": true,
+          "description": true,
+          "table": false,
+          "joins": false
+        },
+        "row_count": 5
+      },
+      "sample_test.csv": {
+        "columns": [
+          "query"
+        ],
+        "required_columns_present": {
+          "query": true,
+          "description": false,
+          "table": false,
+          "joins": false
+        },
+        "row_count": 1038
+      }
+    },
+    "errors": []
+  },
+  "Ollama Integration": {
+    "ollama_available": false,
+    "models_available": {
+      "nomic-embed-text": true
+    },
+    "embedding_test": true,
+    "errors": [
+      "Ollama check failed: cannot import name 'genai' from 'google' (unknown location)"
+    ]
+  },
+  "Similarity Search Quality": {
+    "vector_stores_tested": [
+      "index_csv_sample_queries"
+    ],
+    "search_results": {
+      "How to join customer and orders tables?": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.order_id, t1.status, t1.order_date, COUNT(t2.city) as count_city FROM orders t1 INNER JOIN locations t2 ON t1.customer_id = t2.location_id GROUP BY t1.order_id, t1.status, t1.order_date ORDE",
+            "metadata": {
+              "source": "csv_row_6",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 6,
+              "description": "This SQL query retrieves the order ID, status, and date for each order from the 'orders' table (t1), along with a count of cities associated with each order from the 'locations' table (t2). It groups results by order ID, status, and date, then sorts them in ascending order based on the number of unique cities linked to each order.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_customer",
+              "contains_table_references"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.order_date, t1.order_id, t1.status, MIN(t2.unit_price) as min_unit_price FROM orders t1 RIGHT JOIN products t2 ON t1.customer_id = t2.category_id GROUP BY t1.order_date, t1.order_id, t1.stat",
+            "metadata": {
+              "source": "csv_row_51",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 51,
+              "description": "This SQL query retrieves the order date, order ID, and status from orders table (t1) along with the minimum unit price of products associated with each order by joining it with the products table (t2) based on customer IDs matching product categories. The results are grouped by order date, order ID, and status, sorted in ascending order by status.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_customer",
+              "contains_table_references"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.inventory_id, t1.movement_id, SUM(t2.city) as sum_city FROM inventory_movements t1 LEFT JOIN customers t2 ON t1.inventory_id = t2.customer_id GROUP BY t1.inventory_id, t1.movement_id ORDER B",
+            "metadata": {
+              "source": "csv_row_76",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 76,
+              "description": "This SQL query retrieves the total number of cities associated with each inventory movement by joining the 'inventory_movements' and 'customers' tables on their respective IDs. It groups the results by inventory ID and movement ID, then orders them in ascending order based on the summed city count.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_customer",
+              "contains_table_references"
+            ]
+          }
+        ]
+      },
+      "Show me queries with multiple table joins": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.product_id, t1.stock, COUNT(t2.category_name) as count_category_name FROM products t1 LEFT JOIN categories t2 ON t1.category_id = t2.category_id GROUP BY t1.product_id, t1.stock ORDER BY cou",
+            "metadata": {
+              "source": "csv_row_8",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 8,
+              "description": "This SQL query retrieves the product ID and stock quantity from the \"products\" table, along with a count of distinct category names associated with each product (from the \"categories\" table), then groups the results by product ID and stock quantity. The output is sorted in descending order based on the number of categories per product. This helps to identify products that belong to multiple categories or have high diversity in their categorization, which could be useful for inventory management or marketing strategies.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_table_references"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.price, t1.product_id, COUNT(t2.unit_price) as count_unit_price FROM sales t1 RIGHT JOIN products t2 ON t1.product_id = t2.product_id GROUP BY t1.price, t1.product_id ORDER BY count_unit_pric",
+            "metadata": {
+              "source": "csv_row_15",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 15,
+              "description": "This SQL query retrieves the price and product ID from the 'sales' table (t1), along with a count of distinct unit prices associated with each product in the 'products' table (t2). It groups the results by price and product ID, then orders them in descending order based on the count of unique unit prices.\n\nKey tables: sales (t1), products (t2)\nMetrics: Price, Product ID, Count of distinct Unit Prices",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_table_references"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.order_id, t1.status, t1.order_date, COUNT(t2.city) as count_city FROM orders t1 INNER JOIN locations t2 ON t1.customer_id = t2.location_id GROUP BY t1.order_id, t1.status, t1.order_date ORDE",
+            "metadata": {
+              "source": "csv_row_6",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 6,
+              "description": "This SQL query retrieves the order ID, status, and date for each order from the 'orders' table (t1), along with a count of cities associated with each order from the 'locations' table (t2). It groups results by order ID, status, and date, then sorts them in ascending order based on the number of unique cities linked to each order.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join",
+              "contains_table_references"
+            ]
+          }
+        ]
+      },
+      "Find examples of LEFT JOIN operations": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.first_name, t1.employee_id, MIN(t2.state) as min_state FROM employees t1 LEFT JOIN locations t2 ON t1.employee_id = t2.location_id GROUP BY t1.first_name, t1.employee_id ORDER BY min_state A",
+            "metadata": {
+              "source": "csv_row_21",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 21,
+              "description": "This SQL query retrieves the first name and employee ID of each employee along with their earliest recorded state from a locations table, grouping results by both first name and employee ID, and orders them in ascending order based on the minimum state value. The key tables involved are 'employees' and 'locations'.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.payment_id, t1.payment_date, t1.amount, SUM(t2.order_date) as sum_order_date FROM payments t1 LEFT JOIN orders t2 ON t1.order_id = t2.order_id GROUP BY t1.payment_id, t1.payment_date, t1.amo",
+            "metadata": {
+              "source": "csv_row_13",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 13,
+              "description": "This SQL query retrieves payment information (payment ID, date, and amount) from the payments table and calculates the total order dates for each payment by joining with the orders table on order IDs. It groups results by payment details and sorts them in descending order based on the sum of order dates associated with each payment.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.payment_date, t1.order_id, MIN(t2.movement_type) as min_movement_type FROM payments t1 LEFT JOIN inventory_movements t2 ON t1.payment_id = t2.inventory_id GROUP BY t1.payment_date, t1.order_",
+            "metadata": {
+              "source": "csv_row_31",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 31,
+              "description": "This SQL query retrieves the payment date and order ID for each payment, along with the earliest movement type (either 'IN' or 'OUT') associated with that payment from inventory movements, grouped by payment date and order ID. The results are ordered in descending order based on the earliest movement type.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_join"
+            ]
+          }
+        ]
+      },
+      "What are the common aggregation patterns?": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.preferred_contact_method, t1.customer_id, t1.phone, AVG(t2.amount) as avg_amount FROM customer_contacts t1 INNER JOIN orders t2 ON t1.customer_id = t2.customer_id GROUP BY t1.preferred_conta",
+            "metadata": {
+              "source": "csv_row_47",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 47,
+              "description": "This SQL query retrieves the preferred contact method, customer ID, and phone number from the 'customer_contacts' table, along with the average order amount per customer grouped by their preferred contact method, and sorts the results in descending order based on the average order amount. It aims to analyze customers' spending habits segmented by their chosen communication preferences.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.category_id, t1.stock, AVG(t2.return_date) as avg_return_date FROM products t1 LEFT JOIN return_orders t2 ON t1.product_id = t2.order_id GROUP BY t1.category_id, t1.stock ORDER BY avg_return",
+            "metadata": {
+              "source": "csv_row_96",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 96,
+              "description": "This SQL query retrieves the average return date and stock levels for each product category by joining products table with a returns orders table on their respective IDs. The results are grouped by category ID and stock level, then ordered in descending order based on the calculated average return date.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.product_id, t1.stock, COUNT(t2.category_name) as count_category_name FROM products t1 LEFT JOIN categories t2 ON t1.category_id = t2.category_id GROUP BY t1.product_id, t1.stock ORDER BY cou",
+            "metadata": {
+              "source": "csv_row_8",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 8,
+              "description": "This SQL query retrieves the product ID and stock quantity from the \"products\" table, along with a count of distinct category names associated with each product (from the \"categories\" table), then groups the results by product ID and stock quantity. The output is sorted in descending order based on the number of categories per product. This helps to identify products that belong to multiple categories or have high diversity in their categorization, which could be useful for inventory management or marketing strategies.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          }
+        ]
+      },
+      "Show customer analysis queries": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.stock, t1.category_id, COUNT(t2.phone) as count_phone FROM products t1 LEFT JOIN customer_contacts t2 ON t1.category_id = t2.contact_id GROUP BY t1.stock, t1.category_id ORDER BY count_phone",
+            "metadata": {
+              "source": "csv_row_37",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 37,
+              "description": "This SQL query retrieves the stock and category ID of products from the 'products' table, along with a count of associated phone numbers in the 'customer_contacts' table, grouping by product stock and category ID. It orders the results by the number of related phone contacts in descending order to identify popular products or categories based on customer contact information.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_customer"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.unit_price, t1.category_id, t1.product_id, SUM(t2.phone) as sum_phone FROM products t1 LEFT JOIN customer_contacts t2 ON t1.category_id = t2.customer_id GROUP BY t1.unit_price, t1.category_i",
+            "metadata": {
+              "source": "csv_row_41",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 41,
+              "description": "This SQL query retrieves the unit price, category ID, and product ID of products from the 'products' table, along with the total phone numbers associated with each product (from the 'customer_contacts' table), grouped by these attributes. It orders the results in descending order based on the sum of phone numbers for each product.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_customer"
+            ]
+          },
+          {
+            "content_preview": "SELECT t1.preferred_contact_method, t1.customer_id, t1.phone, AVG(t2.amount) as avg_amount FROM customer_contacts t1 INNER JOIN orders t2 ON t1.customer_id = t2.customer_id GROUP BY t1.preferred_conta",
+            "metadata": {
+              "source": "csv_row_47",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 47,
+              "description": "This SQL query retrieves the preferred contact method, customer ID, and phone number from the 'customer_contacts' table, along with the average order amount per customer grouped by their preferred contact method, and sorts the results in descending order based on the average order amount. It aims to analyze customers' spending habits segmented by their chosen communication preferences.",
+              "chunk": 0
+            },
+            "relevance_indicators": [
+              "contains_customer"
+            ]
+          }
+        ]
+      },
+      "Find inventory management queries": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.last_name, t1.department_id, t1.hire_date, COUNT(*) as count_stock_level FROM employees t1 RIGHT JOIN inventory t2 ON t1.department_id = t2.inventory_id GROUP BY t1.last_name, t1.department_",
+            "metadata": {
+              "source": "csv_row_91",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 91,
+              "description": "This SQL query retrieves the last name, department ID, and hire date of employees from the 'employees' table, along with a count of their associated inventory items in the 'inventory' table (if any), grouped by employee details and sorted by most recent hire date. It helps to analyze stock levels per employee across departments over time.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.customer_id, t1.city, COUNT(*) as count_last_updated FROM customers t1 RIGHT JOIN inventory t2 ON t1.customer_id = t2.warehouse_id GROUP BY t1.customer_id, t1.city ORDER BY count_last_update",
+            "metadata": {
+              "source": "csv_row_65",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 65,
+              "description": "This query retrieves a list of customer IDs and cities from the customers table (t1), along with the total number of times each city's data was updated in the inventory table (t2). It orders the results by the frequency of updates, showing which locations have had the most recent changes.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.status, t1.customer_id, MIN(t2.stock_level) as min_stock_level FROM orders t1 LEFT JOIN inventory t2 ON t1.customer_id = t2.warehouse_id GROUP BY t1.status, t1.customer_id ORDER BY min_stock",
+            "metadata": {
+              "source": "csv_row_98",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 98,
+              "description": "This SQL query retrieves the minimum stock level for each customer's order status and customer ID by joining orders (t1) with inventory (t2) on matching warehouse IDs, grouping the results by status and customer ID, and ordering them in descending order based on the lowest stock levels. The key metrics are the order status, customer ID, and minimum stock level for each group.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          }
+        ]
+      },
+      "Get transaction data examples": {
+        "num_results": 3,
+        "results": [
+          {
+            "content_preview": "SELECT t1.payment_id, t1.amount, t1.order_id, SUM(t2.movement_date) as sum_movement_date FROM payments t1 LEFT JOIN inventory_movements t2 ON t1.order_id = t2.movement_id GROUP BY t1.payment_id, t1.am",
+            "metadata": {
+              "source": "csv_row_86",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 86,
+              "description": "This SQL query retrieves payment details (payment ID, amount, and order ID) from the payments table, along with the total count of inventory movement dates associated with each payment's corresponding order by joining it with the inventory movements table. The results are grouped by payment ID, amount, and order ID, and ordered in descending order based on the sum of movement dates for each payment.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.payment_date, t1.order_id, MIN(t2.movement_type) as min_movement_type FROM payments t1 LEFT JOIN inventory_movements t2 ON t1.payment_id = t2.inventory_id GROUP BY t1.payment_date, t1.order_",
+            "metadata": {
+              "source": "csv_row_31",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 31,
+              "description": "This SQL query retrieves the payment date and order ID for each payment, along with the earliest movement type (either 'IN' or 'OUT') associated with that payment from inventory movements, grouped by payment date and order ID. The results are ordered in descending order based on the earliest movement type.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          },
+          {
+            "content_preview": "SELECT t1.movement_id, t1.movement_date, SUM(t2.carrier) as sum_carrier FROM inventory_movements t1 RIGHT JOIN shipments t2 ON t1.movement_id = t2.shipment_id GROUP BY t1.movement_id, t1.movement_date",
+            "metadata": {
+              "source": "csv_row_81",
+              "file_type": "csv_query",
+              "csv_file": "sample_queries.csv",
+              "row_number": 81,
+              "description": "This SQL query retrieves the movement ID and date for each inventory movement, along with the total carrier count (sum of carriers) from shipments related to that movement. It groups the results by movement ID and date, displaying them in descending order based on the movement date. The key tables involved are 'inventory_movements' and 'shipments'.",
+              "chunk": 0
+            },
+            "relevance_indicators": []
+          }
+        ]
+      }
+    },
+    "relevance_scores": {
+      "How to join customer and orders tables?": 3.0,
+      "Show me queries with multiple table joins": 2.0,
+      "Find examples of LEFT JOIN operations": 1.0,
+      "What are the common aggregation patterns?": 0.0,
+      "Show customer analysis queries": 1.0,
+      "Find inventory management queries": 0.0,
+      "Get transaction data examples": 0.0
+    },
+    "errors": []
+  },
+  "Metadata Preservation": {
+    "metadata_fields_found": "{'csv_file', 'file_type', 'source', 'row_number', 'chunk', 'description'}",
+    "table_info_preserved": true,
+    "join_info_preserved": true,
+    "sample_metadata": {
+      "source": "csv_row_1",
+      "file_type": "csv_query",
+      "csv_file": "sample_queries.csv",
+      "row_number": 1,
+      "description": "This SQL query retrieves each category's ID and description from the 'categories' table along with a count of associated customer contacts (indicating potential email communications) in the 'customer_contacts' table. It groups results by category, orders them by ascending contact counts, and may help identify categories with fewer or no email interactions.",
+      "chunk": 0
+    },
+    "errors": []
+  },
+  "End-to-End Pipeline": {
+    "pipeline_components": {},
+    "query_processing": {},
+    "response_quality": {},
+    "errors": [
+      "End-to-end pipeline test failed: cannot import name 'genai' from 'google' (unknown location)"
+    ]
+  }
+}

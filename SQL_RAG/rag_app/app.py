@@ -161,6 +161,31 @@ def add_token_usage(token_usage: dict):
         st.session_state.token_usage = []
     st.session_state.token_usage.append(token_usage)
 
+def estimate_token_count(text: str) -> int:
+    """Rough estimation of token count (4 chars ≈ 1 token)."""
+    return len(text) // 4
+
+def calculate_context_utilization(docs: list, query: str) -> dict:
+    """Calculate context utilization for Gemini's 1M token window."""
+    GEMINI_MAX_TOKENS = 1000000  # 1M token context window
+    
+    # Estimate tokens
+    query_tokens = estimate_token_count(query)
+    context_tokens = sum(estimate_token_count(doc.page_content) for doc in docs)
+    total_input_tokens = query_tokens + context_tokens
+    
+    # Calculate utilization
+    utilization_percent = (total_input_tokens / GEMINI_MAX_TOKENS) * 100
+    
+    return {
+        'query_tokens': query_tokens,
+        'context_tokens': context_tokens,
+        'total_input_tokens': total_input_tokens,
+        'utilization_percent': min(utilization_percent, 100),  # Cap at 100%
+        'chunks_used': len(docs),
+        'avg_tokens_per_chunk': context_tokens / len(docs) if docs else 0
+    }
+
 def display_session_usage():
     """Displays the session token usage information."""
     stats = get_session_token_stats()
@@ -384,10 +409,22 @@ def _format_snippet(text: str, suffix: str) -> str:
 # --------------------------------------------------------------------------- #
 with st.sidebar:
     st.header("⚙️  Settings")
-    k = st.slider("Top-K chunks", min_value=1, max_value=10, value=4)
+    
+    # Add Gemini mode toggle
+    gemini_mode = st.checkbox("🔥 Gemini Mode", value=False, 
+                             help="Utilize Gemini's 1M context window with many more chunks")
+    
+    if gemini_mode:
+        k = st.slider("Top-K chunks", min_value=10, max_value=200, value=100,
+                     help="Gemini can handle 100+ chunks efficiently")
+        st.success("🚀 Gemini Mode: Using large context window")
+    else:
+        k = st.slider("Top-K chunks", min_value=1, max_value=20, value=4,
+                     help="Conservative mode for smaller models")
+    
     st.markdown(
         """
-        _Tip: larger K means more context but slightly slower & wordier answers._
+        _Tip: Gemini Mode leverages the 1M token context window for comprehensive answers._
         """
     )
     
@@ -522,7 +559,8 @@ if PAGE == "🔎 Query Search":
                     vector_store=st.session_state.vector_store,
                     k=k,
                     return_docs=True,
-                    return_tokens=True
+                    return_tokens=True,
+                    gemini_mode=gemini_mode
                 )
                 
                 # Track token usage
@@ -537,13 +575,74 @@ if PAGE == "🔎 Query Search":
         st.subheader("📜 Answer")
         st.write(answer)
         
-        # -------- Token Usage for this query
+        # -------- Context Utilization Metrics
+        if docs:
+            context_stats = calculate_context_utilization(docs, query)
+            
+            # Display context utilization with color-coded progress bar
+            utilization = context_stats['utilization_percent']
+            
+            # Color coding based on utilization
+            if utilization < 10:
+                color = "🔴"  # Very low utilization
+                status = "Low utilization - consider increasing K for better results"
+            elif utilization < 50:
+                color = "🟡"  # Moderate utilization
+                status = "Moderate utilization - could use more context"
+            else:
+                color = "🟢"  # Good utilization
+                status = "Good context utilization"
+            
+            st.subheader(f"{color} Context Utilization")
+            
+            # Progress bar for context utilization
+            st.progress(min(utilization / 100, 1.0))
+            
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    label="📊 Context Usage",
+                    value=f"{utilization:.1f}%",
+                    delta=f"{context_stats['total_input_tokens']:,} tokens",
+                    help="Percentage of Gemini's 1M token context window used"
+                )
+            
+            with col2:
+                st.metric(
+                    label="📚 Chunks Retrieved", 
+                    value=context_stats['chunks_used'],
+                    delta=f"~{context_stats['avg_tokens_per_chunk']:.0f} tokens/chunk",
+                    help="Number of relevant chunks retrieved from vector store"
+                )
+            
+            with col3:
+                if gemini_mode:
+                    remaining_tokens = 1000000 - context_stats['total_input_tokens']
+                    st.metric(
+                        label="🚀 Remaining Capacity",
+                        value=f"{remaining_tokens:,}",
+                        delta="tokens available",
+                        help="Additional tokens available in Gemini's context window"
+                    )
+                else:
+                    st.metric(
+                        label="🏠 Local Model",
+                        value="Ollama Phi3",
+                        delta="No token limits",
+                        help="Using local model with flexible context"
+                    )
+            
+            st.caption(f"💡 {status}")
+        
+        # -------- Token Usage for this query (original metrics)
         if token_usage:
+            st.divider()
             col1, col2 = st.columns(2)
             
             with col1:
                 st.metric(
-                    label="🪙 Tokens Used",
+                    label="🪙 Response Tokens",
                     value=f"{token_usage['total_tokens']:,}",
                     delta=f"In: {token_usage['prompt_tokens']:,} | Out: {token_usage['completion_tokens']:,}"
                 )
