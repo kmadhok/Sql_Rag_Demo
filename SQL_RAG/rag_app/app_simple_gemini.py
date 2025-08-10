@@ -24,6 +24,7 @@ import time
 import logging
 import re
 import json
+import os
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
 CSV_PATH = Path(__file__).parent / "queries_with_descriptions (1).csv"  # CSV data source
+CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
 
 # Streamlit page config
 st.set_page_config(
@@ -144,7 +146,38 @@ def load_csv_data() -> Optional[pd.DataFrame]:
             st.error(f"❌ CSV file not found: {CSV_PATH}")
             return None
         
-        # Load CSV with safe handling of missing values
+        # Try to load optimized DataFrame first (if analytics cache exists)
+        optimized_df_path = None
+        if CATALOG_ANALYTICS_DIR.exists():
+            # Check for Parquet first, then CSV
+            parquet_path = CATALOG_ANALYTICS_DIR / "optimized_queries.parquet"
+            csv_path = CATALOG_ANALYTICS_DIR / "optimized_queries.csv"
+            
+            if parquet_path.exists():
+                try:
+                    import pyarrow.parquet as pq
+                    df = pd.read_parquet(parquet_path)
+                    logger.info(f"✅ Loaded {len(df)} queries from optimized Parquet cache")
+                    return df
+                except ImportError:
+                    logger.info("PyArrow not available, falling back to CSV")
+                except Exception as e:
+                    logger.warning(f"Failed to load Parquet cache: {e}")
+            
+            if csv_path.exists():
+                try:
+                    df = pd.read_csv(csv_path)
+                    # Parse JSON strings back to lists for cached DataFrame
+                    if 'tables_parsed' in df.columns:
+                        df['tables_parsed'] = df['tables_parsed'].apply(json.loads)
+                    if 'joins_parsed' in df.columns:
+                        df['joins_parsed'] = df['joins_parsed'].apply(json.loads)
+                    logger.info(f"✅ Loaded {len(df)} queries from optimized CSV cache")
+                    return df
+                except Exception as e:
+                    logger.warning(f"Failed to load CSV cache: {e}")
+        
+        # Fallback to original CSV
         df = pd.read_csv(CSV_PATH)
         
         # Fill NaN values with empty strings for safe processing
@@ -161,7 +194,7 @@ def load_csv_data() -> Optional[pd.DataFrame]:
         # Remove rows with empty queries
         df = df[df['query'].str.strip() != '']
         
-        logger.info(f"✅ Loaded {len(df)} queries from CSV")
+        logger.info(f"✅ Loaded {len(df)} queries from original CSV (cache not available)")
         return df
         
     except Exception as e:
@@ -735,9 +768,12 @@ def display_join_analysis(join_analysis: Dict):
         st.info("No join relationships found in the data")
 
 def create_query_catalog_page(df: pd.DataFrame):
-    """Create the query catalog page"""
+    """Create the query catalog page with cached analytics for performance"""
     st.subheader("📚 Query Catalog")
     st.caption(f"Browse all {len(df)} SQL queries with their metadata")
+    
+    # Try to load cached analytics first
+    cached_analytics = load_cached_analytics()
     
     # Search/filter functionality
     search_term = st.text_input(
@@ -750,58 +786,139 @@ def create_query_catalog_page(df: pd.DataFrame):
     if search_term:
         search_lower = search_term.lower()
         
-        # Enhanced search that includes parsed table and join data
-        mask_list = []
-        for idx, row in df.iterrows():
-            match = False
-            
-            # Search in query
-            query = safe_get_value(row, 'query')
-            if search_lower in query.lower():
-                match = True
-            
-            # Search in description
-            description = safe_get_value(row, 'description')
-            if search_lower in description.lower():
-                match = True
-            
-            # Search in parsed tables
-            tables_raw = safe_get_value(row, 'table')
-            tables_list = parse_tables_column(tables_raw)
-            for table in tables_list:
-                if search_lower in table.lower():
-                    match = True
-                    break
-            
-            # Search in parsed joins (now a list)
-            joins_raw = safe_get_value(row, 'joins')
-            joins_list = parse_joins_column(joins_raw)
-            for join_info in joins_list:
-                # Search in join details
-                searchable_join_text = ' '.join([
-                    join_info.get('left_table', ''),
-                    join_info.get('right_table', ''),
-                    join_info.get('left_column', ''),
-                    join_info.get('right_column', ''),
-                    join_info.get('join_type', ''),
-                    join_info.get('condition', ''),
-                    join_info.get('transformation', '')
-                ]).lower()
+        # Use optimized search if we have pre-parsed data
+        if 'tables_parsed' in df.columns and 'joins_parsed' in df.columns:
+            # Fast search using pre-parsed columns
+            mask_list = []
+            for idx, row in df.iterrows():
+                match = False
                 
-                if search_lower in searchable_join_text:
+                # Search in query
+                query = safe_get_value(row, 'query')
+                if search_lower in query.lower():
                     match = True
-                    break
-            
-            mask_list.append(match)
+                
+                # Search in description
+                description = safe_get_value(row, 'description')
+                if search_lower in description.lower():
+                    match = True
+                
+                # Search in pre-parsed tables
+                if not match and 'tables_parsed' in row and isinstance(row['tables_parsed'], list):
+                    for table in row['tables_parsed']:
+                        if search_lower in str(table).lower():
+                            match = True
+                            break
+                
+                # Search in pre-parsed joins
+                if not match and 'joins_parsed' in row and isinstance(row['joins_parsed'], list):
+                    for join_info in row['joins_parsed']:
+                        if isinstance(join_info, dict):
+                            searchable_join_text = ' '.join([
+                                str(join_info.get('left_table', '')),
+                                str(join_info.get('right_table', '')),
+                                str(join_info.get('left_column', '')),
+                                str(join_info.get('right_column', '')),
+                                str(join_info.get('join_type', '')),
+                                str(join_info.get('condition', '')),
+                                str(join_info.get('transformation', ''))
+                            ]).lower()
+                            
+                            if search_lower in searchable_join_text:
+                                match = True
+                                break
+                
+                mask_list.append(match)
+        else:
+            # Fallback to original search method
+            mask_list = []
+            for idx, row in df.iterrows():
+                match = False
+                
+                # Search in query
+                query = safe_get_value(row, 'query')
+                if search_lower in query.lower():
+                    match = True
+                
+                # Search in description
+                description = safe_get_value(row, 'description')
+                if search_lower in description.lower():
+                    match = True
+                
+                # Search in parsed tables
+                tables_raw = safe_get_value(row, 'table')
+                tables_list = parse_tables_column(tables_raw)
+                for table in tables_list:
+                    if search_lower in table.lower():
+                        match = True
+                        break
+                
+                # Search in parsed joins
+                joins_raw = safe_get_value(row, 'joins')
+                joins_list = parse_joins_column(joins_raw)
+                for join_info in joins_list:
+                    searchable_join_text = ' '.join([
+                        join_info.get('left_table', ''),
+                        join_info.get('right_table', ''),
+                        join_info.get('left_column', ''),
+                        join_info.get('right_column', ''),
+                        join_info.get('join_type', ''),
+                        join_info.get('condition', ''),
+                        join_info.get('transformation', '')
+                    ]).lower()
+                    
+                    if search_lower in searchable_join_text:
+                        match = True
+                        break
+                
+                mask_list.append(match)
         
         # Apply the mask
         filtered_df = df[pd.Series(mask_list, index=df.index)]
         
         st.info(f"Found {len(filtered_df)} queries matching '{search_term}'")
     
-    # Display join analysis
-    join_analysis = analyze_joins(filtered_df)
-    display_join_analysis(join_analysis)
+    # Display analytics with caching optimization
+    if cached_analytics and not search_term:  # Only use cache for full dataset
+        # Use cached analytics for much faster display
+        join_analysis = cached_analytics['join_analysis']
+        metadata = cached_analytics['metadata']
+        
+        # Show cache status
+        st.caption(f"⚡ Using cached analytics (generated in {metadata['processing_time']:.2f}s)")
+        
+        display_join_analysis(join_analysis)
+        
+        # Load and display cached graphs
+        graph_files = load_cached_graph_files()
+        if graph_files and len(join_analysis['relationships']) > 0:
+            st.subheader("🌐 Table Relationship Graph")
+            
+            # Display the first available graph
+            graph_file = Path(graph_files[0])
+            if graph_file.suffix.lower() == '.svg':
+                # Display SVG graph
+                with open(graph_file, 'r') as f:
+                    svg_content = f.read()
+                st.image(svg_content, use_column_width=True)
+            else:
+                # Display PNG/other formats
+                st.image(str(graph_file), use_column_width=True)
+            
+            st.caption(f"Graph loaded from cache: {graph_file.name}")
+    else:
+        # Fallback to computing analytics on the fly (for search results or no cache)
+        if search_term:
+            st.caption("🔄 Computing analytics for search results...")
+        else:
+            st.caption("🔄 Computing analytics (no cache available - run catalog_analytics_generator.py)")
+        
+        join_analysis = analyze_joins(filtered_df)
+        display_join_analysis(join_analysis)
+    
+    # Show cache rebuild hint if needed
+    if not cached_analytics and not search_term:
+        st.info("💡 **Performance Tip**: Run `python catalog_analytics_generator.py --csv your_file.csv` to pre-compute analytics for 10x faster loading!")
     
     st.divider()
     
@@ -815,6 +932,55 @@ def create_query_catalog_page(df: pd.DataFrame):
     # Display each query
     for index, (_, row) in enumerate(filtered_df.iterrows()):
         display_query_card(row, index)
+
+def load_cached_analytics() -> Optional[Dict[str, Any]]:
+    """Load cached analytics if available and up to date"""
+    try:
+        if not CATALOG_ANALYTICS_DIR.exists():
+            return None
+        
+        cache_metadata_file = CATALOG_ANALYTICS_DIR / "cache_metadata.json"
+        join_analysis_file = CATALOG_ANALYTICS_DIR / "join_analysis.json"
+        
+        if not cache_metadata_file.exists() or not join_analysis_file.exists():
+            return None
+        
+        # Load and validate cache
+        with open(cache_metadata_file) as f:
+            metadata = json.load(f)
+        
+        # Check if cache is still valid
+        if CSV_PATH.exists():
+            csv_modified_time = os.path.getmtime(CSV_PATH)
+            cached_modified_time = metadata.get('source_csv_modified', 0)
+            
+            if csv_modified_time > cached_modified_time:
+                logger.info("Cache is outdated, will need rebuild")
+                return None
+        
+        # Load join analysis
+        with open(join_analysis_file) as f:
+            join_analysis = json.load(f)
+        
+        logger.info("✅ Loaded cached analytics")
+        return {
+            'metadata': metadata,
+            'join_analysis': join_analysis
+        }
+        
+    except Exception as e:
+        logger.warning(f"Failed to load cached analytics: {e}")
+        return None
+
+def load_cached_graph_files() -> List[str]:
+    """Load list of cached graph files"""
+    graph_files = []
+    if CATALOG_ANALYTICS_DIR.exists():
+        for format_type in ["svg", "png"]:
+            graph_file = CATALOG_ANALYTICS_DIR / f"relationships_graph.{format_type}"
+            if graph_file.exists():
+                graph_files.append(str(graph_file))
+    return graph_files
 
 def display_session_stats():
     """Display session token usage statistics"""

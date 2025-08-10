@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "created_at": "2025-08-10T11:49:29.835527",
+  "source_csv": "queries_with_descriptions (1).csv",
+  "source_csv_modified": 1754621342.7488213,
+  "source_csv_size": 216051,
+  "total_queries": 1038,
+  "processing_time": 2.5226261615753174,
+  "files_generated": {
+    "join_analysis": "join_analysis.json",
+    "table_usage": "table_usage_stats.json",
+    "optimized_dataframe": "optimized_queries.parquet",
+    "graph_files": [
+      "relationships_graph.svg",
+      "relationships_graph.png"
+    ]
+  },
+  "statistics_summary": {
+    "queries_with_joins": 10,
+    "queries_with_descriptions": 1038,
+    "total_individual_joins": 10,
+    "unique_tables": 414,
+    "max_joins_per_query": 1
+  }
+}
