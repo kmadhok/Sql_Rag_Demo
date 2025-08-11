@@ -58,7 +58,8 @@ GRAPH_FORMATS = ["svg", "png"]  # Generate multiple formats
 def parse_tables_column(tables_value: str) -> List[str]:
     """
     Parse tables column supporting both JSON array format and simple string format
-    (Optimized version of the function from app_simple_gemini.py)
+    Handles format: ['`project.dataset.table`','`project.dataset.table`']
+    Returns full qualified table names
     """
     if not tables_value or tables_value.strip() == '':
         return []
@@ -66,23 +67,53 @@ def parse_tables_column(tables_value: str) -> List[str]:
     try:
         # Try to parse as JSON array first
         import json
-        tables_json = json.loads(tables_value)
+        # Clean up the string to ensure it's valid JSON
+        tables_str = str(tables_value).strip()
+        
+        # Handle single quotes in JSON (convert to double quotes)
+        if tables_str.startswith("['") and tables_str.endswith("']"):
+            # Replace single quotes with double quotes for JSON parsing
+            tables_str = tables_str.replace("'", '"')
+        
+        tables_json = json.loads(tables_str)
         if isinstance(tables_json, list):
             clean_tables = []
             for table in tables_json:
                 clean_table = str(table).strip('`"\'')
-                if '.' in clean_table:
-                    table_parts = clean_table.split('.')
-                    clean_table = table_parts[-1]
                 if clean_table:
                     clean_tables.append(clean_table)
             return clean_tables
     except (json.JSONDecodeError, TypeError):
+        # If JSON parsing fails, try manual parsing
         pass
     
-    # Simple string format parsing
+    # Manual parsing for formats like ['table1','table2']
     try:
         tables_str = str(tables_value).strip()
+        
+        # Handle list-like format ['item1','item2']
+        if tables_str.startswith('[') and tables_str.endswith(']'):
+            # Remove brackets and split by comma
+            content = tables_str[1:-1]  # Remove [ and ]
+            if content.strip():
+                # Split by comma and clean each item
+                items = []
+                # Handle quoted items properly
+                import re
+                # Find all quoted strings
+                pattern = r"['\"`]([^'\"`]+)['\"`]"
+                matches = re.findall(pattern, content)
+                if matches:
+                    return matches
+                
+                # Fallback: simple comma split
+                for item in content.split(','):
+                    cleaned = item.strip().strip('`"\'')
+                    if cleaned:
+                        items.append(cleaned)
+                return items
+        
+        # Simple comma-separated format
         if ',' in tables_str:
             tables = [t.strip().strip('`"\'') for t in tables_str.split(',')]
         else:
@@ -91,9 +122,6 @@ def parse_tables_column(tables_value: str) -> List[str]:
         clean_tables = []
         for table in tables:
             if table and table != '':
-                if '.' in table:
-                    table_parts = table.split('.')
-                    table = table_parts[-1]
                 clean_tables.append(table)
         
         return clean_tables
@@ -104,15 +132,14 @@ def parse_tables_column(tables_value: str) -> List[str]:
 def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
     """
     Parse joins column supporting arrays of JSON objects and simple string format
-    (Optimized version of the function from app_simple_gemini.py)
+    Handles format: [{'left_table':'`project.dataset.table`','left_column':'col1','right_table':'`project.dataset.table2`','right_column':'col2','join_type':'LEFT JOIN'}]
     """
     if not joins_value or joins_value.strip() == '':
         return []
     
     def clean_table_name(table_name: str) -> str:
         clean_name = str(table_name).strip('`"\'')
-        if '.' in clean_name:
-            clean_name = clean_name.split('.')[-1]
+        # Keep full qualified names to match the tables column format
         return clean_name
     
     def process_single_join(join_obj: Dict) -> Dict[str, Any]:
@@ -143,7 +170,24 @@ def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
     
     try:
         import json
-        joins_json = json.loads(joins_value)
+        
+        # Clean up the string to ensure it's valid JSON
+        joins_str = str(joins_value).strip()
+        
+        # Handle single quotes in JSON (convert to double quotes)
+        # This is more complex for joins because of nested quotes
+        if joins_str.startswith("[{") and joins_str.endswith("}]"):
+            # Replace single quotes with double quotes, being careful about nested quotes
+            # Use regex to properly handle the conversion
+            import re
+            
+            # Replace single quotes around keys and string values with double quotes
+            # Pattern: 'key' -> "key"
+            joins_str = re.sub(r"'([^']+)':", r'"\1":', joins_str)
+            # Pattern: :'value' -> :"value" 
+            joins_str = re.sub(r":'([^']*)'", r':"\1"', joins_str)
+        
+        joins_json = json.loads(joins_str)
         
         if isinstance(joins_json, list):
             join_list = []
@@ -162,12 +206,40 @@ def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
             except Exception:
                 return []
     except (json.JSONDecodeError, TypeError):
+        # If JSON parsing fails, try manual parsing
         pass
     
-    # Simple string format parsing
+    # Manual parsing as fallback
     try:
-        import re
         joins_str = str(joins_value).strip()
+        
+        # Try to extract join information manually using regex
+        if joins_str.startswith('[') and joins_str.endswith(']'):
+            import re
+            
+            # Find individual join objects
+            join_pattern = r"\{[^}]+\}"
+            join_matches = re.findall(join_pattern, joins_str)
+            
+            join_list = []
+            for join_match in join_matches:
+                # Extract key-value pairs from each join object
+                kv_pattern = r"'([^']+)'\s*:\s*'([^']*)'"
+                kv_matches = re.findall(kv_pattern, join_match)
+                
+                if kv_matches:
+                    join_obj = dict(kv_matches)
+                    try:
+                        processed_join = process_single_join(join_obj)
+                        join_list.append(processed_join)
+                    except Exception:
+                        continue
+            
+            if join_list:
+                return join_list
+    
+        # Simple string format parsing (fallback)
+        import re
         if joins_str:
             match = re.search(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', joins_str)
             if match:
@@ -240,7 +312,7 @@ def analyze_joins_optimized(df: pd.DataFrame) -> Dict[str, Any]:
     for idx, row in df.iterrows():
         query = safe_get_value(row, 'query')
         description = safe_get_value(row, 'description')
-        tables_raw = safe_get_value(row, 'table')
+        tables_raw = safe_get_value(row, 'tables')
         joins_raw = safe_get_value(row, 'joins')
         
         # Parse using optimized functions
@@ -438,7 +510,7 @@ def create_optimized_dataframe(df: pd.DataFrame, output_dir: Path) -> str:
     has_joins = []
     
     for idx, row in df.iterrows():
-        tables_raw = safe_get_value(row, 'table')
+        tables_raw = safe_get_value(row, 'tables')
         joins_raw = safe_get_value(row, 'joins')
         description = safe_get_value(row, 'description')
         
