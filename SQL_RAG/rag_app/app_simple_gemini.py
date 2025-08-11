@@ -409,12 +409,21 @@ def display_query_card(row, index: int):
     """Display a single query card with graceful missing data handling"""
     query = safe_get_value(row, 'query')
     description = safe_get_value(row, 'description')
-    tables_raw = safe_get_value(row, 'table')
-    joins_raw = safe_get_value(row, 'joins')
     
-    # Parse tables and joins using new functions
-    tables_list = parse_tables_column(tables_raw)
-    joins_list = parse_joins_column(joins_raw)  # Now returns list
+    # Check for pre-parsed columns first (for performance)
+    if 'tables_parsed' in row and isinstance(row['tables_parsed'], list):
+        tables_list = row['tables_parsed']
+    else:
+        # Fallback to parsing (backward compatibility)
+        tables_raw = safe_get_value(row, 'tables')
+        tables_list = parse_tables_column(tables_raw)
+    
+    if 'joins_parsed' in row and isinstance(row['joins_parsed'], list):
+        joins_list = row['joins_parsed']
+    else:
+        # Fallback to parsing (backward compatibility)
+        joins_raw = safe_get_value(row, 'joins')
+        joins_list = parse_joins_column(joins_raw)
     
     # Create title based on available data
     if description:
@@ -512,7 +521,7 @@ def analyze_joins(df: pd.DataFrame) -> Dict:
     for _, row in df.iterrows():
         query = safe_get_value(row, 'query')
         description = safe_get_value(row, 'description')
-        tables_raw = safe_get_value(row, 'table')
+        tables_raw = safe_get_value(row, 'tables')
         joins_raw = safe_get_value(row, 'joins')
         
         # Parse using new functions
@@ -846,7 +855,7 @@ def create_query_catalog_page(df: pd.DataFrame):
                     match = True
                 
                 # Search in parsed tables
-                tables_raw = safe_get_value(row, 'table')
+                tables_raw = safe_get_value(row, 'tables')
                 tables_list = parse_tables_column(tables_raw)
                 for table in tables_list:
                     if search_lower in table.lower():
