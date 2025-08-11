@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
-CSV_PATH = Path(__file__).parent / "queries_with_descriptions (1).csv"  # CSV data source
+CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
 
 # Streamlit page config
@@ -232,8 +232,9 @@ def parse_tables_column(tables_value: str) -> List[str]:
             # Extract table names and clean them
             clean_tables = []
             for table in tables_json:
-                # Remove backticks and extract just the table name
-                clean_table = str(table).strip('`"\'')
+                # Remove all backticks and quotes (consistent with preprocess_csv.py)
+                clean_table = str(table).strip()
+                clean_table = clean_table.replace('`', '').replace('"', '').replace("'", '')
                 
                 # Handle BigQuery format: project.dataset.table -> table
                 if '.' in clean_table:
@@ -255,15 +256,17 @@ def parse_tables_column(tables_value: str) -> List[str]:
         tables_str = str(tables_value).strip()
         if ',' in tables_str:
             # Multiple tables separated by comma
-            tables = [t.strip().strip('`"\'') for t in tables_str.split(',')]
+            tables = [t.strip() for t in tables_str.split(',')]
         else:
             # Single table
-            tables = [tables_str.strip('`"\'')]
+            tables = [tables_str.strip()]
         
-        # Clean table names (remove BigQuery prefixes)
+        # Clean table names (remove BigQuery prefixes and quotes)
         clean_tables = []
         for table in tables:
             if table and table != '':
+                # Remove all backticks and quotes (consistent with preprocess_csv.py)
+                table = table.replace('`', '').replace('"', '').replace("'", '')
                 # Handle BigQuery format: project.dataset.table -> table
                 if '.' in table:
                     table_parts = table.split('.')

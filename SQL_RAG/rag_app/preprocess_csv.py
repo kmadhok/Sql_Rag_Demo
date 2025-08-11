@@ -46,7 +46,9 @@ def parse_tables_column(tables_value: str) -> List[str]:
         if isinstance(tables_json, list):
             clean_tables = []
             for table in tables_json:
-                clean_table = str(table).strip('`"\'')
+                clean_table = str(table).strip()
+                # Remove all backticks and quotes
+                clean_table = clean_table.replace('`', '').replace('"', '').replace("'", '')
                 # Handle BigQuery format: project.dataset.table -> table
                 if '.' in clean_table:
                     table_parts = clean_table.split('.')
@@ -65,15 +67,17 @@ def parse_tables_column(tables_value: str) -> List[str]:
         tables_str = str(tables_value).strip()
         if ',' in tables_str:
             # Multiple tables separated by comma
-            tables = [t.strip().strip('`"\'') for t in tables_str.split(',')]
+            tables = [t.strip() for t in tables_str.split(',')]
         else:
             # Single table
-            tables = [tables_str.strip('`"\'')]
+            tables = [tables_str.strip()]
         
-        # Clean table names (remove BigQuery prefixes)
+        # Clean table names (remove BigQuery prefixes and quotes)
         clean_tables = []
         for table in tables:
             if table and table != '':
+                # Remove all backticks and quotes
+                table = table.replace('`', '').replace('"', '').replace("'", '')
                 # Handle BigQuery format: project.dataset.table -> table
                 if '.' in table:
                     table_parts = table.split('.')
