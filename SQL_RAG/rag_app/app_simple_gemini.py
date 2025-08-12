@@ -136,70 +136,67 @@ def get_available_indices() -> List[str]:
 
 def load_csv_data() -> Optional[pd.DataFrame]:
     """
-    Load CSV data with graceful handling of missing values
+    Load optimized CSV data with pre-parsed columns from analytics cache
     
     Returns:
-        DataFrame with queries or None if loading fails
+        DataFrame with queries and pre-parsed metadata or None if loading fails
     """
+    # PRIORITY 1: Load optimized Parquet file (fastest)
+    if CATALOG_ANALYTICS_DIR.exists():
+        parquet_path = CATALOG_ANALYTICS_DIR / "optimized_queries.parquet"
+        if parquet_path.exists():
+            try:
+                df = pd.read_parquet(parquet_path)
+                logger.info(f"⚡ Loaded {len(df)} queries from optimized Parquet (pre-parsed)")
+                return df
+            except ImportError:
+                logger.warning("PyArrow not available for Parquet loading")
+            except Exception as e:
+                logger.warning(f"Failed to load Parquet cache: {e}")
+        
+        # PRIORITY 2: Load optimized CSV file  
+        csv_cache_path = CATALOG_ANALYTICS_DIR / "optimized_queries.csv"
+        if csv_cache_path.exists():
+            try:
+                df = pd.read_csv(csv_cache_path)
+                # Parse JSON strings back to lists for cached DataFrame
+                if 'tables_parsed' in df.columns:
+                    df['tables_parsed'] = df['tables_parsed'].apply(lambda x: json.loads(x) if pd.notna(x) and x != '' else [])
+                if 'joins_parsed' in df.columns:
+                    df['joins_parsed'] = df['joins_parsed'].apply(lambda x: json.loads(x) if pd.notna(x) and x != '' else [])
+                logger.info(f"✅ Loaded {len(df)} queries from optimized CSV cache (pre-parsed)")
+                return df
+            except Exception as e:
+                logger.warning(f"Failed to load optimized CSV cache: {e}")
+    
+    # FALLBACK: Original CSV (requires manual parsing - slower)
     try:
         if not CSV_PATH.exists():
             st.error(f"❌ CSV file not found: {CSV_PATH}")
+            st.error("💡 Please run: python catalog_analytics_generator.py --csv 'your_file.csv'")
             return None
         
-        # Try to load optimized DataFrame first (if analytics cache exists)
-        optimized_df_path = None
-        if CATALOG_ANALYTICS_DIR.exists():
-            # Check for Parquet first, then CSV
-            parquet_path = CATALOG_ANALYTICS_DIR / "optimized_queries.parquet"
-            csv_path = CATALOG_ANALYTICS_DIR / "optimized_queries.csv"
-            
-            if parquet_path.exists():
-                try:
-                    import pyarrow.parquet as pq
-                    df = pd.read_parquet(parquet_path)
-                    logger.info(f"✅ Loaded {len(df)} queries from optimized Parquet cache")
-                    return df
-                except ImportError:
-                    logger.info("PyArrow not available, falling back to CSV")
-                except Exception as e:
-                    logger.warning(f"Failed to load Parquet cache: {e}")
-            
-            if csv_path.exists():
-                try:
-                    df = pd.read_csv(csv_path)
-                    # Parse JSON strings back to lists for cached DataFrame
-                    if 'tables_parsed' in df.columns:
-                        df['tables_parsed'] = df['tables_parsed'].apply(json.loads)
-                    if 'joins_parsed' in df.columns:
-                        df['joins_parsed'] = df['joins_parsed'].apply(json.loads)
-                    logger.info(f"✅ Loaded {len(df)} queries from optimized CSV cache")
-                    return df
-                except Exception as e:
-                    logger.warning(f"Failed to load CSV cache: {e}")
-        
-        # Fallback to original CSV
         df = pd.read_csv(CSV_PATH)
-        
-        # Fill NaN values with empty strings for safe processing
         df = df.fillna('')
         
         # Ensure required columns exist
-        required_columns = ['query']
-        missing_cols = [col for col in required_columns if col not in df.columns]
-        
-        if missing_cols:
-            st.error(f"❌ Missing required columns: {missing_cols}")
+        if 'query' not in df.columns:
+            st.error(f"❌ Missing required 'query' column in {CSV_PATH}")
             return None
         
         # Remove rows with empty queries
         df = df[df['query'].str.strip() != '']
         
-        logger.info(f"✅ Loaded {len(df)} queries from original CSV (cache not available)")
+        # Warning: No pre-parsed columns available
+        st.warning("⚠️ Using original CSV without pre-parsed data - performance may be slower")
+        st.info("💡 Run `python catalog_analytics_generator.py --csv 'your_file.csv'` for better performance")
+        
+        logger.info(f"📄 Loaded {len(df)} queries from original CSV (no cache)")
         return df
         
     except Exception as e:
-        st.error(f"❌ Error loading CSV: {e}")
-        logger.error(f"CSV loading error: {e}")
+        st.error(f"❌ Error loading data: {e}")
+        logger.error(f"Data loading error: {e}")
         return None
 
 def safe_get_value(row, column: str, default: str = '') -> str:
@@ -212,221 +209,33 @@ def safe_get_value(row, column: str, default: str = '') -> str:
     except:
         return default
 
-def parse_tables_column(tables_value: str) -> List[str]:
-    """
-    Parse tables column supporting both JSON array format and simple string format
-    
-    JSON format: ["`project.dataset.table`","`project.dataset.table`"]
-    Simple format: "customers, orders" or "customers"
-    
-    Returns:
-        List of clean table names
-    """
-    if not tables_value or tables_value.strip() == '':
-        return []
-    
-    try:
-        # Try to parse as JSON array first
-        tables_json = json.loads(tables_value)
-        if isinstance(tables_json, list):
-            # Extract table names and clean them
-            clean_tables = []
-            for table in tables_json:
-                # Remove all backticks and quotes (consistent with preprocess_csv.py)
-                clean_table = str(table).strip()
-                clean_table = clean_table.replace('`', '').replace('"', '').replace("'", '')
-                
-                # Handle BigQuery format: project.dataset.table -> table
-                if '.' in clean_table:
-                    table_parts = clean_table.split('.')
-                    clean_table = table_parts[-1]  # Take last part (table name)
-                
-                if clean_table:
-                    clean_tables.append(clean_table)
-            
-            logger.debug(f"Parsed JSON tables: {clean_tables}")
-            return clean_tables
-            
-    except (json.JSONDecodeError, TypeError):
-        # Fall back to simple string parsing
-        pass
-    
-    # Simple string format parsing
-    try:
-        tables_str = str(tables_value).strip()
-        if ',' in tables_str:
-            # Multiple tables separated by comma
-            tables = [t.strip() for t in tables_str.split(',')]
-        else:
-            # Single table
-            tables = [tables_str.strip()]
-        
-        # Clean table names (remove BigQuery prefixes and quotes)
-        clean_tables = []
-        for table in tables:
-            if table and table != '':
-                # Remove all backticks and quotes (consistent with preprocess_csv.py)
-                table = table.replace('`', '').replace('"', '').replace("'", '')
-                # Handle BigQuery format: project.dataset.table -> table
-                if '.' in table:
-                    table_parts = table.split('.')
-                    table = table_parts[-1]
-                clean_tables.append(table)
-        
-        logger.debug(f"Parsed string tables: {clean_tables}")
-        return clean_tables
-        
-    except Exception as e:
-        logger.warning(f"Failed to parse tables column '{tables_value}': {e}")
-        return []
+# REMOVED: parse_tables_column() - now using pre-parsed tables_parsed column from optimized_queries.parquet
 
-def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
-    """
-    Parse joins column supporting arrays of JSON objects, single objects, and simple string format
-    
-    JSON array format: [{"left_table":"project.dataset.table", "left_column":"campaign_id", 
-                         "right_table":"project.dataset.table", "right_column":"id", 
-                         "join_type":"LEFT JOIN", "transformation":"complex_condition"}, {...}]
-    JSON single format: {"left_table":"project.dataset.table", ...}
-    Simple format: "o.customer_id = c.customer_id"
-    
-    Returns:
-        List of dictionaries with join information (empty list if no joins)
-    """
-    if not joins_value or joins_value.strip() == '':
-        return []
-    
-    def clean_table_name(table_name: str) -> str:
-        """Clean and extract table name from BigQuery format"""
-        clean_name = str(table_name).strip('`"\'')
-        # Handle BigQuery format: project.dataset.table -> table
-        if '.' in clean_name:
-            clean_name = clean_name.split('.')[-1]
-        return clean_name
-    
-    def process_single_join(join_obj: Dict) -> Dict[str, Any]:
-        """Process a single join object"""
-        left_table = clean_table_name(join_obj.get('left_table', ''))
-        right_table = clean_table_name(join_obj.get('right_table', ''))
-        left_column = str(join_obj.get('left_column', '')).strip()
-        right_column = str(join_obj.get('right_column', '')).strip()
-        join_type = str(join_obj.get('join_type', 'JOIN')).strip()
-        transformation = str(join_obj.get('transformation', '')).strip()
-        
-        # Build condition
-        if transformation:
-            condition = transformation
-        elif left_column and right_column:
-            condition = f"{left_table}.{left_column} = {right_table}.{right_column}"
-        else:
-            condition = f"{left_table} ↔ {right_table}"
-        
-        return {
-            'left_table': left_table,
-            'right_table': right_table,
-            'left_column': left_column,
-            'right_column': right_column,
-            'join_type': join_type,
-            'transformation': transformation,
-            'condition': condition,
-            'format': 'json'
-        }
-    
-    try:
-        # Try to parse as JSON first
-        joins_json = json.loads(joins_value)
-        
-        if isinstance(joins_json, list):
-            # Array of join objects
-            join_list = []
-            for i, join_obj in enumerate(joins_json):
-                if isinstance(join_obj, dict):
-                    try:
-                        processed_join = process_single_join(join_obj)
-                        join_list.append(processed_join)
-                        logger.debug(f"Parsed JSON join {i+1}: {processed_join}")
-                    except Exception as e:
-                        logger.warning(f"Failed to process join object {i+1}: {e}")
-                        continue
-            
-            logger.debug(f"Parsed {len(join_list)} joins from JSON array")
-            return join_list
-            
-        elif isinstance(joins_json, dict):
-            # Single join object - treat as array of one
-            try:
-                processed_join = process_single_join(joins_json)
-                logger.debug(f"Parsed single JSON join: {processed_join}")
-                return [processed_join]
-            except Exception as e:
-                logger.warning(f"Failed to process single join object: {e}")
-                return []
-                
-    except (json.JSONDecodeError, TypeError):
-        # Fall back to simple string parsing
-        pass
-    
-    # Simple string format parsing
-    try:
-        joins_str = str(joins_value).strip()
-        if joins_str:
-            # Try to extract table aliases from simple join condition
-            # Pattern: "o.customer_id = c.customer_id"
-            match = re.search(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', joins_str)
-            if match:
-                left_alias, left_col, right_alias, right_col = match.groups()
-                join_info = {
-                    'left_table': left_alias,
-                    'right_table': right_alias,
-                    'left_column': left_col,
-                    'right_column': right_col,
-                    'join_type': 'JOIN',
-                    'transformation': '',
-                    'condition': joins_str,
-                    'format': 'string'
-                }
-                
-                logger.debug(f"Parsed string join: {join_info}")
-                return [join_info]
-            else:
-                # Generic join condition
-                join_info = {
-                    'left_table': 'unknown',
-                    'right_table': 'unknown', 
-                    'left_column': '',
-                    'right_column': '',
-                    'join_type': 'JOIN',
-                    'transformation': '',
-                    'condition': joins_str,
-                    'format': 'string'
-                }
-                return [join_info]
-                
-    except Exception as e:
-        logger.warning(f"Failed to parse joins column '{joins_value}': {e}")
-        return []
-    
-    return []
+# REMOVED: parse_joins_column() - now using pre-parsed joins_parsed column from optimized_queries.parquet
 
 def display_query_card(row, index: int):
-    """Display a single query card with graceful missing data handling"""
+    """Display a single query card using pre-parsed data for optimal performance"""
     query = safe_get_value(row, 'query')
     description = safe_get_value(row, 'description')
     
-    # Check for pre-parsed columns first (for performance)
+    # Use pre-parsed columns (available from optimized_queries.parquet/csv)
     if 'tables_parsed' in row and isinstance(row['tables_parsed'], list):
         tables_list = row['tables_parsed']
     else:
-        # Fallback to parsing (backward compatibility)
+        # Fallback for original CSV data
         tables_raw = safe_get_value(row, 'tables')
-        tables_list = parse_tables_column(tables_raw)
+        tables_list = []  # Skip parsing - recommend using pre-computed cache
+        if tables_raw:
+            st.caption("⚠️ Table parsing skipped - use pre-computed cache for better performance")
     
     if 'joins_parsed' in row and isinstance(row['joins_parsed'], list):
         joins_list = row['joins_parsed']
     else:
-        # Fallback to parsing (backward compatibility)
+        # Fallback for original CSV data
         joins_raw = safe_get_value(row, 'joins')
-        joins_list = parse_joins_column(joins_raw)
+        joins_list = []  # Skip parsing - recommend using pre-computed cache
+        if joins_raw:
+            st.caption("⚠️ Join parsing skipped - use pre-computed cache for better performance")
     
     # Create title based on available data
     if description:
@@ -503,100 +312,7 @@ def display_single_join(join_info: Dict[str, Any], indent: bool = False):
         if join_info['left_table'] != 'unknown':
             st.markdown(f"{prefix}- **Tables:** {join_info['left_table']} ↔ {join_info['right_table']}")
 
-def analyze_joins(df: pd.DataFrame) -> Dict:
-    """Analyze join patterns from the dataframe with enhanced multi-join array parsing"""
-    join_analysis = {
-        'relationships': [],
-        'table_usage': defaultdict(int),
-        'join_patterns': [],
-        'join_types': defaultdict(int),
-        'total_queries': len(df),
-        'queries_with_joins': 0,
-        'queries_with_descriptions': 0,
-        'queries_with_tables': 0,
-        'total_individual_joins': 0,
-        'max_joins_per_query': 0,
-        'join_count_distribution': defaultdict(int),
-        'json_format_count': 0,
-        'string_format_count': 0
-    }
-    
-    for _, row in df.iterrows():
-        query = safe_get_value(row, 'query')
-        description = safe_get_value(row, 'description')
-        tables_raw = safe_get_value(row, 'tables')
-        joins_raw = safe_get_value(row, 'joins')
-        
-        # Parse using new functions
-        tables_list = parse_tables_column(tables_raw)
-        joins_list = parse_joins_column(joins_raw)  # Now returns list
-        
-        # Count metadata availability
-        if description:
-            join_analysis['queries_with_descriptions'] += 1
-        if tables_list:
-            join_analysis['queries_with_tables'] += 1
-        if joins_list:
-            join_analysis['queries_with_joins'] += 1
-            
-            # Track join count distribution
-            join_count = len(joins_list)
-            join_analysis['join_count_distribution'][join_count] += 1
-            join_analysis['total_individual_joins'] += join_count
-            join_analysis['max_joins_per_query'] = max(join_analysis['max_joins_per_query'], join_count)
-        else:
-            # Query with no joins
-            join_analysis['join_count_distribution'][0] += 1
-        
-        # Process table usage from tables column
-        for table in tables_list:
-            if table:
-                join_analysis['table_usage'][table] += 1
-        
-        # Process each individual join
-        for join_info in joins_list:
-            # Track format types (per individual join)
-            if join_info['format'] == 'json':
-                join_analysis['json_format_count'] += 1
-            else:
-                join_analysis['string_format_count'] += 1
-            
-            # Track join type
-            join_type = join_info.get('join_type', 'JOIN')
-            join_analysis['join_types'][join_type] += 1
-            
-            # Store join pattern
-            if join_info['transformation']:
-                join_analysis['join_patterns'].append(join_info['transformation'])
-            else:
-                join_analysis['join_patterns'].append(join_info['condition'])
-            
-            # Add table usage from joins (in case tables column is missing)
-            if join_info['left_table'] and join_info['left_table'] != 'unknown':
-                join_analysis['table_usage'][join_info['left_table']] += 1
-            if join_info['right_table'] and join_info['right_table'] != 'unknown':
-                join_analysis['table_usage'][join_info['right_table']] += 1
-            
-            # Create relationship entry
-            relationship = {
-                'left_table': join_info['left_table'],
-                'right_table': join_info['right_table'],
-                'condition': join_info['condition'],
-                'join_type': join_type,
-                'format': join_info['format']
-            }
-            
-            # Add detailed information for JSON format
-            if join_info['format'] == 'json':
-                relationship.update({
-                    'left_column': join_info.get('left_column', ''),
-                    'right_column': join_info.get('right_column', ''),
-                    'transformation': join_info.get('transformation', '')
-                })
-            
-            join_analysis['relationships'].append(relationship)
-    
-    return join_analysis
+# REMOVED: analyze_joins() - now loading pre-computed analytics from join_analysis.json
 
 def display_join_analysis(join_analysis: Dict):
     """Display enhanced join analysis with multi-join array support"""
@@ -713,69 +429,8 @@ def display_join_analysis(join_analysis: Dict):
                 hide_index=True
             )
         
-        # Enhanced graph visualization
-        if GRAPHVIZ_AVAILABLE and len(join_analysis['relationships']) > 0:
-            st.subheader("🌐 Table Relationship Graph")
-            
-            graph = graphviz.Graph(comment='Table Relationships')
-            graph.attr(rankdir='TB', size='10,8')
-            graph.attr('node', shape='box', style='rounded,filled', fillcolor='lightblue')
-            
-            # Color map for different join types
-            join_colors = {
-                'LEFT JOIN': 'blue',
-                'RIGHT JOIN': 'red', 
-                'INNER JOIN': 'green',
-                'FULL JOIN': 'orange',
-                'JOIN': 'black'
-            }
-            
-            # Add nodes and edges with enhanced styling
-            tables_added = set()
-            for rel in join_analysis['relationships']:
-                left_table = rel['left_table']
-                right_table = rel['right_table']
-                join_type = rel.get('join_type', 'JOIN')
-                
-                # Skip unknown tables from string parsing
-                if left_table == 'unknown' or right_table == 'unknown':
-                    continue
-                
-                if left_table not in tables_added:
-                    graph.node(left_table, left_table)
-                    tables_added.add(left_table)
-                
-                if right_table not in tables_added:
-                    graph.node(right_table, right_table)
-                    tables_added.add(right_table)
-                
-                # Style edge based on join type
-                edge_color = join_colors.get(join_type, 'black')
-                edge_label = join_type
-                
-                # Add transformation info if available
-                if rel.get('transformation') and rel['format'] == 'json':
-                    # Truncate long transformations for display
-                    transform = rel['transformation']
-                    if len(transform) > 30:
-                        transform = transform[:30] + '...'
-                    edge_label = f"{join_type}\n{transform}"
-                
-                graph.edge(
-                    left_table, 
-                    right_table, 
-                    label=edge_label,
-                    color=edge_color,
-                    fontsize='10'
-                )
-            
-            try:
-                if tables_added:  # Only show graph if we have valid tables
-                    st.graphviz_chart(graph.source)
-                else:
-                    st.info("No valid table relationships found for graph visualization")
-            except Exception as e:
-                st.warning(f"Could not render graph: {e}")
+        # REMOVED: Graph visualization moved to static files in create_query_catalog_page()
+        # This eliminates expensive graph generation during runtime
     else:
         st.info("No join relationships found in the data")
 
@@ -793,105 +448,72 @@ def create_query_catalog_page(df: pd.DataFrame):
         placeholder="Search by query content, description, or tables..."
     )
     
-    # Filter dataframe based on search
+    # Filter dataframe based on search - using ONLY pre-parsed columns
     filtered_df = df
     if search_term:
         search_lower = search_term.lower()
         
-        # Use optimized search if we have pre-parsed data
+        # Check if we have pre-parsed data for efficient search
         if 'tables_parsed' in df.columns and 'joins_parsed' in df.columns:
-            # Fast search using pre-parsed columns
+            # Fast vectorized search using pre-parsed columns
             mask_list = []
             for idx, row in df.iterrows():
                 match = False
                 
-                # Search in query
+                # Search in query and description (always available)
                 query = safe_get_value(row, 'query')
-                if search_lower in query.lower():
-                    match = True
-                
-                # Search in description
                 description = safe_get_value(row, 'description')
-                if search_lower in description.lower():
+                
+                if (search_lower in query.lower() or 
+                    search_lower in description.lower()):
                     match = True
                 
-                # Search in pre-parsed tables
-                if not match and 'tables_parsed' in row and isinstance(row['tables_parsed'], list):
+                # Search in pre-parsed tables (list format)
+                if not match and isinstance(row.get('tables_parsed'), list):
                     for table in row['tables_parsed']:
                         if search_lower in str(table).lower():
                             match = True
                             break
                 
-                # Search in pre-parsed joins
-                if not match and 'joins_parsed' in row and isinstance(row['joins_parsed'], list):
+                # Search in pre-parsed joins (list of dicts format)
+                if not match and isinstance(row.get('joins_parsed'), list):
                     for join_info in row['joins_parsed']:
                         if isinstance(join_info, dict):
-                            searchable_join_text = ' '.join([
-                                str(join_info.get('left_table', '')),
-                                str(join_info.get('right_table', '')),
-                                str(join_info.get('left_column', '')),
-                                str(join_info.get('right_column', '')),
-                                str(join_info.get('join_type', '')),
-                                str(join_info.get('condition', '')),
-                                str(join_info.get('transformation', ''))
-                            ]).lower()
+                            # Create searchable text from join info
+                            searchable_parts = [
+                                join_info.get('left_table', ''),
+                                join_info.get('right_table', ''),
+                                join_info.get('left_column', ''),
+                                join_info.get('right_column', ''),
+                                join_info.get('join_type', ''),
+                                join_info.get('condition', ''),
+                                join_info.get('transformation', '')
+                            ]
+                            searchable_text = ' '.join(str(part) for part in searchable_parts).lower()
                             
-                            if search_lower in searchable_join_text:
+                            if search_lower in searchable_text:
                                 match = True
                                 break
                 
                 mask_list.append(match)
+            
+            # Apply the filter
+            filtered_df = df[pd.Series(mask_list, index=df.index)]
+            st.info(f"⚡ Found {len(filtered_df)} queries matching '{search_term}' (fast search)")
         else:
-            # Fallback to original search method
-            mask_list = []
-            for idx, row in df.iterrows():
-                match = False
-                
-                # Search in query
-                query = safe_get_value(row, 'query')
-                if search_lower in query.lower():
-                    match = True
-                
-                # Search in description
-                description = safe_get_value(row, 'description')
-                if search_lower in description.lower():
-                    match = True
-                
-                # Search in parsed tables
-                tables_raw = safe_get_value(row, 'tables')
-                tables_list = parse_tables_column(tables_raw)
-                for table in tables_list:
-                    if search_lower in table.lower():
-                        match = True
-                        break
-                
-                # Search in parsed joins
-                joins_raw = safe_get_value(row, 'joins')
-                joins_list = parse_joins_column(joins_raw)
-                for join_info in joins_list:
-                    searchable_join_text = ' '.join([
-                        join_info.get('left_table', ''),
-                        join_info.get('right_table', ''),
-                        join_info.get('left_column', ''),
-                        join_info.get('right_column', ''),
-                        join_info.get('join_type', ''),
-                        join_info.get('condition', ''),
-                        join_info.get('transformation', '')
-                    ]).lower()
-                    
-                    if search_lower in searchable_join_text:
-                        match = True
-                        break
-                
-                mask_list.append(match)
-        
-        # Apply the mask
-        filtered_df = df[pd.Series(mask_list, index=df.index)]
-        
-        st.info(f"Found {len(filtered_df)} queries matching '{search_term}'")
+            # No pre-parsed data available - limited search capability
+            st.warning("⚠️ Limited search capability without pre-parsed data")
+            
+            # Basic search in query and description only
+            query_mask = df['query'].str.contains(search_term, case=False, na=False)
+            desc_mask = df.get('description', pd.Series(dtype=bool)).str.contains(search_term, case=False, na=False) if 'description' in df.columns else pd.Series([False] * len(df))
+            
+            filtered_df = df[query_mask | desc_mask]
+            st.info(f"📄 Found {len(filtered_df)} queries matching '{search_term}' (basic search - run analytics generator for full search)")
+            st.caption("💡 Run `python catalog_analytics_generator.py --csv 'your_file.csv'` for enhanced search in tables and joins")
     
-    # Display analytics with caching optimization
-    if cached_analytics and not search_term:  # Only use cache for full dataset
+    # Display analytics - ONLY use cached analytics (no fallback computation)
+    if cached_analytics:
         # Use cached analytics for much faster display
         join_analysis = cached_analytics['join_analysis']
         metadata = cached_analytics['metadata']
@@ -899,38 +521,39 @@ def create_query_catalog_page(df: pd.DataFrame):
         # Show cache status
         st.caption(f"⚡ Using cached analytics (generated in {metadata['processing_time']:.2f}s)")
         
-        display_join_analysis(join_analysis)
-        
-        # Load and display cached graphs
-        graph_files = load_cached_graph_files()
-        if graph_files and len(join_analysis['relationships']) > 0:
-            st.subheader("🌐 Table Relationship Graph")
+        # Only show full analytics for non-search results to avoid confusion
+        if not search_term:
+            display_join_analysis(join_analysis)
             
-            # Display the first available graph
-            graph_file = Path(graph_files[0])
-            if graph_file.suffix.lower() == '.svg':
-                # Display SVG graph
-                with open(graph_file, 'r') as f:
-                    svg_content = f.read()
-                st.image(svg_content, use_column_width=True)
-            else:
-                # Display PNG/other formats
-                st.image(str(graph_file), use_column_width=True)
-            
-            st.caption(f"Graph loaded from cache: {graph_file.name}")
-    else:
-        # Fallback to computing analytics on the fly (for search results or no cache)
-        if search_term:
-            st.caption("🔄 Computing analytics for search results...")
+            # Load and display cached graphs
+            graph_files = load_cached_graph_files()
+            if graph_files and len(join_analysis['relationships']) > 0:
+                st.subheader("🌐 Table Relationship Graph")
+                
+                # Display the first available graph
+                graph_file = Path(graph_files[0])
+                if graph_file.suffix.lower() == '.svg':
+                    # Display SVG graph
+                    with open(graph_file, 'r') as f:
+                        svg_content = f.read()
+                    st.image(svg_content, use_column_width=True)
+                else:
+                    # Display PNG/other formats
+                    st.image(str(graph_file), use_column_width=True)
+                
+                st.caption(f"Graph loaded from cache: {graph_file.name}")
         else:
-            st.caption("🔄 Computing analytics (no cache available - run catalog_analytics_generator.py)")
-        
-        join_analysis = analyze_joins(filtered_df)
-        display_join_analysis(join_analysis)
-    
-    # Show cache rebuild hint if needed
-    if not cached_analytics and not search_term:
-        st.info("💡 **Performance Tip**: Run `python catalog_analytics_generator.py --csv your_file.csv` to pre-compute analytics for 10x faster loading!")
+            # For search results, show simple stats only
+            st.info(f"📊 Showing {len(filtered_df)} search results (full analytics available for complete dataset)")
+    else:
+        # NO FALLBACK COMPUTATION - require cache
+        st.error("❌ **Analytics cache not available**")
+        st.error("🚫 **Query Catalog requires pre-computed analytics for optimal performance**")
+        st.code("""
+# Run this command to generate analytics cache:
+python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
+        """)
+        st.stop()  # Stop execution - don't attempt heavy computation
     
     st.divider()
     
@@ -1287,7 +910,40 @@ def main():
             """)
     
     else:
-        # Query Catalog page
+        # Query Catalog page - MANDATORY cache requirement
+        # Check for analytics cache before proceeding
+        if not CATALOG_ANALYTICS_DIR.exists():
+            st.error("🚫 **Query Catalog requires pre-computed analytics**")
+            st.error(f"❌ Analytics cache directory not found: `{CATALOG_ANALYTICS_DIR}`")
+            st.code("""
+# Generate analytics cache first:
+python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
+            """)
+            st.info("💡 This will create optimized data files for instant loading")
+            st.stop()
+        
+        # Check for required cache files
+        required_files = [
+            "join_analysis.json",
+            "cache_metadata.json", 
+            "optimized_queries.parquet"
+        ]
+        
+        missing_files = []
+        for file_name in required_files:
+            if not (CATALOG_ANALYTICS_DIR / file_name).exists():
+                missing_files.append(file_name)
+        
+        if missing_files:
+            st.error("🚫 **Incomplete analytics cache**")
+            st.error(f"❌ Missing files: {', '.join(missing_files)}")
+            st.code("""
+# Regenerate complete analytics cache:
+python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv" --force-rebuild
+            """)
+            st.stop()
+        
+        # All checks passed - proceed with catalog page
         create_query_catalog_page(st.session_state.csv_data)
 
 if __name__ == "__main__":
