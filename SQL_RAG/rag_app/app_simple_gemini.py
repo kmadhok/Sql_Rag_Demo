@@ -736,6 +736,64 @@ def load_cached_graph_files() -> List[str]:
                 graph_files.append(str(graph_file))
     return graph_files
 
+def find_original_queries_for_sources(sources: List[Document], csv_data: pd.DataFrame) -> List[pd.Series]:
+    """
+    Map vector store sources back to original CSV query rows
+    
+    Args:
+        sources: List of Document objects from vector store search
+        csv_data: DataFrame containing original queries
+        
+    Returns:
+        List of unique CSV rows that correspond to the sources
+    """
+    if not sources or csv_data.empty:
+        return []
+    
+    matched_queries = []
+    seen_queries = set()  # Track unique queries to avoid duplicates
+    
+    for doc in sources:
+        # Try to match based on content similarity
+        chunk_content = doc.page_content.strip().lower()
+        
+        # Look for the best matching query in CSV data
+        best_match = None
+        best_similarity = 0
+        
+        for idx, row in csv_data.iterrows():
+            query_content = safe_get_value(row, 'query').strip().lower()
+            
+            # Skip empty queries
+            if not query_content:
+                continue
+            
+            # Calculate similarity (simple approach - substring matching)
+            # More sophisticated approaches could use fuzzy matching or embeddings
+            if chunk_content in query_content or query_content in chunk_content:
+                similarity = min(len(chunk_content), len(query_content)) / max(len(chunk_content), len(query_content))
+                
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = row
+            
+            # Also try exact query matching if chunk contains the full query
+            if query_content in chunk_content and len(query_content) > 50:  # Avoid matching very short queries
+                best_match = row
+                best_similarity = 1.0
+                break
+        
+        # Add the best match if it's good enough and not already seen
+        if best_match is not None and best_similarity > 0.3:  # Minimum similarity threshold
+            query_key = safe_get_value(best_match, 'query')[:100]  # Use first 100 chars as unique key
+            
+            if query_key not in seen_queries:
+                matched_queries.append(best_match)
+                seen_queries.add(query_key)
+    
+    # Sort by relevance (maintain original source order for first occurrence)
+    return matched_queries
+
 def display_session_stats():
     """Display session token usage statistics"""
     if 'token_usage' not in st.session_state:
@@ -902,6 +960,14 @@ def main():
                     st.info("🔍 Weights will be automatically optimized based on your query")
                 
                 st.success("🚀 Hybrid search combines semantic understanding with exact SQL term matching")
+            
+            # Source display options
+            st.subheader("📋 Source Display")
+            show_full_queries = st.checkbox(
+                "📄 Show Full Query Cards",
+                value=False,
+                help="Show complete query information instead of just matching chunks"
+            )
             
             st.markdown("""
             _Tip: Gemini Mode provides 18.5x better context utilization. Hybrid Search improves SQL term matching by 20-40%. Query Rewriting enhances retrieval precision by 25-40%._
@@ -1161,18 +1227,65 @@ def main():
                         # Display sources
                         if sources:
                             st.divider()
-                            st.subheader("📂 Sources")
                             
-                            for i, doc in enumerate(sources, 1):
-                                with st.expander(f"Source {i}: {doc.metadata.get('source', 'Unknown')}"):
-                                    st.code(doc.page_content, language="sql")
+                            if show_full_queries:
+                                # Show full query cards
+                                st.subheader("📋 Source Queries")
+                                st.caption(f"Found {len(sources)} relevant chunks from the following complete queries:")
+                                
+                                # Map sources back to original queries
+                                original_queries = find_original_queries_for_sources(sources, st.session_state.csv_data)
+                                
+                                if original_queries:
+                                    for i, query_row in enumerate(original_queries):
+                                        st.subheader(f"📄 Source Query {i + 1}")
+                                        display_query_card(query_row, i)
+                                        
+                                        # Show which chunks came from this query
+                                        matching_chunks = []
+                                        query_content = safe_get_value(query_row, 'query').strip().lower()
+                                        
+                                        for j, doc in enumerate(sources, 1):
+                                            chunk_content = doc.page_content.strip().lower()
+                                            if chunk_content in query_content or query_content in chunk_content:
+                                                matching_chunks.append(f"Chunk {j}")
+                                        
+                                        if matching_chunks:
+                                            st.caption(f"🔗 Related chunks: {', '.join(matching_chunks)}")
+                                        
+                                        if i < len(original_queries) - 1:
+                                            st.divider()
+                                else:
+                                    st.warning("Could not map sources back to original queries")
+                                    st.info("💡 Falling back to chunk display...")
                                     
-                                    # Show metadata if available
-                                    metadata = doc.metadata
-                                    if metadata.get('description'):
-                                        st.caption(f"**Description:** {metadata['description']}")
-                                    if metadata.get('table'):
-                                        st.caption(f"**Tables:** {metadata['table']}")
+                                    # Fallback to chunk display
+                                    st.subheader("📂 Source Chunks")
+                                    for i, doc in enumerate(sources, 1):
+                                        with st.expander(f"Chunk {i}: {doc.metadata.get('source', 'Unknown')}"):
+                                            st.code(doc.page_content, language="sql")
+                                            
+                                            # Show metadata if available
+                                            metadata = doc.metadata
+                                            if metadata.get('description'):
+                                                st.caption(f"**Description:** {metadata['description']}")
+                                            if metadata.get('table'):
+                                                st.caption(f"**Tables:** {metadata['table']}")
+                            else:
+                                # Show original chunk display
+                                st.subheader("📂 Source Chunks")
+                                st.caption(f"Showing {len(sources)} relevant chunks (enable 'Show Full Query Cards' to see complete queries)")
+                                
+                                for i, doc in enumerate(sources, 1):
+                                    with st.expander(f"Chunk {i}: {doc.metadata.get('source', 'Unknown')}"):
+                                        st.code(doc.page_content, language="sql")
+                                        
+                                        # Show metadata if available
+                                        metadata = doc.metadata
+                                        if metadata.get('description'):
+                                            st.caption(f"**Description:** {metadata['description']}")
+                                        if metadata.get('table'):
+                                            st.caption(f"**Tables:** {metadata['table']}")
                         else:
                             st.warning("No relevant sources found")
                             
