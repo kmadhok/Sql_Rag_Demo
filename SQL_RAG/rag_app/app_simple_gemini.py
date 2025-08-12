@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
-CSV_PATH = Path(__file__).parent / "enhanced_sample_queries.csv"  # CSV data source
+CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
 
 # Streamlit page config

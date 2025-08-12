@@ -1,11 +1,11 @@
 {
   "version": "1.0",
-  "created_at": "2025-08-10T11:49:29.835527",
-  "source_csv": "queries_with_descriptions (1).csv",
-  "source_csv_modified": 1754621342.7488213,
-  "source_csv_size": 216051,
-  "total_queries": 1038,
-  "processing_time": 2.5226261615753174,
+  "created_at": "2025-08-11T19:35:37.422592",
+  "source_csv": "sample_queries_with_metadata.csv",
+  "source_csv_modified": 1754949294.5147107,
+  "source_csv_size": 93484,
+  "total_queries": 100,
+  "processing_time": 0.5764608383178711,
   "files_generated": {
     "join_analysis": "join_analysis.json",
     "table_usage": "table_usage_stats.json",
@@ -16,10 +16,10 @@
     ]
   },
   "statistics_summary": {
-    "queries_with_joins": 10,
-    "queries_with_descriptions": 1038,
-    "total_individual_joins": 10,
-    "unique_tables": 414,
+    "queries_with_joins": 100,
+    "queries_with_descriptions": 100,
+    "total_individual_joins": 100,
+    "unique_tables": 16,
     "max_joins_per_query": 1
   }
 }

@@ -7,8 +7,8 @@ improve Streamlit app performance. Processes join analysis, generates visualizat
 and optimizes DataFrames for fast loading.
 
 Usage:
-    python catalog_analytics_generator.py --csv "your_queries.csv"
-    python catalog_analytics_generator.py --csv "your_queries.csv" --force-rebuild
+    python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
+    python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv" --force-rebuild
 
 Features:
 - Pre-computes join analysis and statistics
@@ -57,92 +57,101 @@ GRAPH_FORMATS = ["svg", "png"]  # Generate multiple formats
 
 def parse_tables_column(tables_value: str) -> List[str]:
     """
-    Parse tables column supporting both JSON array format and simple string format
-    Handles format: ['`project.dataset.table`','`project.dataset.table`']
-    Returns full qualified table names
+    Parse tables column using ast.literal_eval approach for consistency with joins parsing
+    Based on the proven logic from preprocess_csv.py
     """
     if not tables_value or tables_value.strip() == '':
         return []
     
-    try:
-        # Try to parse as JSON array first
-        import json
-        # Clean up the string to ensure it's valid JSON
-        tables_str = str(tables_value).strip()
-        
-        # Handle single quotes in JSON (convert to double quotes)
-        if tables_str.startswith("['") and tables_str.endswith("']"):
-            # Replace single quotes with double quotes for JSON parsing
-            tables_str = tables_str.replace("'", '"')
-        
-        tables_json = json.loads(tables_str)
-        if isinstance(tables_json, list):
-            clean_tables = []
-            for table in tables_json:
-                clean_table = str(table).strip('`"\'')
-                if clean_table:
-                    clean_tables.append(clean_table)
-            return clean_tables
-    except (json.JSONDecodeError, TypeError):
-        # If JSON parsing fails, try manual parsing
-        pass
+    # If already a list, return cleaned version
+    if isinstance(tables_value, list):
+        clean_tables = []
+        for table in tables_value:
+            clean_table = str(table).strip()
+            # Remove all backticks and quotes
+            clean_table = clean_table.replace('`', '').replace('"', '').replace("'", '')
+            # Handle BigQuery format: project.dataset.table -> table
+            if '.' in clean_table:
+                table_parts = clean_table.split('.')
+                clean_table = table_parts[-1]  # Take last part (table name)
+            
+            if clean_table:
+                clean_tables.append(clean_table)
+        return clean_tables
     
-    # Manual parsing for formats like ['table1','table2']
+    # If string, try to use ast.literal_eval
+    if isinstance(tables_value, str):
+        try:
+            import ast
+            parsed_tables = ast.literal_eval(tables_value)
+            if isinstance(parsed_tables, list):
+                clean_tables = []
+                for table in parsed_tables:
+                    clean_table = str(table).strip()
+                    # Remove all backticks and quotes
+                    clean_table = clean_table.replace('`', '').replace('"', '').replace("'", '')
+                    # Handle BigQuery format: project.dataset.table -> table
+                    if '.' in clean_table:
+                        table_parts = clean_table.split('.')
+                        clean_table = table_parts[-1]  # Take last part (table name)
+                    
+                    if clean_table:
+                        clean_tables.append(clean_table)
+                return clean_tables
+        except Exception as e:
+            logger.warning(f"Failed to parse tables column with ast.literal_eval: {e}")
+            # Fall back to simple string parsing
+            pass
+    
+    # Simple string format parsing as fallback
     try:
         tables_str = str(tables_value).strip()
-        
-        # Handle list-like format ['item1','item2']
-        if tables_str.startswith('[') and tables_str.endswith(']'):
-            # Remove brackets and split by comma
-            content = tables_str[1:-1]  # Remove [ and ]
-            if content.strip():
-                # Split by comma and clean each item
-                items = []
-                # Handle quoted items properly
-                import re
-                # Find all quoted strings
-                pattern = r"['\"`]([^'\"`]+)['\"`]"
-                matches = re.findall(pattern, content)
-                if matches:
-                    return matches
-                
-                # Fallback: simple comma split
-                for item in content.split(','):
-                    cleaned = item.strip().strip('`"\'')
-                    if cleaned:
-                        items.append(cleaned)
-                return items
-        
-        # Simple comma-separated format
         if ',' in tables_str:
-            tables = [t.strip().strip('`"\'') for t in tables_str.split(',')]
+            # Multiple tables separated by comma
+            tables = [t.strip() for t in tables_str.split(',')]
         else:
-            tables = [tables_str.strip('`"\'')]
+            # Single table
+            tables = [tables_str.strip()]
         
+        # Clean table names (remove BigQuery prefixes and quotes)
         clean_tables = []
         for table in tables:
             if table and table != '':
+                # Remove all backticks and quotes
+                table = table.replace('`', '').replace('"', '').replace("'", '')
+                # Handle BigQuery format: project.dataset.table -> table
+                if '.' in table:
+                    table_parts = table.split('.')
+                    table = table_parts[-1]
                 clean_tables.append(table)
         
         return clean_tables
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to parse tables column '{tables_value}': {e}")
         return []
 
 
 def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
     """
-    Parse joins column supporting arrays of JSON objects and simple string format
-    Handles format: [{'left_table':'`project.dataset.table`','left_column':'col1','right_table':'`project.dataset.table2`','right_column':'col2','join_type':'LEFT JOIN'}]
+    Parse joins column using ast.literal_eval approach that works reliably
+    Based on the proven logic from preprocess_csv.py
+    
+    Returns:
+        List of dictionaries with join information (empty list if no joins)
     """
     if not joins_value or joins_value.strip() == '':
         return []
     
     def clean_table_name(table_name: str) -> str:
+        """Clean and extract table name from BigQuery format"""
         clean_name = str(table_name).strip('`"\'')
-        # Keep full qualified names to match the tables column format
+        # Handle BigQuery format: project.dataset.table -> table
+        if '.' in clean_name:
+            clean_name = clean_name.split('.')[-1]
         return clean_name
     
     def process_single_join(join_obj: Dict) -> Dict[str, Any]:
+        """Process a single join object"""
         left_table = clean_table_name(join_obj.get('left_table', ''))
         right_table = clean_table_name(join_obj.get('right_table', ''))
         left_column = str(join_obj.get('left_column', '')).strip()
@@ -150,6 +159,7 @@ def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
         join_type = str(join_obj.get('join_type', 'JOIN')).strip()
         transformation = str(join_obj.get('transformation', '')).strip()
         
+        # Build condition
         if transformation:
             condition = transformation
         elif left_column and right_column:
@@ -168,105 +178,46 @@ def parse_joins_column(joins_value: str) -> List[Dict[str, Any]]:
             'format': 'json'
         }
     
-    try:
-        import json
-        
-        # Clean up the string to ensure it's valid JSON
-        joins_str = str(joins_value).strip()
-        
-        # Handle single quotes in JSON (convert to double quotes)
-        # This is more complex for joins because of nested quotes
-        if joins_str.startswith("[{") and joins_str.endswith("}]"):
-            # Replace single quotes with double quotes, being careful about nested quotes
-            # Use regex to properly handle the conversion
-            import re
-            
-            # Replace single quotes around keys and string values with double quotes
-            # Pattern: 'key' -> "key"
-            joins_str = re.sub(r"'([^']+)':", r'"\1":', joins_str)
-            # Pattern: :'value' -> :"value" 
-            joins_str = re.sub(r":'([^']*)'", r':"\1"', joins_str)
-        
-        joins_json = json.loads(joins_str)
-        
-        if isinstance(joins_json, list):
-            join_list = []
-            for join_obj in joins_json:
-                if isinstance(join_obj, dict):
-                    try:
-                        processed_join = process_single_join(join_obj)
-                        join_list.append(processed_join)
-                    except Exception:
-                        continue
-            return join_list
-        elif isinstance(joins_json, dict):
-            try:
-                processed_join = process_single_join(joins_json)
-                return [processed_join]
-            except Exception:
-                return []
-    except (json.JSONDecodeError, TypeError):
-        # If JSON parsing fails, try manual parsing
-        pass
+    # First, try to parse as a list (already parsed)
+    if isinstance(joins_value, list):
+        join_list = []
+        for join_obj in joins_value:
+            if isinstance(join_obj, dict):
+                try:
+                    processed_join = process_single_join(join_obj)
+                    join_list.append(processed_join)
+                except Exception as e:
+                    logger.warning(f"Failed to process join object: {e}")
+                    continue
+        return join_list
     
-    # Manual parsing as fallback
-    try:
-        joins_str = str(joins_value).strip()
-        
-        # Try to extract join information manually using regex
-        if joins_str.startswith('[') and joins_str.endswith(']'):
-            import re
-            
-            # Find individual join objects
-            join_pattern = r"\{[^}]+\}"
-            join_matches = re.findall(join_pattern, joins_str)
-            
-            join_list = []
-            for join_match in join_matches:
-                # Extract key-value pairs from each join object
-                kv_pattern = r"'([^']+)'\s*:\s*'([^']*)'"
-                kv_matches = re.findall(kv_pattern, join_match)
-                
-                if kv_matches:
-                    join_obj = dict(kv_matches)
-                    try:
-                        processed_join = process_single_join(join_obj)
-                        join_list.append(processed_join)
-                    except Exception:
-                        continue
-            
-            if join_list:
+    # If string, try to use ast.literal_eval (more robust than json.loads)
+    if isinstance(joins_value, str):
+        try:
+            import ast
+            parsed_joins = ast.literal_eval(joins_value)
+            if isinstance(parsed_joins, list):
+                join_list = []
+                for join_obj in parsed_joins:
+                    if isinstance(join_obj, dict):
+                        try:
+                            processed_join = process_single_join(join_obj)
+                            join_list.append(processed_join)
+                        except Exception as e:
+                            logger.warning(f"Failed to process join object: {e}")
+                            continue
                 return join_list
-    
-        # Simple string format parsing (fallback)
-        import re
-        if joins_str:
-            match = re.search(r'(\w+)\.(\w+)\s*=\s*(\w+)\.(\w+)', joins_str)
-            if match:
-                left_alias, left_col, right_alias, right_col = match.groups()
-                return [{
-                    'left_table': left_alias,
-                    'right_table': right_alias,
-                    'left_column': left_col,
-                    'right_column': right_col,
-                    'join_type': 'JOIN',
-                    'transformation': '',
-                    'condition': joins_str,
-                    'format': 'string'
-                }]
-            else:
-                return [{
-                    'left_table': 'unknown',
-                    'right_table': 'unknown',
-                    'left_column': '',
-                    'right_column': '',
-                    'join_type': 'JOIN',
-                    'transformation': '',
-                    'condition': joins_str,
-                    'format': 'string'
-                }]
-    except Exception:
-        return []
+            elif isinstance(parsed_joins, dict):
+                # Single join object
+                try:
+                    processed_join = process_single_join(parsed_joins)
+                    return [processed_join]
+                except Exception as e:
+                    logger.warning(f"Failed to process single join object: {e}")
+                    return []
+        except Exception as e:
+            logger.warning(f"Failed to parse joins column with ast.literal_eval: {e}")
+            return []
     
     return []
 
