@@ -25,6 +25,7 @@ import logging
 import re
 import json
 import os
+import math
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
@@ -53,6 +54,10 @@ FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
 CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
+
+# Pagination Configuration
+QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
+MAX_PAGES_TO_SHOW = 10  # Maximum pages to show in dropdown for large datasets
 
 # Streamlit page config
 st.set_page_config(
@@ -208,6 +213,49 @@ def safe_get_value(row, column: str, default: str = '') -> str:
         return str(value).strip()
     except:
         return default
+
+def calculate_pagination(total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, Any]:
+    """Calculate pagination parameters for query display"""
+    if total_queries <= 0:
+        return {
+            'total_pages': 0,
+            'page_size': page_size,
+            'has_multiple_pages': False,
+            'total_queries': 0
+        }
+    
+    total_pages = math.ceil(total_queries / page_size)
+    return {
+        'total_pages': total_pages,
+        'page_size': page_size,
+        'has_multiple_pages': total_pages > 1,
+        'total_queries': total_queries
+    }
+
+def get_page_slice(df: pd.DataFrame, page_num: int, page_size: int = QUERIES_PER_PAGE) -> pd.DataFrame:
+    """Get DataFrame slice for specific page"""
+    if df.empty or page_num < 1:
+        return pd.DataFrame()
+    
+    start_idx = (page_num - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Ensure we don't go beyond the dataframe
+    if start_idx >= len(df):
+        return pd.DataFrame()
+    
+    return df.iloc[start_idx:end_idx]
+
+def get_page_info(page_num: int, total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, int]:
+    """Get information about current page range"""
+    start_query = (page_num - 1) * page_size + 1
+    end_query = min(page_num * page_size, total_queries)
+    
+    return {
+        'start_query': start_query,
+        'end_query': end_query,
+        'queries_on_page': end_query - start_query + 1
+    }
 
 # REMOVED: parse_tables_column() - now using pre-parsed tables_parsed column from optimized_queries.parquet
 
@@ -557,16 +605,75 @@ python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
     
     st.divider()
     
-    # Display queries
+    # Display queries with pagination to prevent freezing
     st.subheader(f"📋 Queries ({len(filtered_df)} total)")
     
     if len(filtered_df) == 0:
         st.warning("No queries found matching your search criteria")
         return
     
-    # Display each query
-    for index, (_, row) in enumerate(filtered_df.iterrows()):
-        display_query_card(row, index)
+    # Calculate pagination parameters
+    pagination_info = calculate_pagination(len(filtered_df))
+    
+    if pagination_info['has_multiple_pages']:
+        # Show pagination controls for large datasets
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            st.metric("Total Queries", len(filtered_df))
+        
+        with col2:
+            # Page selector dropdown
+            current_page = st.selectbox(
+                "📄 Select Page:",
+                range(1, pagination_info['total_pages'] + 1),
+                index=0,
+                format_func=lambda x: f"Page {x} of {pagination_info['total_pages']}",
+                key="query_page_selector"
+            )
+        
+        with col3:
+            st.metric("Per Page", QUERIES_PER_PAGE)
+        
+        # Show current page info
+        page_info = get_page_info(current_page, len(filtered_df))
+        st.caption(f"📍 Showing queries {page_info['start_query']}-{page_info['end_query']} of {len(filtered_df)}")
+        
+    else:
+        # No pagination needed for small datasets
+        current_page = 1
+        st.info(f"📄 Showing all {len(filtered_df)} queries (single page)")
+    
+    st.divider()
+    
+    # Get current page data slice (CRITICAL: Only render current page!)
+    current_page_df = get_page_slice(filtered_df, current_page)
+    
+    if current_page_df.empty:
+        st.error("❌ No data for the selected page")
+        return
+    
+    # Render ONLY current page queries (15 max instead of 100+)
+    for index, (_, row) in enumerate(current_page_df.iterrows()):
+        # Calculate global index for proper query numbering
+        global_index = (current_page - 1) * QUERIES_PER_PAGE + index
+        display_query_card(row, global_index)
+    
+    # Add navigation hints for large datasets
+    if pagination_info['has_multiple_pages']:
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if current_page > 1:
+                st.caption("⬅️ Use dropdown above to go to previous pages")
+        
+        with col2:
+            st.caption(f"📖 Page {current_page} of {pagination_info['total_pages']}")
+        
+        with col3:
+            if current_page < pagination_info['total_pages']:
+                st.caption("➡️ Use dropdown above to go to next pages")
 
 def load_cached_analytics() -> Optional[Dict[str, Any]]:
     """Load cached analytics if available and up to date"""
