@@ -1,0 +1,17 @@
+{
+  "original_query": "Which queries show aggregation patterns?",
+  "rewritten_query": "Which queries show aggregation patterns?",
+  "confidence": 1.0,
+  "rewrite_method": "original_low_confidence",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [],
+    "complexity": "simple",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 9.669469356536865,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1754973219.561159,
+  "cache_key": "d1238ed10766cda62061ff2640e70727"
+}

@@ -1,0 +1,18 @@
+{
+  "original_query": "What tables have ups",
+  "rewritten_query": "dataset What tables have ups relation entity",
+  "confidence": 0.8999999999999999,
+  "rewrite_method": "fallback_expansion",
+  "model_used": "gemini-2.5-flash-lite",
+  "intent_analysis": {
+    "has_sql_terms": true,
+    "focus_areas": [],
+    "complexity": "simple",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 8.889467239379883,
+  "llm_error": "Your default credentials were not found. To set up Application Default Credentials, see https://cloud.google.com/docs/authentication/external/set-up-adc for more information.",
+  "cache_hit": false,
+  "cached_at": 1755012582.367724,
+  "cache_key": "db1f668c36dded85e36c2236caf99477"
+}

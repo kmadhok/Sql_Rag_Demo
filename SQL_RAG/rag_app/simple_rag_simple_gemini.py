@@ -16,6 +16,7 @@ Functions:
 
 import time
 import logging
+import os
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
@@ -23,6 +24,22 @@ from pathlib import Path
 from langchain_ollama import OllamaLLM
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+
+# Import hybrid search functionality
+try:
+    from hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
+    HYBRID_SEARCH_AVAILABLE = True
+except ImportError:
+    logger.warning("Hybrid search not available - install rank-bm25: pip install rank-bm25")
+    HYBRID_SEARCH_AVAILABLE = False
+
+# Import query rewriting functionality
+try:
+    from query_rewriter import QueryRewriter, create_query_rewriter
+    QUERY_REWRITING_AVAILABLE = True
+except ImportError:
+    logger.warning("Query rewriting not available - check query_rewriter.py")
+    QUERY_REWRITING_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -74,6 +91,69 @@ def test_ollama_connection(model: str = OLLAMA_MODEL) -> Tuple[bool, str]:
 def estimate_token_count(text: str) -> int:
     """Rough estimation of token count (4 chars ≈ 1 token)."""
     return len(text) // 4
+
+
+def _extract_documents_from_vector_store(vector_store: FAISS) -> List[Document]:
+    """
+    Extract all documents from a FAISS vector store for hybrid retriever initialization
+    
+    Args:
+        vector_store: FAISS vector store
+        
+    Returns:
+        List of Document objects
+    """
+    try:
+        # Access the docstore to get all documents
+        documents = []
+        docstore = vector_store.docstore
+        
+        if hasattr(docstore, '_dict'):
+            # Standard FAISS docstore
+            for doc_id, doc in docstore._dict.items():
+                if isinstance(doc, Document):
+                    documents.append(doc)
+        else:
+            logger.warning("Unable to extract documents from vector store - using vector search only")
+            return []
+        
+        logger.info(f"Extracted {len(documents)} documents from vector store for hybrid search")
+        return documents
+        
+    except Exception as e:
+        logger.error(f"Failed to extract documents from vector store: {e}")
+        return []
+
+
+def _initialize_hybrid_retriever(vector_store: FAISS) -> Optional[HybridRetriever]:
+    """
+    Initialize hybrid retriever with vector store and documents
+    
+    Args:
+        vector_store: FAISS vector store
+        
+    Returns:
+        HybridRetriever instance or None if initialization fails
+    """
+    if not HYBRID_SEARCH_AVAILABLE:
+        return None
+    
+    try:
+        # Extract documents from vector store
+        documents = _extract_documents_from_vector_store(vector_store)
+        
+        if not documents:
+            logger.warning("No documents extracted - falling back to vector search only")
+            return None
+        
+        # Initialize hybrid retriever
+        hybrid_retriever = HybridRetriever(vector_store, documents)
+        logger.info("✅ Hybrid retriever initialized successfully")
+        return hybrid_retriever
+        
+    except Exception as e:
+        logger.error(f"Failed to initialize hybrid retriever: {e}")
+        return None
 
 
 def _deduplicate_chunks(docs: List[Document], similarity_threshold: float = SIMILARITY_THRESHOLD) -> List[Document]:
@@ -260,27 +340,95 @@ def answer_question_simple_gemini(
     question: str, 
     vector_store: FAISS, 
     k: int = 4,
-    gemini_mode: bool = False
-) -> Optional[Tuple[str, List[Document], Dict[str, int]]]:
+    gemini_mode: bool = False,
+    hybrid_search: bool = False,
+    search_weights: Optional[SearchWeights] = None,
+    auto_adjust_weights: bool = True,
+    query_rewriting: bool = False
+) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
-    Enhanced RAG function optimized for Gemini's 1M context window
+    Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
     
     Args:
         question: User question
         vector_store: Pre-loaded FAISS vector store
         k: Number of similar documents to retrieve
         gemini_mode: Enable Gemini optimizations (deduplication, large context)
+        hybrid_search: Enable hybrid search (vector + keyword BM25)
+        search_weights: Custom search weights (vector_weight, keyword_weight)
+        auto_adjust_weights: Automatically adjust weights based on query analysis
+        query_rewriting: Enable intelligent query rewriting for better retrieval
         
     Returns:
-        Tuple of (answer, source_documents, token_usage) or None if failed
+        Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
     """
     
     try:
-        # Step 1: Retrieve relevant documents
-        logger.info(f"{'[GEMINI]' if gemini_mode else ''} Retrieving {k} relevant documents for: {question[:50]}...")
+        # Step 0: Query rewriting for enhanced retrieval (optional)
+        rewrite_data = None
+        search_query = question  # Default to original question
+        
+        if query_rewriting and QUERY_REWRITING_AVAILABLE:
+            # Initialize query rewriter (cached for performance)
+            if not hasattr(answer_question_simple_gemini, '_query_rewriter'):
+                # Use Gemini for query rewriting, get project from environment
+                project = os.getenv('GOOGLE_CLOUD_PROJECT')
+                answer_question_simple_gemini._query_rewriter = create_query_rewriter(
+                    project=project,
+                    auto_select_model=True  # Enable intelligent model selection
+                )
+            
+            query_rewriter = answer_question_simple_gemini._query_rewriter
+            
+            try:
+                logger.info(f"Rewriting query for enhanced retrieval: {question[:50]}...")
+                rewrite_data = query_rewriter.rewrite_query(question, auto_select_model=True)
+                
+                if rewrite_data['confidence'] >= 0.6:  # Use rewritten query if confidence is high
+                    search_query = rewrite_data['rewritten_query']
+                    logger.info(f"Using rewritten query (confidence: {rewrite_data['confidence']:.2f}): {search_query[:50]}...")
+                else:
+                    logger.info(f"Low confidence rewrite ({rewrite_data['confidence']:.2f}), using original query")
+                    search_query = question
+                    
+            except Exception as e:
+                logger.warning(f"Query rewriting failed, using original query: {e}")
+                search_query = question
+        
+        # Step 1: Retrieve relevant documents with hybrid search support
+        search_method = "hybrid" if hybrid_search and HYBRID_SEARCH_AVAILABLE else "vector"
+        query_info = f"original: '{question[:30]}...'" if search_query != question else f"'{question[:50]}...'"
+        logger.info(f"{'[GEMINI]' if gemini_mode else ''} Retrieving {k} relevant documents using {search_method} search for: {query_info}")
         
         start_time = time.time()
-        docs = vector_store.similarity_search(question, k=k)
+        hybrid_results = []
+        
+        if hybrid_search and HYBRID_SEARCH_AVAILABLE:
+            # Initialize hybrid retriever (cached for performance)
+            if not hasattr(answer_question_simple_gemini, '_hybrid_retriever'):
+                answer_question_simple_gemini._hybrid_retriever = _initialize_hybrid_retriever(vector_store)
+            
+            hybrid_retriever = answer_question_simple_gemini._hybrid_retriever
+            
+            if hybrid_retriever:
+                # Perform hybrid search
+                hybrid_results = hybrid_retriever.hybrid_search(
+                    search_query, 
+                    k=k, 
+                    weights=search_weights,
+                    auto_adjust_weights=auto_adjust_weights
+                )
+                docs = [result.document for result in hybrid_results]
+                logger.info(f"Hybrid search: {len(docs)} documents retrieved")
+            else:
+                # Fallback to vector search
+                docs = vector_store.similarity_search(search_query, k=k)
+                logger.warning("Hybrid search failed, using vector search fallback")
+        else:
+            # Standard vector search
+            docs = vector_store.similarity_search(search_query, k=k)
+            logger.info(f"Vector search: {len(docs)} documents retrieved")
+        
         retrieval_time = time.time() - start_time
         
         if not docs:
@@ -343,16 +491,53 @@ Answer:"""
         answer = llm.invoke(prompt)
         generation_time = time.time() - generation_start
         
-        # Calculate token usage (rough estimates)
+        # Calculate token usage (rough estimates) with enhanced information
         prompt_tokens = estimate_token_count(prompt)
         completion_tokens = estimate_token_count(answer)
         total_tokens = prompt_tokens + completion_tokens
         
+        # Enhanced token usage with search method and query rewriting information
         token_usage = {
             'prompt_tokens': prompt_tokens,
             'completion_tokens': completion_tokens,
-            'total_tokens': total_tokens
+            'total_tokens': total_tokens,
+            'search_method': search_method,
+            'retrieval_time': retrieval_time,
+            'documents_retrieved': len(docs),
+            'documents_processed': len(processed_docs)
         }
+        
+        # Add query rewriting information if available
+        if rewrite_data:
+            token_usage.update({
+                'query_rewriting': {
+                    'enabled': True,
+                    'rewritten_query': rewrite_data['rewritten_query'],
+                    'confidence': rewrite_data['confidence'],
+                    'rewrite_method': rewrite_data['rewrite_method'],
+                    'rewrite_time': rewrite_data['rewrite_time'],
+                    'query_used': search_query,
+                    'query_changed': search_query != question
+                }
+            })
+        else:
+            token_usage['query_rewriting'] = {'enabled': False}
+        
+        # Add hybrid search specific information
+        if hybrid_results:
+            search_breakdown = {}
+            for result in hybrid_results:
+                method = result.search_method
+                search_breakdown[method] = search_breakdown.get(method, 0) + 1
+            
+            token_usage.update({
+                'hybrid_search_breakdown': search_breakdown,
+                'fusion_scores_available': True,
+                'search_weights': {
+                    'vector_weight': search_weights.vector_weight if search_weights else 0.7,
+                    'keyword_weight': search_weights.keyword_weight if search_weights else 0.3
+                } if search_weights else None
+            })
         
         logger.info(f"Answer generated in {generation_time:.2f}s")
         logger.info(f"Token usage: {prompt_tokens:,} prompt + {completion_tokens:,} completion = {total_tokens:,} total")

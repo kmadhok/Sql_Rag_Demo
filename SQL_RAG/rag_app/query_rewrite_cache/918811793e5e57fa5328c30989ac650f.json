@@ -1,0 +1,17 @@
+{
+  "original_query": "Inventory turnover calculation",
+  "rewritten_query": "To calculate inventory turnover and analyze stock movement efficiency, we can create a SQL query incorporating key business terms like 'inventory', 'sales', and 'cost of goods sold' (COGS), along with relevant database concepts such as table joins. Here is an enhanced version of the original query:\n\n\n```sql\n\nSELECT \n\n    i.ProductID, \n\n    SUM(s.QuantitySold) AS TotalUnitsSold,\n\n    AVG(i.AverageInventoryLevel) AS AverageInventory,\n\n    (SUM(s.TotalRevenue)/AVG(i.AverageInventoryLevel)) * 8.5 AS InventoryTurnoverRate\n\nFROM \n\n    Sales s\n\nINNER JOIN Product i ON s.ProductID = i.ProductID\n\nWHERE \n\n    YEAR(s.SaleDate) = YEAR(CURRENT_DATE()) -- Filter for the current year to get annual turnover\n\nGROUP BY \n\n    i.ProductID;\n\n```\n\nThis query calculates the inventory turnover rate, a measure of how many times a company's inventory is sold and replaced over a period (here assumed as one year), by joining sales data with product information using an inner join to ensure matching records between tables. The average inventory level per product is considered for each item'ran analysis'.",
+  "confidence": 0.7999999999999999,
+  "rewrite_method": "llm_enhanced",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [],
+    "complexity": "simple",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 15.138593912124634,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1754973209.890563,
+  "cache_key": "918811793e5e57fa5328c30989ac650f"
+}
