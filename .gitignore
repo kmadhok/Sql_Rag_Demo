@@ -11,3 +11,5 @@ multi_thread_test.py
 archive/
 rag_app/faiss_indices/
 archive
+CLAUDE.md
+faiss_indices/

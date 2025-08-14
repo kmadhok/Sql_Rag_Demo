@@ -1,0 +1,23 @@
+{
+  "processed_sources": [
+    {
+      "name": "csv_test_small",
+      "hash": "88938d717c56b7f06427f7b14476dcfe",
+      "row_count": 20,
+      "document_count": 20,
+      "last_processed": "2025-08-07T21:27:03.610879",
+      "source_info": "csv:/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/sample_test.csv:size=98538:mtime=1754429029.654981"
+    },
+    {
+      "name": "csv_test_large",
+      "hash": "49a904420cdee0345223559e35ff7509",
+      "row_count": 100,
+      "document_count": 100,
+      "last_processed": "2025-08-07T21:27:05.997272",
+      "source_info": "csv:/Users/kanumadhok/Sql_Rag_Demo/SQL_RAG/sample_test.csv:size=98538:mtime=1754429029.654981"
+    }
+  ],
+  "last_updated": "2025-08-07T21:27:05.997293",
+  "total_processed": 100,
+  "vector_store_exists": true
+}
