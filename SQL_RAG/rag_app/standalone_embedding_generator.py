@@ -121,7 +121,8 @@ class GPUStandaloneEmbeddingGenerator:
     """GPU-accelerated standalone embedding generator with Windows-compatible threading"""
     
     def __init__(self, csv_path: str, output_dir: str = "faiss_indices", 
-                 batch_size: int = 100, max_workers: int = 16, verbose: bool = False):
+                 batch_size: int = 100, max_workers: int = 16, verbose: bool = False,
+                 schema_path: Optional[str] = None):
         """
         Initialize the GPU-accelerated standalone embedding generator
         
@@ -131,6 +132,7 @@ class GPUStandaloneEmbeddingGenerator:
             batch_size: Number of documents per batch (higher values recommended for GPU/high RAM)
             max_workers: Number of concurrent threads (leverage GPU concurrency)
             verbose: Enable detailed logging
+            schema_path: Optional path to CSV file with schema information (table_id, column, datatype)
         
         Recommended settings for high-end systems:
             batch_size: 100-300 (for systems with 16GB+ RAM)
@@ -141,6 +143,7 @@ class GPUStandaloneEmbeddingGenerator:
         self.batch_size = batch_size
         self.max_workers = max_workers
         self.verbose = verbose
+        self.schema_path = Path(schema_path) if schema_path else None
         
         # Validate inputs
         if not self.csv_path.exists():
@@ -166,6 +169,21 @@ class GPUStandaloneEmbeddingGenerator:
         
         # Check GPU capabilities
         self.gpu_available = self._check_gpu_capabilities()
+        
+        # Load schema data if provided
+        self.schema_lookup = {}
+        if self.schema_path:
+            try:
+                self.schema_lookup = self._load_schema_data(self.schema_path)
+                if verbose:
+                    schema_tables = len(self.schema_lookup)
+                    total_columns = sum(len(cols) for cols in self.schema_lookup.values())
+                    print(f"✅ Loaded schema for {schema_tables} tables ({total_columns} total columns)")
+            except Exception as e:
+                logger.warning(f"Failed to load schema data: {e}")
+                if verbose:
+                    print(f"⚠️  Schema loading failed: {e}")
+                self.schema_lookup = {}
     
     def _check_gpu_capabilities(self) -> Dict[str, bool]:
         """Check GPU capabilities for both FAISS and Ollama"""
@@ -212,6 +230,156 @@ class GPUStandaloneEmbeddingGenerator:
                 print("⚠️  NVIDIA GPU not detected or nvidia-smi unavailable")
         
         return capabilities
+    
+    def _load_schema_data(self, schema_path: Path) -> Dict[str, List[Tuple[str, str]]]:
+        """
+        Load schema data from CSV file and create lookup dictionary
+        
+        Args:
+            schema_path: Path to schema CSV file with columns (table_id, column, datatype)
+            
+        Returns:
+            Dictionary mapping table names to list of (column, datatype) tuples
+        """
+        try:
+            if self.verbose:
+                print(f"📊 Loading schema data from {schema_path}")
+            
+            schema_df = pd.read_csv(schema_path)
+            initial_rows = len(schema_df)
+            
+            if self.verbose:
+                print(f"   📄 Read {initial_rows} rows from schema file")
+            
+            # Validate required columns
+            required_cols = ['table_id', 'column', 'datatype']
+            missing_cols = [col for col in required_cols if col not in schema_df.columns]
+            if missing_cols:
+                raise ValueError(f"Schema CSV missing required columns: {missing_cols}")
+            
+            if self.verbose:
+                print(f"   ✅ Schema file has required columns: {required_cols}")
+            
+            # Remove rows with empty values
+            schema_df = schema_df.dropna()
+            schema_df = schema_df[
+                (schema_df['table_id'].str.strip() != '') &
+                (schema_df['column'].str.strip() != '') &
+                (schema_df['datatype'].str.strip() != '')
+            ]
+            
+            filtered_rows = len(schema_df)
+            if initial_rows != filtered_rows:
+                skipped = initial_rows - filtered_rows
+                logger.info(f"Filtered out {skipped} rows with empty values")
+                if self.verbose:
+                    print(f"   🧹 Filtered out {skipped} rows with empty values")
+            
+            # Build lookup dictionary with detailed tracking
+            schema_lookup = {}
+            processed_tables = set()
+            total_columns = 0
+            
+            for _, row in schema_df.iterrows():
+                try:
+                    table_id = str(row['table_id']).strip()
+                    column = str(row['column']).strip()
+                    datatype = str(row['datatype']).strip()
+                    
+                    # Normalize table name (extract from project.dataset.table format)
+                    table_name = self._normalize_table_name(table_id)
+                    
+                    if table_name not in schema_lookup:
+                        schema_lookup[table_name] = []
+                        processed_tables.add(table_name)
+                    
+                    schema_lookup[table_name].append((column, datatype))
+                    total_columns += 1
+                    
+                except Exception as row_error:
+                    logger.warning(f"Skipping invalid schema row: {row_error}")
+                    continue
+            
+            # Log detailed statistics
+            unique_datatypes = set()
+            for table_schema in schema_lookup.values():
+                for _, datatype in table_schema:
+                    unique_datatypes.add(datatype)
+            
+            logger.info(f"✅ Loaded schema for {len(schema_lookup)} tables ({total_columns} columns, {len(unique_datatypes)} data types)")
+            
+            if self.verbose:
+                print(f"   📊 Schema Statistics:")
+                print(f"      • Tables: {len(schema_lookup)}")
+                print(f"      • Total Columns: {total_columns}")
+                print(f"      • Data Types: {len(unique_datatypes)}")
+                print(f"      • Top data types: {', '.join(list(unique_datatypes)[:5])}")
+                
+                # Show sample tables
+                sample_tables = list(schema_lookup.keys())[:3]
+                if sample_tables:
+                    print(f"      • Sample tables: {', '.join(sample_tables)}")
+            
+            if not schema_lookup:
+                logger.warning("No valid schema data found after processing")
+                if self.verbose:
+                    print("   ⚠️  No valid schema data found")
+            
+            return schema_lookup
+            
+        except FileNotFoundError:
+            error_msg = f"Schema file not found: {schema_path}"
+            logger.error(error_msg)
+            if self.verbose:
+                print(f"   ❌ {error_msg}")
+            raise
+        except pd.errors.EmptyDataError:
+            error_msg = f"Schema file is empty: {schema_path}"
+            logger.error(error_msg)
+            if self.verbose:
+                print(f"   ❌ {error_msg}")
+            raise
+        except Exception as e:
+            error_msg = f"Failed to load schema data from {schema_path}: {e}"
+            logger.error(error_msg)
+            if self.verbose:
+                print(f"   ❌ {error_msg}")
+            raise
+    
+    def _normalize_table_name(self, table_id: str) -> str:
+        """
+        Extract table name from BigQuery format (project.dataset.table)
+        
+        Args:
+            table_id: Full table identifier (e.g., "project.dataset.customers")
+            
+        Returns:
+            Normalized table name (e.g., "customers")
+        """
+        # Remove backticks and quotes
+        clean_id = table_id.strip('`"\'')
+        
+        # Extract table name (last part after dots)
+        if '.' in clean_id:
+            return clean_id.split('.')[-1].strip()
+        
+        return clean_id.strip()
+    
+    def _get_table_schema(self, table_name: str) -> List[Tuple[str, str]]:
+        """
+        Get schema information for a specific table
+        
+        Args:
+            table_name: Name of the table to look up
+            
+        Returns:
+            List of (column, datatype) tuples for the table
+        """
+        # Normalize the input table name
+        normalized_name = self._normalize_table_name(table_name)
+        
+        # Look up in schema
+        return self.schema_lookup.get(normalized_name, [])
     
     def _initialize_embeddings(self) -> bool:
         """Initialize Ollama embeddings with GPU acceleration testing"""
@@ -314,7 +482,7 @@ class GPUStandaloneEmbeddingGenerator:
             return ""
     
     def _create_query_fingerprint(self, row: pd.Series) -> str:
-        """Create unique fingerprint for a single query"""
+        """Create unique fingerprint for a single query including schema information"""
         try:
             # Combine key fields to create unique identifier
             parts = []
@@ -322,6 +490,19 @@ class GPUStandaloneEmbeddingGenerator:
                 if col in row:
                     value = str(row[col]) if pd.notna(row[col]) else ""
                     parts.append(value)
+            
+            # Include schema information in fingerprint if available
+            if self.schema_lookup:
+                schema_info = self._get_schema_info_for_query(row)
+                if schema_info:
+                    # Add schema content to fingerprint
+                    schema_content = "|".join(schema_info)
+                    parts.append(f"SCHEMA:{schema_content}")
+                
+                # Also include schema file path modification time if available
+                if self.schema_path and self.schema_path.exists():
+                    schema_mtime = os.path.getmtime(self.schema_path)
+                    parts.append(f"SCHEMA_MTIME:{schema_mtime}")
             
             content = "|".join(parts)
             return hashlib.md5(content.encode('utf-8')).hexdigest()
@@ -439,8 +620,17 @@ class GPUStandaloneEmbeddingGenerator:
             return True, "Error during change detection"
     
     def _create_documents(self, df: pd.DataFrame) -> List[Document]:
-        """Create LangChain documents from DataFrame"""
+        """Create LangChain documents from DataFrame with optional schema enhancement"""
         documents = []
+        
+        # Track schema coverage statistics
+        total_queries = len(df)
+        queries_with_schema = 0
+        total_tables_found = 0
+        total_tables_with_schema = 0
+        
+        if self.verbose and self.schema_lookup:
+            print(f"📊 Creating documents with schema enhancement for {total_queries} queries...")
         
         for idx, row in df.iterrows():
             # Create composite content for richer search
@@ -455,23 +645,202 @@ class GPUStandaloneEmbeddingGenerator:
             if row.get('joins') and str(row['joins']).strip():
                 content_parts.append(f"Joins: {row['joins']}")
             
+            # Add schema information if available
+            schema_info = self._get_schema_info_for_query(row)
+            if schema_info:
+                content_parts.extend(schema_info)
+                queries_with_schema += 1
+            
+            # Track table coverage for statistics
+            if self.schema_lookup:
+                query_tables = self._extract_tables_from_row(row)
+                total_tables_found += len(query_tables)
+                for table in query_tables:
+                    if self._get_table_schema(table):
+                        total_tables_with_schema += 1
+            
             content = "\n".join(content_parts)
             
-            # Create document with metadata
-            doc = Document(
-                page_content=content,
-                metadata={
-                    'index': idx,
-                    'query': row['query'],
-                    'description': str(row.get('description', '')),
-                    'table': str(row.get('table', '')),
-                    'joins': str(row.get('joins', '')),
-                    'source': self.csv_path.name
-                }
-            )
+            # Create document with metadata (including schema info)
+            metadata = {
+                'index': idx,
+                'query': row['query'],
+                'description': str(row.get('description', '')),
+                'table': str(row.get('table', '')),
+                'joins': str(row.get('joins', '')),
+                'source': self.csv_path.name
+            }
+            
+            # Add schema metadata if available
+            if schema_info:
+                metadata['has_schema'] = True
+                metadata['schema_tables'] = self._extract_tables_from_row(row)
+            else:
+                metadata['has_schema'] = False
+                metadata['schema_tables'] = []
+            
+            doc = Document(page_content=content, metadata=metadata)
             documents.append(doc)
         
+        # Log schema coverage statistics
+        if self.schema_lookup:
+            query_coverage = (queries_with_schema / total_queries * 100) if total_queries > 0 else 0
+            table_coverage = (total_tables_with_schema / total_tables_found * 100) if total_tables_found > 0 else 0
+            
+            logger.info(f"📊 Schema Coverage Statistics:")
+            logger.info(f"   • Queries with schema: {queries_with_schema}/{total_queries} ({query_coverage:.1f}%)")
+            logger.info(f"   • Tables with schema: {total_tables_with_schema}/{total_tables_found} ({table_coverage:.1f}%)")
+            
+            if self.verbose:
+                print(f"   📈 Schema Coverage Summary:")
+                print(f"      • {queries_with_schema}/{total_queries} queries enhanced with schema ({query_coverage:.1f}%)")
+                print(f"      • {total_tables_with_schema}/{total_tables_found} tables found in schema ({table_coverage:.1f}%)")
+                
+                if query_coverage < 50:
+                    print(f"      ⚠️  Low query coverage - consider checking table name formats")
+                elif query_coverage >= 80:
+                    print(f"      ✅ Excellent schema coverage!")
+        
         return documents
+    
+    def _extract_tables_from_row(self, row: pd.Series) -> List[str]:
+        """
+        Extract table names from a query row's metadata
+        
+        Args:
+            row: DataFrame row containing query metadata
+            
+        Returns:
+            List of normalized table names
+        """
+        tables = []
+        
+        # Get tables from the 'table' or 'tables' column
+        table_data = row.get('table') or row.get('tables', '')
+        
+        if table_data and str(table_data).strip():
+            table_str = str(table_data).strip()
+            
+            # Try to parse as list first (if it's a string representation of a list)
+            try:
+                import ast
+                if table_str.startswith('[') and table_str.endswith(']'):
+                    parsed_tables = ast.literal_eval(table_str)
+                    if isinstance(parsed_tables, list):
+                        tables = [self._normalize_table_name(str(t)) for t in parsed_tables if str(t).strip()]
+                    else:
+                        tables = [self._normalize_table_name(table_str)]
+                else:
+                    # Parse as comma-separated string
+                    if ',' in table_str:
+                        tables = [self._normalize_table_name(t.strip()) for t in table_str.split(',') if t.strip()]
+                    else:
+                        tables = [self._normalize_table_name(table_str)]
+            except:
+                # Fallback to simple parsing
+                if ',' in table_str:
+                    tables = [self._normalize_table_name(t.strip()) for t in table_str.split(',') if t.strip()]
+                else:
+                    tables = [self._normalize_table_name(table_str)]
+        
+        # Remove empty strings and duplicates while preserving order
+        unique_tables = []
+        for table in tables:
+            if table and table not in unique_tables:
+                unique_tables.append(table)
+        
+        return unique_tables
+    
+    def _get_schema_info_for_query(self, row: pd.Series) -> List[str]:
+        """
+        Generate schema information content for a query row
+        
+        Args:
+            row: DataFrame row containing query metadata
+            
+        Returns:
+            List of content strings with schema information
+        """
+        if not self.schema_lookup:
+            return []
+        
+        try:
+            # Extract tables from the row
+            tables = self._extract_tables_from_row(row)
+            
+            if not tables:
+                return []
+            
+            schema_content = []
+            table_schemas = {}
+            all_columns = []
+            tables_with_schema = []
+            tables_without_schema = []
+            
+            # Gather schema info for each table with tracking
+            for table in tables:
+                try:
+                    schema = self._get_table_schema(table)
+                    if schema:
+                        table_schemas[table] = schema
+                        all_columns.extend([(table, col, dtype) for col, dtype in schema])
+                        tables_with_schema.append(table)
+                    else:
+                        tables_without_schema.append(table)
+                except Exception as table_error:
+                    logger.debug(f"Error getting schema for table '{table}': {table_error}")
+                    tables_without_schema.append(table)
+            
+            # Log schema coverage if verbose
+            if self.verbose and (tables_with_schema or tables_without_schema):
+                coverage = len(tables_with_schema) / len(tables) * 100 if tables else 0
+                logger.debug(f"Schema coverage for query: {coverage:.1f}% ({len(tables_with_schema)}/{len(tables)} tables)")
+                if tables_without_schema:
+                    logger.debug(f"Tables without schema: {', '.join(tables_without_schema)}")
+            
+            if not table_schemas:
+                return []
+            
+            # Format schema information for embedding
+            schema_lines = []
+            type_mappings = []
+            
+            for table, schema in table_schemas.items():
+                if schema:
+                    try:
+                        # Create detailed schema line
+                        columns_with_types = [f"{col} ({dtype})" for col, dtype in schema]
+                        schema_lines.append(f"- {table}: {', '.join(columns_with_types)}")
+                        
+                        # Create type mappings for searchability
+                        for col, dtype in schema:
+                            type_mappings.append(f"{col}→{dtype}")
+                    except Exception as format_error:
+                        logger.warning(f"Error formatting schema for table '{table}': {format_error}")
+                        continue
+            
+            if schema_lines:
+                schema_content.append("Schema Context:")
+                schema_content.extend(schema_lines)
+                
+                # Add searchable column type information
+                if type_mappings:
+                    schema_content.append(f"Column Types: {', '.join(type_mappings)}")
+                
+                # Add data type summary for search
+                datatypes = list(set(dtype for _, _, dtype in all_columns))
+                if datatypes:
+                    schema_content.append(f"Data Types Used: {', '.join(sorted(datatypes))}")
+                
+                # Add schema coverage information for search
+                if tables_without_schema:
+                    schema_content.append(f"Partial Schema Coverage: {len(tables_with_schema)}/{len(tables)} tables")
+            
+            return schema_content
+            
+        except Exception as e:
+            logger.warning(f"Error generating schema info for query: {e}")
+            return []
     
     def _split_documents(self, documents: List[Document]) -> List[Document]:
         """Split documents into chunks if needed"""
@@ -920,14 +1289,20 @@ Examples:
   # Basic usage (optimal for most systems)
   python standalone_embedding_generator.py --csv "queries.csv"
   
+  # Schema-enhanced mode (recommended for better search accuracy)
+  python standalone_embedding_generator.py --csv "queries.csv" --schema "table_schemas.csv"
+  
   # High-performance settings for powerful systems (RTX A1000+ with 32GB+ RAM)
   python standalone_embedding_generator.py --csv "data.csv" --batch-size 300 --workers 16
+  
+  # Schema-enhanced with high performance
+  python standalone_embedding_generator.py --csv "data.csv" --schema "schemas.csv" --batch-size 300 --workers 16
   
   # Moderate settings for mid-range systems
   python standalone_embedding_generator.py --csv "data.csv" --batch-size 150 --workers 8
   
-  # Resume interrupted processing
-  python standalone_embedding_generator.py --csv "data.csv" --resume
+  # Resume interrupted processing (with schema)
+  python standalone_embedding_generator.py --csv "data.csv" --schema "schemas.csv" --resume
   
   # Force rebuild existing store
   python standalone_embedding_generator.py --csv "data.csv" --force-rebuild
@@ -952,6 +1327,11 @@ Performance Notes:
     parser.add_argument(
         '--output', default='faiss_indices',
         help='Output directory for vector store (default: faiss_indices)'
+    )
+    
+    parser.add_argument(
+        '--schema',
+        help='Path to CSV file containing table schema information (table_id, column, datatype)'
     )
     
     parser.add_argument(
@@ -991,6 +1371,29 @@ Performance Notes:
         print(f"❌ CSV file not found: {args.csv}")
         return 1
     
+    # Validate schema file if provided
+    if args.schema:
+        schema_path = Path(args.schema)
+        if not schema_path.exists():
+            print(f"❌ Schema file not found: {args.schema}")
+            return 1
+        
+        # Validate schema file format
+        try:
+            import pandas as pd
+            schema_df = pd.read_csv(schema_path, nrows=5)  # Just read first few rows for validation
+            required_cols = ['table_id', 'column', 'datatype']
+            missing_cols = [col for col in required_cols if col not in schema_df.columns]
+            if missing_cols:
+                print(f"❌ Schema file missing required columns: {missing_cols}")
+                print(f"   Expected columns: {required_cols}")
+                print(f"   Found columns: {list(schema_df.columns)}")
+                return 1
+        except Exception as e:
+            print(f"❌ Schema file validation failed: {e}")
+            print(f"   Please ensure {args.schema} is a valid CSV file with columns: table_id, column, datatype")
+            return 1
+    
     if args.batch_size < 1:
         print("❌ Batch size must be at least 1")
         return 1
@@ -1018,7 +1421,8 @@ Performance Notes:
             output_dir=args.output,
             batch_size=args.batch_size,
             max_workers=args.workers,
-            verbose=args.verbose
+            verbose=args.verbose,
+            schema_path=args.schema
         )
         
         # Generate embeddings
