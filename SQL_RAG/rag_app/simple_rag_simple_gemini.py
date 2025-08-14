@@ -344,7 +344,8 @@ def answer_question_simple_gemini(
     hybrid_search: bool = False,
     search_weights: Optional[SearchWeights] = None,
     auto_adjust_weights: bool = True,
-    query_rewriting: bool = False
+    query_rewriting: bool = False,
+    schema_manager=None
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
@@ -358,6 +359,7 @@ def answer_question_simple_gemini(
         search_weights: Custom search weights (vector_weight, keyword_weight)
         auto_adjust_weights: Automatically adjust weights based on query analysis
         query_rewriting: Enable intelligent query rewriting for better retrieval
+        schema_manager: Optional SchemaManager for smart schema injection (reduces noise from 39K+ to ~100-500 relevant rows)
         
     Returns:
         Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
@@ -448,7 +450,34 @@ def answer_question_simple_gemini(
             
             # Apply content prioritization for diversity
             processed_docs = _prioritize_diverse_content(processed_docs, question)
-            
+        
+        # Step 2.5: Smart schema filtering (extract relevant tables and inject schema)
+        relevant_schema = ""
+        if schema_manager:
+            try:
+                # Extract table names from retrieved documents
+                relevant_tables = schema_manager.extract_tables_from_documents(processed_docs)
+                
+                # Also extract tables from the user question
+                question_tables = schema_manager.extract_tables_from_content(question)
+                relevant_tables.extend(question_tables)
+                
+                if relevant_tables:
+                    # Filter schema to only relevant tables (39K → ~100-500 rows)
+                    relevant_schema = schema_manager.get_relevant_schema(relevant_tables)
+                    
+                    if relevant_schema:
+                        logger.info(f"Smart schema filtering: {len(relevant_tables)} tables identified, schema filtered for injection")
+                    else:
+                        logger.info("No matching schema found for identified tables")
+                else:
+                    logger.info("No tables identified from retrieved documents")
+                    
+            except Exception as e:
+                logger.warning(f"Schema filtering failed, continuing without schema: {e}")
+                relevant_schema = ""
+        
+        if gemini_mode:
             # Build enhanced context for large context windows
             context = _build_enhanced_context(processed_docs, question)
         else:
@@ -460,10 +489,13 @@ def answer_question_simple_gemini(
         # Step 3: Generate answer using LLM
         logger.info(f"Generating answer using {OLLAMA_MODEL}...")
         
-        # Build prompt
+        # Build prompt with optional schema injection
         if gemini_mode:
-            prompt = f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided context to give a detailed, helpful answer.
-
+            # Enhanced prompt with schema for Gemini mode
+            schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
+            
+            prompt = f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema and context to give a detailed, helpful answer.
+{schema_section}
 {context}
 
 Question: {question}
@@ -471,13 +503,17 @@ Question: {question}
 Provide a comprehensive answer that:
 1. Directly addresses the user's question
 2. References relevant examples from the context
-3. Explains key SQL concepts and patterns
-4. Suggests best practices when applicable
+3. Uses the database schema when explaining table structures and relationships
+4. Explains key SQL concepts and patterns
+5. Suggests best practices when applicable
 
 Answer:"""
         else:
-            prompt = f"""You are a SQL expert. Based on the provided SQL examples, answer the user's question clearly and concisely.
-
+            # Standard prompt with schema for standard mode
+            schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
+            
+            prompt = f"""You are a SQL expert. Based on the provided database schema and SQL examples, answer the user's question clearly and concisely.
+{schema_section}
 {context}
 
 Question: {question}
@@ -522,6 +558,22 @@ Answer:"""
             })
         else:
             token_usage['query_rewriting'] = {'enabled': False}
+        
+        # Add schema filtering information if available
+        if schema_manager:
+            schema_tokens = estimate_token_count(relevant_schema) if relevant_schema else 0
+            token_usage.update({
+                'schema_filtering': {
+                    'enabled': True,
+                    'relevant_tables': len(relevant_tables) if 'relevant_tables' in locals() else 0,
+                    'schema_tokens': schema_tokens,
+                    'schema_available': bool(relevant_schema),
+                    'total_schema_tables': schema_manager.table_count,
+                    'schema_coverage': f"{len(relevant_tables) if 'relevant_tables' in locals() else 0}/{schema_manager.table_count}" if 'relevant_tables' in locals() else "0/0"
+                }
+            })
+        else:
+            token_usage['schema_filtering'] = {'enabled': False}
         
         # Add hybrid search specific information
         if hybrid_results:

@@ -45,6 +45,14 @@ except ImportError:
 # Import our enhanced RAG function and hybrid search components
 from simple_rag_simple_gemini import answer_question_simple_gemini
 
+# Import schema manager for smart schema injection
+try:
+    from schema_manager import SchemaManager, create_schema_manager
+    SCHEMA_MANAGER_AVAILABLE = True
+except ImportError:
+    SCHEMA_MANAGER_AVAILABLE = False
+    logger.warning("Schema manager not available - schema injection disabled")
+
 # Import hybrid search components
 try:
     from hybrid_retriever import SearchWeights
@@ -61,6 +69,7 @@ FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
 CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
+SCHEMA_CSV_PATH = Path(__file__).parent / "schema.csv"  # Schema file with table_id, column, datatype
 
 # Pagination Configuration
 QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
@@ -145,6 +154,36 @@ def get_available_indices() -> List[str]:
             indices.append(path.name)
     
     return sorted(indices)
+
+@st.cache_resource
+def load_schema_manager() -> Optional[SchemaManager]:
+    """
+    Load and cache SchemaManager for smart schema injection.
+    
+    Returns:
+        SchemaManager instance or None if loading fails or schema not available
+    """
+    if not SCHEMA_MANAGER_AVAILABLE:
+        return None
+    
+    if not SCHEMA_CSV_PATH.exists():
+        logger.info(f"Schema file not found at {SCHEMA_CSV_PATH} - schema injection disabled")
+        return None
+    
+    try:
+        # Create schema manager with the schema CSV file
+        schema_manager = create_schema_manager(str(SCHEMA_CSV_PATH), verbose=True)
+        
+        if schema_manager:
+            logger.info(f"✅ Schema manager loaded: {schema_manager.table_count} tables, {schema_manager.column_count} columns")
+            return schema_manager
+        else:
+            logger.warning("Failed to create schema manager")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error loading schema manager: {e}")
+        return None
 
 def load_csv_data() -> Optional[pd.DataFrame]:
     """
@@ -826,6 +865,16 @@ def main():
             st.error("Cannot proceed without CSV data")
             st.stop()
     
+    # Load schema manager for smart schema injection (cached)
+    if 'schema_manager' not in st.session_state:
+        schema_manager = load_schema_manager()
+        st.session_state.schema_manager = schema_manager
+        
+        if schema_manager:
+            logger.info(f"✅ Schema manager ready: {schema_manager.table_count} tables available for injection")
+        else:
+            logger.info("Schema manager not available - proceeding without schema injection")
+    
     # Sidebar for navigation and configuration
     with st.sidebar:
         st.header("📱 Navigation")
@@ -893,6 +942,17 @@ def main():
             except ImportError:
                 query_rewriting = False
                 st.warning("⚠️ Query rewriting module not found")
+            
+            # Add schema injection toggle
+            if SCHEMA_MANAGER_AVAILABLE:
+                schema_injection = st.checkbox(
+                    "🗃️ Smart Schema Injection", 
+                    value=True, 
+                    help="Inject relevant database schema (reduces 39K+ schema rows to ~100-500 relevant ones)"
+                )
+            else:
+                schema_injection = False
+                st.warning("⚠️ Schema injection unavailable - check schema_manager.py and schema.csv")
             
             if gemini_mode:
                 k = st.slider(
@@ -1037,7 +1097,12 @@ def main():
         if st.button("🔍 Search", type="primary") and query.strip():
             with st.spinner("Searching and generating answer..."):
                 try:
-                    # Call our enhanced RAG function with Gemini, hybrid search, and query rewriting optimization
+                    # Determine schema manager to use
+                    schema_manager_to_use = None
+                    if schema_injection and st.session_state.schema_manager:
+                        schema_manager_to_use = st.session_state.schema_manager
+                    
+                    # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
                     result = answer_question_simple_gemini(
                         question=query,
                         vector_store=st.session_state.vector_store,
@@ -1046,7 +1111,8 @@ def main():
                         hybrid_search=hybrid_search,
                         search_weights=search_weights,
                         auto_adjust_weights=auto_adjust_weights,
-                        query_rewriting=query_rewriting
+                        query_rewriting=query_rewriting,
+                        schema_manager=schema_manager_to_use
                     )
                     
                     if result:
@@ -1158,6 +1224,45 @@ def main():
                                 st.success("✅ Query was enhanced with SQL terminology and domain concepts")
                             else:
                                 st.info("ℹ️ Original query was already well-optimized")
+                        
+                        # Display schema filtering information if available
+                        if token_usage and token_usage.get('schema_filtering', {}).get('enabled'):
+                            st.divider()
+                            
+                            schema_info = token_usage['schema_filtering']
+                            st.subheader("🗃️ Smart Schema Injection")
+                            
+                            # Schema filtering metrics
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                st.metric(
+                                    "📊 Tables Identified",
+                                    schema_info.get('relevant_tables', 0),
+                                    f"Coverage: {schema_info.get('schema_coverage', '0/0')}"
+                                )
+                            
+                            with col2:
+                                schema_tokens = schema_info.get('schema_tokens', 0)
+                                st.metric(
+                                    "🧾 Schema Tokens",
+                                    f"{schema_tokens:,}",
+                                    "Added to context"
+                                )
+                            
+                            with col3:
+                                total_tables = schema_info.get('total_schema_tables', 0)
+                                reduction_factor = f"{total_tables:,} → {schema_info.get('relevant_tables', 0)}"
+                                st.metric(
+                                    "🎯 Noise Reduction",
+                                    "99%+" if schema_info.get('relevant_tables', 0) > 0 else "N/A",
+                                    reduction_factor
+                                )
+                            
+                            if schema_info.get('schema_available'):
+                                st.success("✅ Relevant database schema injected for accurate answers")
+                            else:
+                                st.info("ℹ️ No matching schema found for identified tables")
                         
                         # Display enhanced search and token usage information
                         if token_usage:

@@ -620,7 +620,7 @@ class GPUStandaloneEmbeddingGenerator:
             return True, "Error during change detection"
     
     def _create_documents(self, df: pd.DataFrame) -> List[Document]:
-        """Create LangChain documents from DataFrame with optional schema enhancement"""
+        """Create clean LangChain documents from DataFrame WITHOUT schema (for better semantic matching)"""
         documents = []
         
         # Track schema coverage statistics
@@ -629,8 +629,12 @@ class GPUStandaloneEmbeddingGenerator:
         total_tables_found = 0
         total_tables_with_schema = 0
         
-        if self.verbose and self.schema_lookup:
-            print(f"📊 Creating documents with schema enhancement for {total_queries} queries...")
+        if self.verbose:
+            if self.schema_lookup:
+                print(f"⚡ Creating clean documents (schema-free) for {total_queries} queries...")
+                print(f"🗃️  Schema available for dynamic injection: {self.table_count:,} tables")
+            else:
+                print(f"📊 Creating documents for {total_queries} queries...")
         
         for idx, row in df.iterrows():
             # Create composite content for richer search
@@ -645,11 +649,9 @@ class GPUStandaloneEmbeddingGenerator:
             if row.get('joins') and str(row['joins']).strip():
                 content_parts.append(f"Joins: {row['joins']}")
             
-            # Add schema information if available
-            schema_info = self._get_schema_info_for_query(row)
-            if schema_info:
-                content_parts.extend(schema_info)
-                queries_with_schema += 1
+            # REMOVED: Schema information to reduce noise in embeddings
+            # Schema will be injected dynamically during query time via SchemaManager
+            # This creates cleaner embeddings for better semantic matching
             
             # Track table coverage for statistics
             if self.schema_lookup:
@@ -671,35 +673,25 @@ class GPUStandaloneEmbeddingGenerator:
                 'source': self.csv_path.name
             }
             
-            # Add schema metadata if available
-            if schema_info:
-                metadata['has_schema'] = True
-                metadata['schema_tables'] = self._extract_tables_from_row(row)
-            else:
-                metadata['has_schema'] = False
-                metadata['schema_tables'] = []
+            # Note: Schema metadata removed to keep embeddings clean
+            # Schema will be available via SchemaManager during query time
+            metadata['has_schema'] = False
+            metadata['schema_tables'] = []
             
             doc = Document(page_content=content, metadata=metadata)
             documents.append(doc)
         
-        # Log schema coverage statistics
-        if self.schema_lookup:
-            query_coverage = (queries_with_schema / total_queries * 100) if total_queries > 0 else 0
+        # Log schema availability statistics (schema not included in embeddings)
+        if self.schema_lookup and self.verbose:
             table_coverage = (total_tables_with_schema / total_tables_found * 100) if total_tables_found > 0 else 0
             
-            logger.info(f"📊 Schema Coverage Statistics:")
-            logger.info(f"   • Queries with schema: {queries_with_schema}/{total_queries} ({query_coverage:.1f}%)")
-            logger.info(f"   • Tables with schema: {total_tables_with_schema}/{total_tables_found} ({table_coverage:.1f}%)")
+            logger.info(f"📊 Schema Available for Dynamic Injection:")
+            logger.info(f"   • Total tables in schema: {self.table_count:,}")
+            logger.info(f"   • Tables found in queries: {total_tables_found}")
+            logger.info(f"   • Tables with schema available: {total_tables_with_schema}/{total_tables_found} ({table_coverage:.1f}%)")
             
-            if self.verbose:
-                print(f"   📈 Schema Coverage Summary:")
-                print(f"      • {queries_with_schema}/{total_queries} queries enhanced with schema ({query_coverage:.1f}%)")
-                print(f"      • {total_tables_with_schema}/{total_tables_found} tables found in schema ({table_coverage:.1f}%)")
-                
-                if query_coverage < 50:
-                    print(f"      ⚠️  Low query coverage - consider checking table name formats")
-                elif query_coverage >= 80:
-                    print(f"      ✅ Excellent schema coverage!")
+            print(f"   ⚡ Clean Embeddings: Schema removed from embeddings for better semantic matching")
+            print(f"   🗃️  Schema Available: {self.table_count:,} tables ready for dynamic injection via SchemaManager")
         
         return documents
     
