@@ -1,0 +1,24 @@
+# Streamlit Configuration for SQL RAG Chat App
+
+[theme]
+base = "light"
+font = "sans-serif"
+primaryColor = "#0066cc"
+backgroundColor = "#ffffff" 
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+
+[server]
+enableCORS = true
+enableXsrfProtection = true
+headless = false
+
+[global]
+disableWidgetStateDuplicationWarning = false
+showWarningOnDirectExecution = true
+
+[logger]
+level = "info"
+
+[browser]
+gatherUsageStats = false

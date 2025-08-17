@@ -21,9 +21,11 @@ from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
 # LangChain imports
-from langchain_ollama import OllamaLLM
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
+
+# Gemini imports
+from gemini_client import GeminiClient, test_gemini_connection
 
 # Import hybrid search functionality
 try:
@@ -46,7 +48,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-OLLAMA_MODEL = "phi3"
+GEMINI_MODEL = "gemini-2.5-flash-lite"
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0
 
@@ -55,37 +57,17 @@ GEMINI_MAX_CONTEXT_TOKENS = 800000  # Stay under 1M limit with buffer
 SIMILARITY_THRESHOLD = 0.7  # Jaccard similarity for deduplication
 
 
-def test_ollama_connection(model: str = OLLAMA_MODEL) -> Tuple[bool, str]:
+def test_gemini_connection_simple(model: str = GEMINI_MODEL) -> Tuple[bool, str]:
     """
-    Test connection to Ollama service
+    Test connection to Gemini service
     
     Args:
-        model: Ollama model name to test
+        model: Gemini model name to test
         
     Returns:
         Tuple of (success, status_message)
     """
-    try:
-        llm = OllamaLLM(model=model)
-        
-        # Quick test query
-        start_time = time.time()
-        response = llm.invoke("Hello")
-        response_time = time.time() - start_time
-        
-        if response and len(response.strip()) > 0:
-            return True, f"✅ {model} ready ({response_time:.2f}s response time)"
-        else:
-            return False, f"❌ {model} responded but returned empty response"
-            
-    except Exception as e:
-        error_msg = str(e)
-        if "Connection refused" in error_msg or "Failed to connect" in error_msg:
-            return False, "❌ Ollama service not running. Start with: ollama serve"
-        elif "model not found" in error_msg.lower():
-            return False, f"❌ Model '{model}' not found. Install with: ollama pull {model}"
-        else:
-            return False, f"❌ Ollama connection error: {error_msg}"
+    return test_gemini_connection(model=model)
 
 
 def estimate_token_count(text: str) -> int:
@@ -336,6 +318,121 @@ ANALYSIS INSTRUCTIONS:
     return final_context
 
 
+def get_agent_prompt_template(agent_type: Optional[str], question: str, schema_section: str, conversation_section: str, context: str, gemini_mode: bool = False) -> str:
+    """
+    Get specialized prompt template based on agent type
+    
+    Args:
+        agent_type: Agent specialization type ("explain", "create", or None)
+        question: User question
+        schema_section: Database schema information
+        conversation_section: Previous conversation context
+        context: Retrieved SQL examples context
+        gemini_mode: Whether using Gemini optimizations
+        
+    Returns:
+        Formatted prompt string for the specific agent
+    """
+    
+    if agent_type == "explain":
+        # Explanation Agent - Focus on detailed breakdowns and educational content
+        if gemini_mode:
+            return f"""You are a SQL Explanation Expert. Your role is to provide detailed, educational explanations of SQL queries, concepts, and database operations. Use the provided schema, context, and conversation history to give comprehensive explanations.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Question: {question}
+
+As an Explanation Expert, provide a comprehensive answer that:
+1. Breaks down complex SQL concepts into understandable parts
+2. Explains step-by-step how queries work and why they're structured that way
+3. References relevant examples from the context to illustrate points
+4. Uses the database schema to explain table relationships and data flow
+5. Builds on previous conversation when relevant
+6. Explains the "why" behind SQL patterns and best practices
+7. Uses clear, educational language suitable for learning
+
+Focus on education and understanding rather than just providing answers.
+
+Explanation:"""
+        else:
+            return f"""You are a SQL Explanation Expert. Provide detailed explanations of SQL queries and concepts using the provided schema, examples, and conversation history.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Question: {question}
+
+Explain clearly and educationally, breaking down concepts step-by-step.
+
+Explanation:"""
+    
+    elif agent_type == "create":
+        # Creation Agent - Focus on generating working SQL code
+        if gemini_mode:
+            return f"""You are a SQL Creation Expert. Your role is to generate efficient, working SQL queries from natural language requirements. Use the provided schema, context, and conversation history to create optimal SQL solutions.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Requirement: {question}
+
+As a Creation Expert, provide a comprehensive solution that:
+1. Generates working SQL code that meets the specified requirements
+2. Uses appropriate table structures and relationships from the schema
+3. Follows SQL best practices and performance considerations
+4. References similar patterns from the context examples when applicable
+5. Builds on previous conversation context when relevant
+6. Includes clear comments explaining the approach
+7. Considers edge cases and data integrity
+8. Suggests optimizations or alternative approaches when beneficial
+
+Focus on creating practical, efficient SQL solutions.
+
+SQL Solution:"""
+        else:
+            return f"""You are a SQL Creation Expert. Generate efficient SQL queries from requirements using the provided schema, examples, and conversation history.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Requirement: {question}
+
+Create working SQL code that meets the requirements with clear comments.
+
+SQL Solution:"""
+    
+    else:
+        # Default behavior - General SQL assistance
+        if gemini_mode:
+            return f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema, context, and conversation history to give a detailed, helpful answer.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Question: {question}
+
+Provide a comprehensive answer that:
+1. Directly addresses the user's current question
+2. References relevant examples from the context
+3. Uses the database schema when explaining table structures and relationships
+4. Builds on previous conversation when relevant
+5. Explains key SQL concepts and patterns
+6. Suggests best practices when applicable
+
+Answer:"""
+        else:
+            return f"""You are a SQL expert. Based on the provided database schema, SQL examples, and conversation history, answer the user's question clearly and concisely.
+{schema_section}
+{conversation_section}
+{context}
+
+Current Question: {question}
+
+Answer:"""
+
+
 def answer_question_simple_gemini(
     question: str, 
     vector_store: FAISS, 
@@ -345,7 +442,9 @@ def answer_question_simple_gemini(
     search_weights: Optional[SearchWeights] = None,
     auto_adjust_weights: bool = True,
     query_rewriting: bool = False,
-    schema_manager=None
+    schema_manager=None,
+    conversation_context: str = "",
+    agent_type: Optional[str] = None
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
@@ -360,6 +459,8 @@ def answer_question_simple_gemini(
         auto_adjust_weights: Automatically adjust weights based on query analysis
         query_rewriting: Enable intelligent query rewriting for better retrieval
         schema_manager: Optional SchemaManager for smart schema injection (reduces noise from 39K+ to ~100-500 relevant rows)
+        conversation_context: Previous conversation history for context continuity
+        agent_type: Agent specialization type ("explain", "create", or None for default)
         
     Returns:
         Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
@@ -487,41 +588,24 @@ def answer_question_simple_gemini(
                 context += f"Example {i}:\n{doc.page_content}\n\n"
         
         # Step 3: Generate answer using LLM
-        logger.info(f"Generating answer using {OLLAMA_MODEL}...")
+        logger.info(f"Generating answer using {GEMINI_MODEL}...")
         
-        # Build prompt with optional schema injection
-        if gemini_mode:
-            # Enhanced prompt with schema for Gemini mode
-            schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
-            
-            prompt = f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema and context to give a detailed, helpful answer.
-{schema_section}
-{context}
-
-Question: {question}
-
-Provide a comprehensive answer that:
-1. Directly addresses the user's question
-2. References relevant examples from the context
-3. Uses the database schema when explaining table structures and relationships
-4. Explains key SQL concepts and patterns
-5. Suggests best practices when applicable
-
-Answer:"""
-        else:
-            # Standard prompt with schema for standard mode
-            schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
-            
-            prompt = f"""You are a SQL expert. Based on the provided database schema and SQL examples, answer the user's question clearly and concisely.
-{schema_section}
-{context}
-
-Question: {question}
-
-Answer:"""
+        # Build prompt with agent specialization, schema injection, and conversation context
+        schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
+        conversation_section = f"\nPrevious conversation:\n{conversation_context}\n" if conversation_context.strip() else ""
+        
+        # Use agent-specific prompt template
+        prompt = get_agent_prompt_template(
+            agent_type=agent_type,
+            question=question,
+            schema_section=schema_section,
+            conversation_section=conversation_section,
+            context=context,
+            gemini_mode=gemini_mode
+        )
         
         # Initialize LLM and generate response
-        llm = OllamaLLM(model=OLLAMA_MODEL)
+        llm = GeminiClient(model=GEMINI_MODEL)
         
         generation_start = time.time()
         answer = llm.invoke(prompt)
@@ -532,7 +616,7 @@ Answer:"""
         completion_tokens = estimate_token_count(answer)
         total_tokens = prompt_tokens + completion_tokens
         
-        # Enhanced token usage with search method and query rewriting information
+        # Enhanced token usage with search method, agent type, and query rewriting information
         token_usage = {
             'prompt_tokens': prompt_tokens,
             'completion_tokens': completion_tokens,
@@ -540,7 +624,8 @@ Answer:"""
             'search_method': search_method,
             'retrieval_time': retrieval_time,
             'documents_retrieved': len(docs),
-            'documents_processed': len(processed_docs)
+            'documents_processed': len(processed_docs),
+            'agent_type': agent_type
         }
         
         # Add query rewriting information if available
@@ -610,13 +695,17 @@ def main():
     print("🔥 Testing Gemini-Optimized Simple RAG System")
     print("=" * 60)
     
-    # Test Ollama connection
-    print("\n1. Testing Ollama connection...")
-    success, message = test_ollama_connection()
+    # Test Gemini connection
+    print("\n1. Testing Gemini connection...")
+    success, message = test_gemini_connection_simple()
     print(message)
     
     if not success:
-        print("❌ Cannot proceed without Ollama. Please start the service and try again.")
+        print("❌ Cannot proceed without Gemini. Please check your setup.")
+        print("\n🔧 Setup steps:")
+        print("1. Install: pip install google-generativeai")
+        print("2. Get API key: https://makersuite.google.com/app/apikey")
+        print("3. Set environment variable: export GEMINI_API_KEY='your-api-key'")
         return
     
     # Test would require a vector store to be loaded
@@ -625,6 +714,7 @@ def main():
     print("   - Content prioritization for diverse examples") 
     print("   - Enhanced context building for large context windows")
     print("   - Gemini 1M context window optimization")
+    print("   - Powered by Google Gemini 2.5 Flash")
     print("\n✅ Use with app_simple_gemini.py for full functionality")
 
 
