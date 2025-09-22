@@ -29,6 +29,7 @@ import math
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
+from difflib import get_close_matches
 
 # LangChain imports
 from langchain_ollama import OllamaEmbeddings
@@ -41,7 +42,8 @@ try:
     GRAPHVIZ_AVAILABLE = True
 except ImportError:
     GRAPHVIZ_AVAILABLE = False
-
+import dotenv
+dotenv.load_dotenv()
 # Import our enhanced RAG function and hybrid search components
 from simple_rag_simple_gemini import answer_question_simple_gemini
 
@@ -84,6 +86,229 @@ st.set_page_config(
     page_icon="🔥",
     layout="wide"
 )
+
+# Schema Query Functions
+@st.cache_data
+def load_schema_content() -> Optional[str]:
+    """Load schema CSV content for regex-based queries"""
+    schema_path = Path(__file__).parent / "sample_queries_metadata_schema.csv"
+    if not schema_path.exists():
+        logger.warning(f"Schema file not found: {schema_path}")
+        return None
+    
+    try:
+        with open(schema_path, 'r') as f:
+            content = f.read()
+        logger.info(f"✅ Loaded schema file: {len(content.splitlines())} lines")
+        return content
+    except Exception as e:
+        logger.error(f"Error loading schema file: {e}")
+        return None
+
+def extract_table_names(schema_content: str) -> List[str]:
+    """Extract all unique table names from schema content"""
+    if not schema_content:
+        return []
+    
+    # Pattern to match: project.dataset.table_name,column,datatype
+    tables = set(re.findall(r'project\.dataset\.(\w+),', schema_content))
+    return sorted(list(tables))
+
+def find_table_columns(table_name: str, schema_content: str) -> List[Tuple[str, str]]:
+    """Find all columns and their data types for a specific table"""
+    if not schema_content:
+        return []
+    
+    # Pattern: project.dataset.table_name,column_name,data_type
+    pattern = rf"^project\.dataset\.{re.escape(table_name)},([^,]+),([^,]+)$"
+    matches = re.findall(pattern, schema_content, re.MULTILINE)
+    return matches
+
+def find_column_tables(column_name: str, schema_content: str) -> List[Tuple[str, str]]:
+    """Find all tables that contain a specific column"""
+    if not schema_content:
+        return []
+    
+    # Pattern: project.dataset.table_name,column_name,data_type
+    pattern = rf"^project\.dataset\.(\w+),{re.escape(column_name)},([^,]+)$"
+    matches = re.findall(pattern, schema_content, re.MULTILINE)
+    return matches
+
+def find_similar_tables(user_input: str, schema_content: str) -> List[str]:
+    """Find similar table names using fuzzy matching"""
+    if not schema_content:
+        return []
+    
+    available_tables = extract_table_names(schema_content)
+    if not available_tables:
+        return []
+    
+    # Find close matches (case-insensitive)
+    user_input_lower = user_input.lower()
+    table_names_lower = [t.lower() for t in available_tables]
+    
+    # Try exact match first
+    if user_input_lower in table_names_lower:
+        exact_index = table_names_lower.index(user_input_lower)
+        return [available_tables[exact_index]]
+    
+    # Find fuzzy matches
+    matches = get_close_matches(user_input_lower, table_names_lower, n=3, cutoff=0.6)
+    
+    # Map back to original case
+    result = []
+    for match in matches:
+        original_index = table_names_lower.index(match)
+        result.append(available_tables[original_index])
+    
+    return result
+
+def parse_schema_query(question: str) -> Dict[str, Any]:
+    """Parse schema query to extract intent and target"""
+    question_lower = question.lower()
+    
+    # Patterns for different query types
+    column_patterns = [
+        r'(?:columns?|fields?) (?:in|of|for) (?:the )?(\w+)(?: table)?',
+        r'(?:show|list|what) columns? (?:in|of|for) (?:the )?(\w+)',
+        r'structure (?:of )?(?:the )?(\w+)(?: table)?',
+        r'describe (?:the )?(\w+)(?: table)?'
+    ]
+    
+    table_patterns = [
+        r'(?:tables?|where) (?:have|contain|with) (?:the )?(\w+)(?: column)?',
+        r'(?:what|which) tables? (?:have|contain) (?:the )?(\w+)',
+        r'(?:tables?) (?:that )?(?:have|contain) (?:a )?(?:column )?(?:named )?(\w+)'
+    ]
+    
+    # Check for column queries (show columns in table)
+    for pattern in column_patterns:
+        match = re.search(pattern, question_lower)
+        if match:
+            return {
+                'type': 'table_columns',
+                'target': match.group(1),
+                'original_question': question
+            }
+    
+    # Check for table queries (which tables have column)
+    for pattern in table_patterns:
+        match = re.search(pattern, question_lower)
+        if match:
+            return {
+                'type': 'column_tables',
+                'target': match.group(1),
+                'original_question': question
+            }
+    
+    # Default: assume it's a table name for column lookup
+    # Extract potential table name (last word, ignore common words)
+    words = question_lower.split()
+    stop_words = {'the', 'table', 'columns', 'show', 'what', 'in', 'of', 'for'}
+    table_candidates = [w for w in words if w not in stop_words and len(w) > 2]
+    
+    if table_candidates:
+        return {
+            'type': 'table_columns',
+            'target': table_candidates[-1],
+            'original_question': question
+        }
+    
+    return {
+        'type': 'unknown',
+        'target': None,
+        'original_question': question
+    }
+
+def handle_schema_query(question: str) -> str:
+    """Handle schema queries directly using regex without LLM"""
+    try:
+        # Load schema content
+        schema_content = load_schema_content()
+        if not schema_content:
+            return "❌ Schema file not found. Please ensure sample_queries_metadata_schema.csv exists."
+        
+        # Parse the query
+        query_info = parse_schema_query(question)
+        
+        if query_info['type'] == 'table_columns':
+            # User wants to see columns in a table
+            target_table = query_info['target']
+            
+            # Find similar tables using fuzzy matching
+            similar_tables = find_similar_tables(target_table, schema_content)
+            
+            if not similar_tables:
+                # No matches found
+                available_tables = extract_table_names(schema_content)
+                return f"""🤔 No table found matching '{target_table}'.
+
+**Available tables:**
+{chr(10).join(f'• {table}' for table in available_tables[:10])}
+{'...' if len(available_tables) > 10 else ''}
+
+💡 Try: `@schema show columns in customers` or `@schema what columns are in orders`"""
+            
+            elif len(similar_tables) == 1:
+                # Exact or single match found
+                table_name = similar_tables[0]
+                columns = find_table_columns(table_name, schema_content)
+                
+                if not columns:
+                    return f"❌ No columns found for table '{table_name}'."
+                
+                result = f"🗃️ **Columns in `{table_name}` table:**\n\n"
+                for col_name, col_type in columns:
+                    result += f"• **{col_name}** ({col_type})\n"
+                
+                result += f"\n📊 Total: {len(columns)} columns"
+                return result
+            
+            else:
+                # Multiple matches - ask for confirmation
+                result = f"🤔 Did you mean one of these tables?\n\n"
+                for i, table in enumerate(similar_tables, 1):
+                    result += f"{i}. **{table}**\n"
+                
+                result += f"\n💡 Try: `@schema show columns in {similar_tables[0]}`"
+                return result
+        
+        elif query_info['type'] == 'column_tables':
+            # User wants to see which tables have a column
+            target_column = query_info['target']
+            
+            # Find tables with this column
+            table_matches = find_column_tables(target_column, schema_content)
+            
+            if not table_matches:
+                return f"❌ No tables found containing column '{target_column}'.\n\n💡 Try checking the spelling or use `@schema` with a table name to see available columns."
+            
+            result = f"🔍 **Tables containing column `{target_column}`:**\n\n"
+            for table_name, col_type in table_matches:
+                result += f"• **{table_name}** ({col_type})\n"
+            
+            result += f"\n📊 Found in {len(table_matches)} table{'s' if len(table_matches) > 1 else ''}"
+            return result
+        
+        else:
+            # Unknown query type - provide general help
+            available_tables = extract_table_names(schema_content)
+            return f"""🤖 I can help you explore the database schema!
+
+**Try these commands:**
+• `@schema show columns in orders` - See all columns in a table
+• `@schema what tables have customer_id` - Find tables with a specific column
+• `@schema describe products` - Show table structure
+
+**Available tables ({len(available_tables)}):**
+{chr(10).join(f'• {table}' for table in available_tables[:8])}
+{'...' if len(available_tables) > 8 else ''}
+
+💡 You can use partial table names - I'll suggest matches!"""
+    
+    except Exception as e:
+        logger.error(f"Error handling schema query: {e}")
+        return f"❌ Error processing schema query: {str(e)}"
 
 def estimate_token_count(text: str) -> int:
     """Rough estimation of token count (4 chars ≈ 1 token)."""
@@ -876,7 +1101,7 @@ def detect_agent_type(user_input: str) -> Tuple[Optional[str], str]:
 
 def detect_chat_agent_type(user_input: str) -> Tuple[Optional[str], str]:
     """
-    Chat-specific agent detection with @longanswer support
+    Chat-specific agent detection with @longanswer and @schema support
     
     Args:
         user_input: Raw user input string
@@ -895,6 +1120,9 @@ def detect_chat_agent_type(user_input: str) -> Tuple[Optional[str], str]:
     elif user_input.startswith("@longanswer"):
         question = user_input[11:].strip()  # Remove "@longanswer" prefix
         return "longanswer", question
+    elif user_input.startswith("@schema"):
+        question = user_input[7:].strip()  # Remove "@schema" prefix
+        return "schema", question
     else:
         return None, user_input  # Default to concise responses
 
@@ -917,6 +1145,8 @@ def get_chat_agent_indicator(agent_type: Optional[str]) -> str:
         return "⚡ Create Agent"
     elif agent_type == "longanswer":
         return "📖 Detailed Answer"
+    elif agent_type == "schema":
+        return "🗃️ Schema Agent"
     else:
         return "💬 Concise Chat"
 
@@ -999,6 +1229,11 @@ Provide a comprehensive, detailed answer that:
 Focus on providing complete, in-depth analysis and guidance.
 
 Detailed Answer:"""
+    
+    elif agent_type == "schema":
+        # Schema Agent - Direct schema queries without using context/LLM
+        # This will be handled differently - return a placeholder
+        return f"""SCHEMA_QUERY:{question}"""
     
     else:
         # Default behavior - Concise 2-3 sentence responses for chat
@@ -1094,25 +1329,37 @@ def answer_question_chat_mode(
         schema_section = f"\nDatabase Schema (relevant tables):\n{relevant_schema}\n" if relevant_schema else ""
         conversation_section = f"\nPrevious conversation:\n{conversation_context}\n" if conversation_context.strip() else ""
         
-        # Use chat-specific prompt template
-        prompt = get_chat_prompt_template(
-            agent_type=agent_type,
-            question=question,
-            schema_section=schema_section,
-            conversation_section=conversation_section,
-            context=context
-        )
-        
-        # Initialize LLM and generate response
-        llm = GeminiClient(model="gemini-2.5-flash")  # Use fast model for chat
-        
-        generation_start = time.time()
-        answer = llm.invoke(prompt)
-        generation_time = time.time() - generation_start
+        # Handle schema queries directly without LLM
+        if agent_type == "schema":
+            generation_start = time.time()
+            answer = handle_schema_query(question)
+            generation_time = time.time() - generation_start
+        else:
+            # Use chat-specific prompt template
+            prompt = get_chat_prompt_template(
+                agent_type=agent_type,
+                question=question,
+                schema_section=schema_section,
+                conversation_section=conversation_section,
+                context=context
+            )
+            
+            # Initialize LLM and generate response
+            llm = GeminiClient(model="gemini-2.5-flash")  # Use fast model for chat
+            
+            generation_start = time.time()
+            answer = llm.invoke(prompt)
+            generation_time = time.time() - generation_start
         
         # Calculate token usage
-        prompt_tokens = estimate_token_count(prompt)
-        completion_tokens = estimate_token_count(answer)
+        if agent_type == "schema":
+            # Schema queries don't use LLM, so no prompt tokens
+            prompt_tokens = 0
+            completion_tokens = estimate_token_count(answer)
+        else:
+            prompt_tokens = estimate_token_count(prompt)
+            completion_tokens = estimate_token_count(answer)
+        
         total_tokens = prompt_tokens + completion_tokens
         
         # Chat-specific token usage tracking
@@ -1263,6 +1510,7 @@ def create_chat_page(vector_store, csv_data):
         with col1:
             st.success("**Default:** 💬 Concise 2-3 sentence responses")
             st.info("**@explain** 🔍 Detailed explanations for learning")
+            st.markdown("**@schema** 🗃️ Database schema exploration")
         with col2:
             st.warning("**@create** ⚡ SQL code generation with examples")  
             st.error("**@longanswer** 📖 Comprehensive detailed analysis")
@@ -1279,7 +1527,7 @@ def create_chat_page(vector_store, csv_data):
     
     # Use Streamlit's native chat input
     user_input = st.chat_input(
-        placeholder="Ask about SQL queries, joins, optimizations... Use @explain, @create, or @longanswer for specialized responses"
+        placeholder="Ask about SQL queries, joins, optimizations... Use @explain, @create, @schema, or @longanswer for specialized responses"
     )
     
     # Process new message
@@ -1756,29 +2004,26 @@ def main():
                                 st.code(rewrite_info['rewritten_query'], language="text")
                             
                             # Query rewriting metrics
-                            col1, col2, col3 = st.columns(3)
+                            col1, col2 = st.columns(2)
                             
                             with col1:
                                 st.metric(
-                                    "🎯 Enhancement",
+                                    "🎯 Enhancement Status",
                                     "Enhanced" if rewrite_info['query_changed'] else "Original",
-                                    f"Confidence: {rewrite_info['confidence']:.2f}"
+                                    f"Method: {rewrite_info.get('method', 'unknown')}"
                                 )
                             
                             with col2:
-                                model_info = rewrite_info.get('model_used', 'gemini-2.5-flash')
+                                error_status = rewrite_info.get('error')
+                                status_value = "Success" if not error_status else "Error"
+                                status_detail = "Query enhanced" if rewrite_info['query_changed'] else "No changes needed"
+                                if error_status:
+                                    status_detail = f"Error: {error_status}"
+                                
                                 st.metric(
-                                    "⚡ Rewrite Time",
-                                    f"{rewrite_info['rewrite_time']:.3f}s",
-                                    f"Model: {model_info.split('-')[-1].upper()}"  # Show just Flash/Pro/Lite
-                                )
-                            
-                            with col3:
-                                improvement_estimate = "25-40%" if rewrite_info['query_changed'] else "N/A"
-                                st.metric(
-                                    "📈 Expected Improvement",
-                                    improvement_estimate,
-                                    "Retrieval precision"
+                                    "🔧 Processing Status",
+                                    status_value,
+                                    status_detail
                                 )
                             
                             if rewrite_info['query_changed']:

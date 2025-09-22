@@ -11,6 +11,7 @@ google-generativeai>=0.3.0
 # Vector store and embeddings
 faiss-cpu>=1.7.0
 langchain-ollama>=0.1.0  # For embeddings generation (nomic-embed-text)
+rank-bm25>=0.2.2  # For hybrid search BM25 functionality
 
 # Streamlit for web interface
 streamlit>=1.28.0

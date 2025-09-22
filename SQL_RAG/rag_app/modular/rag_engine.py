@@ -44,10 +44,10 @@ except ImportError:
 # Import query rewriting functionality
 QUERY_REWRITING_AVAILABLE = False
 try:
-    from query_rewriter import QueryRewriter, create_query_rewriter
+    from simple_query_rewriter import SimpleQueryRewriter, create_simple_query_rewriter
     QUERY_REWRITING_AVAILABLE = True
 except ImportError:
-    logger.warning("Query rewriting not available - check query_rewriter.py")
+    logger.warning("Query rewriting not available - check simple_query_rewriter.py")
     QUERY_REWRITING_AVAILABLE = False
 
 
@@ -377,24 +377,19 @@ Answer:"""
             search_query = question  # Default to original question
             
             if query_rewriting and QUERY_REWRITING_AVAILABLE:
-                # Initialize query rewriter (cached for performance)
+                # Initialize simple query rewriter (cached for performance)
                 if self._query_rewriter is None:
-                    # Use Gemini for query rewriting, get project from environment
-                    project = os.getenv('GOOGLE_CLOUD_PROJECT')
-                    self._query_rewriter = create_query_rewriter(
-                        project=project,
-                        auto_select_model=True  # Enable intelligent model selection
-                    )
+                    self._query_rewriter = create_simple_query_rewriter()
                 
                 try:
                     logger.info(f"Rewriting query for enhanced retrieval: {question[:50]}...")
-                    rewrite_data = self._query_rewriter.rewrite_query(question, auto_select_model=True)
+                    rewrite_data = self._query_rewriter.rewrite_query(question)
                     
-                    if rewrite_data['confidence'] >= 0.6:  # Use rewritten query if confidence is high
+                    if rewrite_data['query_changed'] and not rewrite_data['error']:
                         search_query = rewrite_data['rewritten_query']
-                        logger.info(f"Using rewritten query (confidence: {rewrite_data['confidence']:.2f}): {search_query[:50]}...")
+                        logger.info(f"Using rewritten query: {search_query[:50]}...")
                     else:
-                        logger.info(f"Low confidence rewrite ({rewrite_data['confidence']:.2f}), using original query")
+                        logger.info(f"Using original query (no changes or error: {rewrite_data.get('error', 'N/A')})")
                         search_query = question
                         
                 except Exception as e:
@@ -545,12 +540,10 @@ Answer:"""
                     'query_rewriting': {
                         'enabled': True,
                         'rewritten_query': rewrite_data['rewritten_query'],
-                        'confidence': rewrite_data['confidence'],
-                        'rewrite_method': rewrite_data['rewrite_method'],
-                        'rewrite_time': rewrite_data['rewrite_time'],
+                        'method': rewrite_data['method'],
                         'query_used': search_query,
-                        'query_changed': search_query != question,
-                        'model_used': rewrite_data.get('model_used', 'gemini-2.5-flash')
+                        'query_changed': rewrite_data['query_changed'],
+                        'error': rewrite_data.get('error')
                     }
                 })
             else:
