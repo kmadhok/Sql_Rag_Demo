@@ -28,7 +28,7 @@ MAX_PAGES_TO_SHOW = 10  # Maximum pages to show in dropdown for large datasets
 # ============================================================================
 # Gemini Model Configuration
 # ============================================================================
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_MAX_TOKENS = 1000000  # 1M token context window
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0

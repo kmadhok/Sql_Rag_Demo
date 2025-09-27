@@ -32,7 +32,7 @@ if ENABLE_SCHEMA_MANAGER:
         if str(parent_dir) not in sys.path:
             sys.path.append(str(parent_dir))
         
-        from schema_manager import SchemaManager, create_schema_manager
+        from core.schema_manager import SchemaManager, create_schema_manager
         SCHEMA_MANAGER_AVAILABLE = True
     except ImportError:
         logger.warning("Schema manager not available - schema injection disabled")

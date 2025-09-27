@@ -25,11 +25,11 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 # Gemini imports
-from gemini_client import GeminiClient, test_gemini_connection
+from .gemini_client import GeminiClient, test_gemini_connection
 
 # Import hybrid search functionality
 try:
-    from hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
+    from .hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
     HYBRID_SEARCH_AVAILABLE = True
 except ImportError:
     logger.warning("Hybrid search not available - install rank-bm25: pip install rank-bm25")
@@ -698,8 +698,9 @@ def main():
         print("❌ Cannot proceed without Gemini. Please check your setup.")
         print("\n🔧 Setup steps:")
         print("1. Install: pip install google-generativeai")
-        print("2. Get API key: https://makersuite.google.com/app/apikey")
-        print("3. Set environment variable: export GEMINI_API_KEY='your-api-key'")
+        print("2. Set up Google Cloud project with Vertex AI enabled")
+        print("3. Authenticate: gcloud auth application-default login")
+        print("4. Set environment variable: export vertex_ai_client='your-gcp-project-id'")
         return
     
     # Test would require a vector store to be loaded

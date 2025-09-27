@@ -10,10 +10,10 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from langchain_core.documents import Document
 
-from modular.config import CHAT_DEFAULT_PROMPT_INSTRUCTION
-from core.utils import estimate_token_count
-from core.gemini_client import GeminiClient
-from core.schema_agent import SchemaAgent, handle_schema_query
+from .config import CHAT_DEFAULT_PROMPT_INSTRUCTION
+from .utils import estimate_token_count
+from gemini_client import GeminiClient
+from schema_agent import SchemaAgent, handle_schema_query
 
 # Configure logging
 logger = logging.getLogger(__name__)

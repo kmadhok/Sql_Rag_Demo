@@ -78,7 +78,21 @@ class SchemaManager:
             df = pd.read_csv(self.schema_csv_path)
             initial_rows = len(df)
             
-            # Validate required columns
+            # Handle different column naming conventions
+            # Check for both old and new naming schemes
+            if 'table_id' in df.columns and 'column' in df.columns:
+                # Use current column names
+                table_col, column_col = 'table_id', 'column'
+            elif 'tableid' in df.columns and 'columnnames' in df.columns:
+                # Rename to standardized names
+                df = df.rename(columns={'tableid': 'table_id', 'columnnames': 'column'})
+                table_col, column_col = 'table_id', 'column'
+            else:
+                # Check what columns are available
+                available_cols = list(df.columns)
+                raise ValueError(f"Schema CSV must have either (table_id, column, datatype) or (tableid, columnnames, datatype). Found: {available_cols}")
+            
+            # Validate required columns after potential renaming
             required_cols = ['table_id', 'column', 'datatype']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:

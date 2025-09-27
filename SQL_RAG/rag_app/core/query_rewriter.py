@@ -70,11 +70,11 @@ class QueryRewriter:
         Args:
             model: Gemini model to use for rewriting (e.g., 'gemini-2.5-flash', 'gemini-2.5-pro')
             enable_cache: Whether to enable query rewrite caching
-            project: Google Cloud project ID (defaults to GOOGLE_CLOUD_PROJECT env var)
+            project: Google Cloud project ID (defaults to vertex_ai_client env var)
         """
         self.model = model
         self.enable_cache = enable_cache
-        self.project = project or os.getenv('GOOGLE_CLOUD_PROJECT')
+        self.project = project or os.getenv('vertex_ai_client')
         self.client = None
         
         # Initialize cache directory

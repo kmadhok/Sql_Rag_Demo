@@ -26,7 +26,7 @@ if str(parent_dir) not in sys.path:
 
 # Import Gemini client
 try:
-    from gemini_client import GeminiClient, test_gemini_connection
+    from core.gemini_client import GeminiClient, test_gemini_connection
 except ImportError:
     logger.error("Could not import gemini_client. Ensure it's in the parent directory.")
     GeminiClient = None
@@ -35,7 +35,7 @@ except ImportError:
 # Import hybrid search functionality
 HYBRID_SEARCH_AVAILABLE = False
 try:
-    from hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
+    from core.hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
     HYBRID_SEARCH_AVAILABLE = True
 except ImportError:
     logger.warning("Hybrid search not available - install rank-bm25: pip install rank-bm25")
@@ -44,7 +44,7 @@ except ImportError:
 # Import query rewriting functionality
 QUERY_REWRITING_AVAILABLE = False
 try:
-    from simple_query_rewriter import SimpleQueryRewriter, create_simple_query_rewriter
+    from core.query_rewriter import QueryRewriter, create_query_rewriter
     QUERY_REWRITING_AVAILABLE = True
 except ImportError:
     logger.warning("Query rewriting not available - check simple_query_rewriter.py")
@@ -379,7 +379,7 @@ Answer:"""
             if query_rewriting and QUERY_REWRITING_AVAILABLE:
                 # Initialize simple query rewriter (cached for performance)
                 if self._query_rewriter is None:
-                    self._query_rewriter = create_simple_query_rewriter()
+                    self._query_rewriter = create_query_rewriter()
                 
                 try:
                     logger.info(f"Rewriting query for enhanced retrieval: {question[:50]}...")

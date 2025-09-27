@@ -147,55 +147,66 @@ class SetupValidator:
         """Validate core application module imports"""
         print_header("🔧 Core Module Import Check")
         
+        # Updated for new organized directory structure
         core_modules = [
-            ('gemini_client', 'GeminiClient, test_gemini_connection'),
-            ('data_source_manager', 'DataSourceManager'),
-            ('simple_rag_simple_gemini', 'answer_question_simple_gemini'),
-            ('app_simple_gemini', None)  # Just check if file exists
+            ('core/gemini_client', 'GeminiClient, test_gemini_connection'),
+            ('data/data_source_manager', 'DataSourceManager'),
+            ('core/simple_rag_simple_gemini', 'answer_question_simple_gemini'),
+            ('app', None)  # Updated to new main app file
         ]
         
         optional_modules = [
-            ('hybrid_retriever', 'HybridRetriever, SearchWeights'),
-            ('query_rewriter', 'QueryRewriter, create_query_rewriter'),
-            ('schema_manager', 'SchemaManager, create_schema_manager'),
+            ('core/hybrid_retriever', 'HybridRetriever, SearchWeights'),
+            ('core/query_rewriter', 'QueryRewriter, create_query_rewriter'),
+            ('core/schema_manager', 'SchemaManager, create_schema_manager'),
         ]
         
         all_good = True
         
         # Check core modules
-        for module_name, imports in core_modules:
-            module_file = self.app_dir / f"{module_name}.py"
+        for module_path, imports in core_modules:
+            module_file = self.app_dir / f"{module_path}.py"
+            module_name = module_path.replace('/', '.')  # Convert path to module name
+            
             if not module_file.exists():
-                self.errors.append(f"Core module missing: {module_name}.py")
-                print_error(f"{module_name}.py not found")
+                self.errors.append(f"Core module missing: {module_path}.py")
+                print_error(f"{module_path}.py not found")
                 all_good = False
                 continue
             
             if imports:  # Test imports
                 try:
+                    # Add the directories to Python path for imports
+                    if str(self.app_dir) not in sys.path:
+                        sys.path.insert(0, str(self.app_dir))
                     exec(f"from {module_name} import {imports}")
-                    print_success(f"{module_name}.py imports work")
+                    print_success(f"{module_path}.py imports work")
                 except ImportError as e:
-                    self.errors.append(f"Import error in {module_name}: {str(e)}")
-                    print_error(f"{module_name}.py import failed: {e}")
+                    self.errors.append(f"Import error in {module_path}: {str(e)}")
+                    print_error(f"{module_path}.py import failed: {e}")
                     all_good = False
             else:
-                print_success(f"{module_name}.py exists")
+                print_success(f"{module_path}.py exists")
         
         # Check optional modules
-        for module_name, imports in optional_modules:
-            module_file = self.app_dir / f"{module_name}.py"
+        for module_path, imports in optional_modules:
+            module_file = self.app_dir / f"{module_path}.py"
+            module_name = module_path.replace('/', '.')  # Convert path to module name
+            
             if not module_file.exists():
-                self.warnings.append(f"Optional module missing: {module_name}.py")
-                print_warning(f"{module_name}.py not found (optional)")
+                self.warnings.append(f"Optional module missing: {module_path}.py")
+                print_warning(f"{module_path}.py not found (optional)")
                 continue
             
             try:
+                # Add the directories to Python path for imports
+                if str(self.app_dir) not in sys.path:
+                    sys.path.insert(0, str(self.app_dir))
                 exec(f"from {module_name} import {imports}")
-                print_success(f"{module_name}.py imports work (optional)")
+                print_success(f"{module_path}.py imports work (optional)")
             except ImportError as e:
-                self.warnings.append(f"Optional import error in {module_name}: {str(e)}")
-                print_warning(f"{module_name}.py import failed (optional): {e}")
+                self.warnings.append(f"Optional import error in {module_path}: {str(e)}")
+                print_warning(f"{module_path}.py import failed (optional): {e}")
         
         return all_good
     
@@ -205,24 +216,21 @@ class SetupValidator:
         
         all_good = True
         
-        # Check Gemini API key
-        gemini_key = os.getenv('GEMINI_API_KEY')
-        if not gemini_key:
-            self.errors.append("GEMINI_API_KEY environment variable not set")
-            print_error("GEMINI_API_KEY not found")
-            print_info("Set it with: export GEMINI_API_KEY='your-api-key'")
-            print_info("Get key from: https://makersuite.google.com/app/apikey")
+        # Check Vertex AI project configuration
+        vertex_project = os.getenv('vertex_ai_client')
+        if not vertex_project:
+            self.errors.append("vertex_ai_client environment variable not set")
+            print_error("vertex_ai_client not found")
+            print_info("Set it with: export vertex_ai_client='your-gcp-project-id'")
+            print_info("Configure authentication: gcloud auth application-default login")
             all_good = False
-        elif not gemini_key.startswith('AIza'):
-            self.warnings.append("GEMINI_API_KEY doesn't look like a valid Gemini API key")
-            print_warning("API key format looks unusual (should start with 'AIza')")
         else:
-            print_success(f"GEMINI_API_KEY set: {'*' * 10}...{gemini_key[-4:]}")
+            print_success(f"vertex_ai_client set: {vertex_project}")
         
-        # Test Gemini connection if key is available
-        if gemini_key:
+        # Test Gemini connection if project is available
+        if vertex_project:
             try:
-                from gemini_client import test_gemini_connection
+                from core.gemini_client import test_gemini_connection
                 success, message = test_gemini_connection()
                 if success:
                     print_success("Gemini API connection successful")
@@ -398,11 +406,11 @@ class SetupValidator:
         if not self.errors:
             print_success("Your SQL RAG application is ready to run!")
             print_info("Start the application with:")
-            print("    streamlit run app_simple_gemini.py")
+            print("    streamlit run app.py")
             
             if not (self.app_dir / "faiss_indices").exists():
                 print_info("\nOptional: Generate embeddings first for better performance:")
-                print("    python3 standalone_embedding_generator.py --csv 'sample_queries_with_metadata.csv'")
+                print("    python3 data/standalone_embedding_generator.py --csv 'sample_queries_with_metadata.csv'")
             
             return True
         else:

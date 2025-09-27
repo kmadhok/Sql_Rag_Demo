@@ -19,11 +19,13 @@ class SessionManager:
     """Manages Streamlit session state and shared data"""
     
     def __init__(self):
-        self.initialize_session_state()
+        self._initialized = False
     
     def initialize_session_state(self):
         """Initialize all required session state variables"""
-        
+        if self._initialized:
+            return
+            
         # CSV data loading
         if 'csv_data' not in st.session_state:
             st.session_state.csv_data = None
@@ -54,6 +56,8 @@ class SessionManager:
         # Page state
         if 'current_page' not in st.session_state:
             st.session_state.current_page = 'search'
+            
+        self._initialized = True
     
     def load_csv_data_if_needed(self) -> bool:
         """
@@ -99,7 +103,7 @@ class SessionManager:
                 if str(parent_dir) not in sys.path:
                     sys.path.insert(0, str(parent_dir))
                 
-                from schema_agent import SchemaAgent
+                from core.schema_agent import SchemaAgent
                 
                 # Initialize schema agent with the CSV path
                 schema_agent = SchemaAgent(str(SCHEMA_CSV_PATH))

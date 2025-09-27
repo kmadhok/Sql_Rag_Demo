@@ -2,15 +2,14 @@
 """
 Gemini Client Module for SQL RAG System
 
-A clean wrapper around Google's genai library that provides the same interface
-as the previous Vertex AI implementation but uses the simpler google.genai approach
-from gemini_quick_start.py.
+A clean wrapper around Google's genai library that uses Vertex AI authentication
+for enterprise-grade security and integration with Google Cloud Platform.
 
 Features:
-- Simple API key authentication (no Google Cloud project required)
+- Vertex AI authentication with Google Cloud project integration
 - Support for multiple Gemini models
 - Robust error handling and connection testing
-- Drop-in replacement for VertexGeminiLLM
+- Drop-in replacement for API key-based authentication
 - Environment variable configuration for security
 """
 
@@ -21,7 +20,7 @@ from typing import Optional, Tuple, Dict, Any
 
 # Google Generative AI imports
 try:
-    from google import genai
+    import google.generativeai as genai
     GENAI_AVAILABLE = True
 except ImportError:
     print("❌ Error: google-generativeai is required. Install with: pip install google-generativeai")
@@ -54,11 +53,11 @@ class GeminiClient:
         retry_delay: float = RETRY_DELAY
     ):
         """
-        Initialize the Gemini Client
+        Initialize the Gemini Client with API key authentication
         
         Args:
             model: Gemini model name (e.g., "gemini-2.5-flash", "gemini-2.5-flash-lite")
-            api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
+            api_key: Google Gemini API key (defaults to GEMINI_API_KEY env var)
             max_retries: Maximum number of retries for failed requests
             retry_delay: Delay between retries in seconds
         """
@@ -66,7 +65,7 @@ class GeminiClient:
         self.api_key = api_key or os.getenv('GEMINI_API_KEY')
         self.max_retries = max_retries
         self.retry_delay = retry_delay
-        self.client = None
+        self.model = None
         self._initialized = False
         
         # Validate required parameters
@@ -86,13 +85,17 @@ class GeminiClient:
         self._setup_gemini()
     
     def _setup_gemini(self):
-        """Initialize Gemini client with API key"""
+        """Initialize Gemini client with Vertex AI authentication"""
         try:
-            # Initialize the client with API key
-            self.client = genai.Client(api_key=self.api_key)
+            # Initialize the client with Vertex AI
+            self.client = genai.Client(
+                vertexai=True,
+                project=f'{self.project}',
+                location=self.location,
+            )
             self._initialized = True
             
-            logger.info(f"✅ Gemini client initialized: {self.model_name}")
+            logger.info(f"✅ Gemini client initialized: {self.model_name} (project: {self.project})")
             
         except Exception as e:
             logger.error(f"Failed to initialize Gemini client: {e}")
@@ -162,10 +165,10 @@ class GeminiClient:
             error_msg = str(e)
             
             # Provide helpful error messages for common issues
-            if "API_KEY" in error_msg or "authentication" in error_msg.lower():
+            if "authentication" in error_msg.lower() or "credential" in error_msg.lower():
                 return False, (
-                    "❌ API key authentication failed. Check your GEMINI_API_KEY environment variable. "
-                    "Get your API key from: https://makersuite.google.com/app/apikey"
+                    "❌ Vertex AI authentication failed. Check your vertex_ai_client environment variable "
+                    "and ensure Google Cloud authentication is configured (gcloud auth application-default login)"
                 )
             elif "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
                 return False, "❌ API quota exceeded or rate limited. Try again later"
@@ -188,8 +191,9 @@ class GeminiClient:
         """
         return {
             'model_name': self.model_name,
-            'provider': 'Google Gemini',
-            'api_key_set': bool(self.api_key),
+            'provider': 'Google Gemini (Vertex AI)',
+            'project': self.project,
+            'location': self.location,
             'initialized': self._initialized,
             'max_retries': self.max_retries,
             'retry_delay': self.retry_delay
@@ -197,32 +201,34 @@ class GeminiClient:
     
     def __str__(self) -> str:
         """String representation of the client instance"""
-        return f"GeminiClient(model={self.model_name})"
+        return f"GeminiClient(model={self.model_name}, project={self.project})"
     
     def __repr__(self) -> str:
         """Detailed string representation"""
         return (
             f"GeminiClient(model='{self.model_name}', "
-            f"api_key_set={bool(self.api_key)}, initialized={self._initialized})"
+            f"project='{self.project}', location='{self.location}', initialized={self._initialized})"
         )
 
 
 def test_gemini_connection(
     model: str = DEFAULT_MODEL,
-    api_key: Optional[str] = None
+    project: Optional[str] = None,
+    location: str = "global"
 ) -> Tuple[bool, str]:
     """
-    Test connection to Gemini service
+    Test connection to Gemini service with Vertex AI
     
     Args:
         model: Gemini model name to test
-        api_key: API key (defaults to GEMINI_API_KEY env var)
+        project: Google Cloud project ID (defaults to vertex_ai_client env var)
+        location: Vertex AI location
         
     Returns:
         Tuple of (success, status_message)
     """
     try:
-        client = GeminiClient(model=model, api_key=api_key)
+        client = GeminiClient(model=model, project=project, location=location)
         return client.test_connection()
     except Exception as e:
         return False, f"❌ Failed to initialize Gemini client: {e}"
@@ -234,15 +240,16 @@ def main():
     print("=" * 60)
     
     # Check environment setup
-    api_key = os.getenv('GEMINI_API_KEY')
-    if not api_key:
-        print("❌ GEMINI_API_KEY environment variable not set")
-        print("   Set it with: export GEMINI_API_KEY='your-api-key'")
-        print("   Get your API key from: https://makersuite.google.com/app/apikey")
+    project = os.getenv('vertex_ai_client')
+    if not project:
+        print("❌ vertex_ai_client environment variable not set")
+        print("   Set it with: export vertex_ai_client='your-gcp-project-id'")
+        print("   Configure authentication: gcloud auth application-default login")
         return
     
-    print(f"🔑 API Key: {'*' * 10}...{api_key[-4:] if len(api_key) > 4 else '****'}")
+    print(f"🏗️ Project: {project}")
     print(f"🤖 Model: {DEFAULT_MODEL}")
+    print(f"📍 Location: global")
     
     # Test connection
     print("\n1. Testing connection...")
@@ -253,8 +260,9 @@ def main():
         print("\n❌ Cannot proceed without working Gemini connection.")
         print("\n🔧 Setup steps:")
         print("1. Install dependencies: pip install google-generativeai")
-        print("2. Get API key: https://makersuite.google.com/app/apikey")
-        print("3. Set environment variable: export GEMINI_API_KEY='your-api-key'")
+        print("2. Set up Google Cloud project with Vertex AI enabled")
+        print("3. Authenticate: gcloud auth application-default login")
+        print("4. Set environment variable: export vertex_ai_client='your-gcp-project-id'")
         return
     
     # Test client functionality
