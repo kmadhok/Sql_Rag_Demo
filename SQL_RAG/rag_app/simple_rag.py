@@ -18,7 +18,7 @@ load_dotenv(find_dotenv(), override=False)
 
 DATA_DIR = pathlib.Path(__file__).resolve().parent.parent / "retail_system"
 INDEX_PATH = pathlib.Path(__file__).resolve().parent / "faiss_index"
-LLM_MODEL_NAME = "llama3-70b-8192"  # Adjust to the exact Groq model name if different
+LLM_MODEL_NAME = "llama-3.3-70b-versatile"  # Adjust to the exact Groq model name if different
 
 
 def _load_source_files() -> List[Document]:
