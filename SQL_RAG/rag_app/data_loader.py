@@ -10,8 +10,8 @@ import json
 import logging
 from pathlib import Path
 from typing import Optional
-from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
+from utils.embedding_provider import get_embedding_function
 
 from .config import (
     FAISS_INDICES_DIR, DEFAULT_VECTOR_STORE, CSV_PATH, 
@@ -49,8 +49,8 @@ def load_vector_store(index_name: str = DEFAULT_VECTOR_STORE) -> Optional[FAISS]
         return None
     
     try:
-        # Initialize embeddings (same as used in standalone generator)
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        # Initialize embeddings based on provider (Ollama or OpenAI)
+        embeddings = get_embedding_function()
         
         # Load the pre-built vector store
         vector_store = FAISS.load_local(

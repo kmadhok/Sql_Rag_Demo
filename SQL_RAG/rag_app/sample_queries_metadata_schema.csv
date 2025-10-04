@@ -1,5 +1,5 @@
 
-tableid,columnnames,datatype
+table_id,column,datatype
 project.dataset.categories,category_id,INTEGER
 project.dataset.categories,category_name,STRING
 project.dataset.categories,description,STRING

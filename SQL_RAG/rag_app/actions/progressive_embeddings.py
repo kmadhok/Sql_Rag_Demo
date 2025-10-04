@@ -14,8 +14,8 @@ import os
 import streamlit as st
 from typing import List, Optional, Union, Dict
 from langchain.docstore.document import Document
-from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
+from utils.embedding_provider import get_embedding_function
 
 def _compute_document_hash(document: Document) -> str:
     """Generate a unique hash for a document."""
@@ -50,8 +50,8 @@ def build_progressive_vector_store(
     """
     from actions.embeddings_generation import _load_queries_from_dataframe, _create_embedding_batch
     
-    # Initialize embedding model
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    # Initialize embedding model (Ollama or OpenAI)
+    embeddings = get_embedding_function()
     
     # Create unique index path
     source_identifier = "bigquery_data"

@@ -4,7 +4,7 @@ This is a minimal Retrieval-Augmented Generation (RAG) demo that lets you ask qu
 
 It uses:
 
-* **Ollama nomic-embed-text** for embeddings (local)
+* **Ollama nomic-embed-text** for embeddings (local) — default
 * **FAISS** for the in-memory vector store
 * **Ollama** Phi3 (3.8B parameters) for local answer generation
 * A lightweight script `simple_rag.py` to tie everything together
@@ -18,7 +18,11 @@ python -m venv .venv && source .venv/bin/activate  # optional
 pip install -r rag_app/requirements.txt
 ```
 
-## 2  Set up Ollama and required models
+## 2  Set up embeddings and models
+
+By default, embeddings run locally via Ollama. You can also switch to OpenAI embeddings.
+
+### Option A: Local (default, Ollama)
 
 Install Ollama and download the required models:
 
@@ -35,6 +39,28 @@ ollama list
 ```
 
 No API keys required - all processing happens locally!
+
+### Option B: OpenAI embeddings
+
+Use OpenAI’s `text-embedding-3-*` models for embedding generation and loading.
+
+1) Install deps (already in requirements): `langchain-openai`
+2) Export your key and choose provider:
+
+```
+export OPENAI_API_KEY=sk-...
+export EMBEDDINGS_PROVIDER=openai
+# Optional: choose model (default: text-embedding-3-small)
+export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+3) Build a compatible FAISS store from your CSV using OpenAI:
+
+```
+python rag_app/openai_embedding_generator.py --csv rag_app/sample_queries_with_metadata.csv
+```
+
+This creates `rag_app/faiss_indices/index_sample_queries_with_metadata`, which the app will load.
 
 ## 3  Ask questions
 

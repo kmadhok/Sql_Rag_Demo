@@ -23,7 +23,7 @@ import pandas as pd
 from langchain_core.documents import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_ollama import OllamaEmbeddings
+from utils.embedding_provider import get_embedding_function
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,7 +44,8 @@ def process_document_batch_worker(batch_data: Tuple[List[Document], str]) -> Opt
     
     try:
         # Initialize embeddings in this process
-        embeddings = OllamaEmbeddings(model=model_name)
+        # Note: model_name is retained for compatibility, but provider may override
+        embeddings = get_embedding_function(model=model_name)
         
         # Create vector store from batch
         vector_store = FAISS.from_documents(documents_batch, embeddings)
@@ -80,7 +81,7 @@ class WindowsEmbeddingProcessor:
         self.max_workers = max_workers or max(2, multiprocessing.cpu_count() - 1)
         
         # Initialize components
-        self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        self.embeddings = get_embedding_function()
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
@@ -237,7 +238,8 @@ class WindowsEmbeddingProcessor:
         processed_stores = []
         
         # Prepare batch data for workers
-        batch_data_list = [(batch, "nomic-embed-text") for batch in batches]
+        # Preserve the model hint; get_embedding_function will honor provider settings
+        batch_data_list = [(batch, os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text")) for batch in batches]
         
         try:
             with ProcessPoolExecutor(max_workers=self.max_workers) as executor:

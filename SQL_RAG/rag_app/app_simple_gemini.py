@@ -31,7 +31,6 @@ from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
 
 # LangChain imports
-from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
@@ -63,6 +62,13 @@ try:
 except ImportError:
     HYBRID_SEARCH_AVAILABLE = False
 
+# Import SQL validation components
+try:
+    from core.sql_validator import ValidationLevel
+    SQL_VALIDATION_AVAILABLE = True
+except ImportError:
+    SQL_VALIDATION_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,7 +78,7 @@ FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
 DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
 CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
-SCHEMA_CSV_PATH = Path(__file__).parent / "schema.csv"  # Schema file with table_id, column, datatype
+SCHEMA_CSV_PATH = Path(__file__).parent / "sample_queries_metadata_schema.csv"  # Schema file with table_id, column, datatype
 
 # Pagination Configuration
 QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
@@ -128,8 +134,9 @@ def load_vector_store(index_name: str = DEFAULT_VECTOR_STORE) -> Optional[FAISS]
         return None
     
     try:
-        # Initialize embeddings (same as used in standalone generator)
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        # Initialize embeddings using provider factory (Ollama or OpenAI)
+        from utils.embedding_provider import get_embedding_function
+        embeddings = get_embedding_function()
         
         # Load the pre-built vector store
         vector_store = FAISS.load_local(
@@ -171,6 +178,7 @@ def load_schema_manager() -> Optional[SchemaManager]:
     
     if not SCHEMA_CSV_PATH.exists():
         logger.info(f"Schema file not found at {SCHEMA_CSV_PATH} - schema injection disabled")
+        logger.debug(f"Expected schema file path: {SCHEMA_CSV_PATH.absolute()}")
         return None
     
     try:
@@ -1515,6 +1523,33 @@ def main():
                 schema_injection = False
                 st.warning("⚠️ Schema injection unavailable - check schema_manager.py and schema.csv")
             
+            # Add SQL validation toggle
+            if SQL_VALIDATION_AVAILABLE:
+                sql_validation = st.checkbox(
+                    "✅ SQL Validation", 
+                    value=False, 
+                    help="Validate generated SQL queries against database schema"
+                )
+                
+                if sql_validation:
+                    validation_level = st.selectbox(
+                        "Validation Level:",
+                        [ValidationLevel.SYNTAX_ONLY, ValidationLevel.SCHEMA_BASIC, ValidationLevel.SCHEMA_STRICT],
+                        index=1,  # Default to SCHEMA_BASIC
+                        format_func=lambda x: {
+                            ValidationLevel.SYNTAX_ONLY: "Syntax Only - Check SQL syntax",
+                            ValidationLevel.SCHEMA_BASIC: "Schema Basic - Check tables/columns exist",
+                            ValidationLevel.SCHEMA_STRICT: "Schema Strict - Full validation with types"
+                        }[x],
+                        help="Choose validation strictness level"
+                    )
+                else:
+                    validation_level = ValidationLevel.SCHEMA_BASIC
+            else:
+                sql_validation = False
+                validation_level = ValidationLevel.SCHEMA_BASIC
+                st.warning("⚠️ SQL validation unavailable - check core/sql_validator.py")
+            
             if gemini_mode:
                 k = st.slider(
                     "Top-K Results", 
@@ -1591,7 +1626,7 @@ def main():
             )
             
             st.markdown("""
-            _Tip: Gemini Mode provides 18.5x better context utilization. Hybrid Search improves SQL term matching by 20-40%. Query Rewriting enhances retrieval precision by 25-40%._
+            _Tip: Gemini Mode provides 18.5x better context utilization. Hybrid Search improves SQL term matching by 20-40%. Query Rewriting enhances retrieval precision by 25-40%. SQL Validation ensures generated queries are syntactically correct and reference valid schema elements._
             """)
             
             # Display vector store info
@@ -1662,6 +1697,14 @@ def main():
                     schema_manager_to_use = None
                     if schema_injection and st.session_state.schema_manager:
                         schema_manager_to_use = st.session_state.schema_manager
+                        logger.info(f"🗃️ Using schema manager for RAG: {schema_manager_to_use.table_count} tables available")
+                    else:
+                        if not schema_injection:
+                            logger.info("Schema injection disabled by user")
+                        elif not st.session_state.schema_manager:
+                            logger.info("No schema manager available in session state")
+                        else:
+                            logger.info("Schema manager not being used for unknown reason")
                     
                     # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
                     result = answer_question_simple_gemini(
@@ -1673,7 +1716,9 @@ def main():
                         search_weights=search_weights,
                         auto_adjust_weights=auto_adjust_weights,
                         query_rewriting=query_rewriting,
-                        schema_manager=schema_manager_to_use
+                        schema_manager=schema_manager_to_use,
+                        sql_validation=sql_validation,
+                        validation_level=validation_level
                     )
                     
                     if result:
@@ -1824,6 +1869,86 @@ def main():
                                 st.success("✅ Relevant database schema injected for accurate answers")
                             else:
                                 st.info("ℹ️ No matching schema found for identified tables")
+                        
+                        # Display SQL validation information if available
+                        if token_usage and token_usage.get('sql_validation', {}).get('enabled'):
+                            st.divider()
+                            
+                            validation_info = token_usage['sql_validation']
+                            st.subheader("✅ SQL Query Validation")
+                            
+                            # Validation status
+                            if validation_info.get('is_valid'):
+                                st.success("🎉 Generated SQL is valid!")
+                            else:
+                                st.error("❌ SQL validation found issues")
+                            
+                            # Validation metrics
+                            col1, col2, col3 = st.columns(3)
+                            
+                            with col1:
+                                tables_found = validation_info.get('tables_found', [])
+                                st.metric(
+                                    "📋 Tables Validated",
+                                    len(tables_found),
+                                    f"Level: {validation_info.get('validation_level', 'basic')}"
+                                )
+                            
+                            with col2:
+                                columns_found = validation_info.get('columns_found', [])
+                                st.metric(
+                                    "📊 Columns Validated",
+                                    len(columns_found),
+                                    f"Time: {validation_info.get('validation_time', 0):.3f}s"
+                                )
+                            
+                            with col3:
+                                error_count = len(validation_info.get('errors', []))
+                                warning_count = len(validation_info.get('warnings', []))
+                                status = "Valid" if validation_info.get('is_valid') else f"{error_count} errors"
+                                st.metric(
+                                    "🛡️ Validation Status",
+                                    status,
+                                    f"{warning_count} warnings"
+                                )
+                            
+                            # Show detailed validation results
+                            if validation_info.get('errors') or validation_info.get('warnings'):
+                                with st.expander("🔍 Validation Details", expanded=validation_info.get('has_errors', False)):
+                                    if validation_info.get('errors'):
+                                        st.markdown("**❌ Errors:**")
+                                        for error in validation_info['errors']:
+                                            st.error(f"• {error}")
+                                    
+                                    if validation_info.get('warnings'):
+                                        st.markdown("**⚠️ Warnings:**")
+                                        for warning in validation_info['warnings']:
+                                            st.warning(f"• {warning}")
+                                    
+                                    if validation_info.get('suggestions'):
+                                        st.markdown("**💡 Suggestions:**")
+                                        for suggestion in validation_info['suggestions']:
+                                            st.info(f"• {suggestion}")
+                            
+                            # Show validated schema elements
+                            if tables_found or columns_found:
+                                with st.expander("📋 Validated Schema Elements", expanded=False):
+                                    if tables_found:
+                                        st.markdown("**Tables Found:**")
+                                        st.code(", ".join(tables_found))
+                                    
+                                    if columns_found:
+                                        st.markdown("**Columns Found:**")
+                                        st.code(", ".join(str(col) for col in columns_found))
+                                    
+                                    joins_found = validation_info.get('joins_found', [])
+                                    if joins_found:
+                                        st.markdown(f"**Joins Found:** {len(joins_found)}")
+                            
+                            if validation_info.get('is_valid'):
+                                st.success("✅ SQL syntax is correct and all referenced tables/columns exist in schema")
+                            else:
+                                st.error("🚫 SQL validation failed - please review errors above")
                         
                         # Display enhanced search and token usage information
                         if token_usage:
@@ -1982,9 +2107,11 @@ def main():
             
             4. **Enable Query Rewriting** for 25-40% enhanced retrieval precision
             
-            5. **Ask questions** about your SQL queries and get comprehensive answers
+            5. **Enable SQL Validation** to ensure generated SQL is syntactically correct and references valid schema elements
             
-            6. **Adjust Top-K** in the sidebar (use 100+ for Gemini mode)
+            6. **Ask questions** about your SQL queries and get comprehensive answers
+            
+            7. **Adjust Top-K** in the sidebar (use 100+ for Gemini mode)
             
             ### 🚀 Enhanced Features:
             
@@ -1999,6 +2126,12 @@ def main():
             - **Keyword search** for exact SQL terms (table names, functions)
             - **Auto-weight adjustment** based on query analysis
             - **Fusion scoring** combines both methods optimally
+            
+            **SQL Validation:**
+            - **Syntax validation** checks SQL grammar and structure
+            - **Schema validation** verifies tables and columns exist
+            - **Real-time feedback** on query correctness
+            - **Intelligent suggestions** for fixing validation errors
             """)
     
     elif page == "💬 Chat":

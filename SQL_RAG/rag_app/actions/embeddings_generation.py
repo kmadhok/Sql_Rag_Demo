@@ -15,10 +15,10 @@ from typing import List, Optional, Union
 from datetime import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor
-from langchain_ollama import OllamaEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.docstore.document import Document
+from utils.embedding_provider import get_embedding_function
 
 def _create_embedding_batch(batch_docs: List[Document]) -> List[Document]:
     """Process a batch of documents for embedding creation."""
@@ -541,7 +541,7 @@ def build_or_load_vector_store(
         print(f"Directory mode: Using directory {source_directory}")
     
     index_path = index_directory / f"index_{source_identifier}"
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = get_embedding_function()
     
     # Try to load existing index unless force_rebuild is True
     if not force_rebuild and index_path.exists() and index_path.is_dir():
@@ -807,7 +807,7 @@ def process_initial_batch(sql_files_dir: Optional[Union[str, pathlib.Path]] = No
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
     # Create embeddings instance
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = get_embedding_function()
     
     # Load documents
     documents = []
@@ -879,7 +879,7 @@ def process_remaining_in_background(vector_store: FAISS,
     print(f"Processing remaining {total_docs} documents in background...")
     
     # Create embeddings instance
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = get_embedding_function()
     
     # Split documents into batches
     batches = [remaining_documents[i:i+batch_size] for i in range(0, len(remaining_documents), batch_size)]

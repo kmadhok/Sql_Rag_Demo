@@ -370,6 +370,72 @@ class SchemaManager:
             List of sample table names
         """
         return list(self.schema_lookup.keys())[:limit]
+    
+    def get_table_info(self, table_name: str) -> Optional[Dict]:
+        """
+        Get table information for SQL validator compatibility.
+        
+        Args:
+            table_name: Name of the table to look up
+            
+        Returns:
+            Dictionary with table info if table exists, None otherwise
+        """
+        normalized_name = self._normalize_table_name(table_name)
+        schema = self.schema_lookup.get(normalized_name)
+        
+        if schema:
+            return {
+                'table_name': normalized_name,
+                'columns': [col for col, _ in schema],
+                'datatypes': [dtype for _, dtype in schema],
+                'column_count': len(schema)
+            }
+        return None
+    
+    def get_table_columns(self, table_name: str) -> List[str]:
+        """
+        Get list of column names for a specific table (SQL validator compatibility).
+        
+        Args:
+            table_name: Name of the table
+            
+        Returns:
+            List of column names for the table
+        """
+        normalized_name = self._normalize_table_name(table_name)
+        schema = self.schema_lookup.get(normalized_name, [])
+        return [col for col, _ in schema]
+    
+    @property
+    def schema_df(self) -> Optional[object]:
+        """
+        Provide schema DataFrame access for SQL validator fallback logic.
+        Creates a pandas DataFrame from the schema_lookup for compatibility.
+        
+        Returns:
+            DataFrame with table_id, column, datatype columns
+        """
+        try:
+            import pandas as pd
+            
+            rows = []
+            for table_name, columns in self.schema_lookup.items():
+                for column, datatype in columns:
+                    rows.append({
+                        'table_id': table_name,
+                        'column': column,
+                        'datatype': datatype
+                    })
+            
+            if rows:
+                return pd.DataFrame(rows)
+            else:
+                return pd.DataFrame(columns=['table_id', 'column', 'datatype'])
+                
+        except ImportError:
+            # If pandas is not available, return None
+            return None
 
 
 def create_schema_manager(schema_csv_path: str, verbose: bool = False) -> Optional[SchemaManager]:

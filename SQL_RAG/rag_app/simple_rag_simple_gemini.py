@@ -43,6 +43,14 @@ except ImportError:
     logger.warning("Query rewriting not available - check query_rewriter.py")
     QUERY_REWRITING_AVAILABLE = False
 
+# Import SQL validation functionality
+try:
+    from core.sql_validator import SQLValidator, ValidationLevel, validate_sql_query
+    SQL_VALIDATION_AVAILABLE = True
+except ImportError:
+    logger.warning("SQL validation not available - check core/sql_validator.py")
+    SQL_VALIDATION_AVAILABLE = False
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -444,7 +452,9 @@ def answer_question_simple_gemini(
     query_rewriting: bool = False,
     schema_manager=None,
     conversation_context: str = "",
-    agent_type: Optional[str] = None
+    agent_type: Optional[str] = None,
+    sql_validation: bool = False,
+    validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
@@ -461,6 +471,8 @@ def answer_question_simple_gemini(
         schema_manager: Optional SchemaManager for smart schema injection (reduces noise from 39K+ to ~100-500 relevant rows)
         conversation_context: Previous conversation history for context continuity
         agent_type: Agent specialization type ("explain", "create", or None for default)
+        sql_validation: Enable SQL query validation against schema
+        validation_level: Validation strictness level (SYNTAX_ONLY, SCHEMA_BASIC, SCHEMA_STRICT)
         
     Returns:
         Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
@@ -611,6 +623,63 @@ def answer_question_simple_gemini(
         answer = llm.invoke(prompt)
         generation_time = time.time() - generation_start
         
+        # Step 4: SQL Validation (optional)
+        validation_result = None
+        if sql_validation and SQL_VALIDATION_AVAILABLE:
+            try:
+                logger.info("Validating generated SQL against schema...")
+                validation_start = time.time()
+                
+                # Debug: Log schema manager availability
+                if schema_manager:
+                    logger.info(f"🗃️ Schema manager available: {schema_manager.table_count} tables, {schema_manager.column_count} columns")
+                else:
+                    logger.info("⚠️ No schema manager provided for validation - table/column validation will be limited")
+                
+                # Debug: Log the SQL content being validated (truncated for readability)
+                sql_preview = answer[:200].replace('\n', ' ').strip()
+                if len(answer) > 200:
+                    sql_preview += "..."
+                logger.debug(f"🔍 Validating SQL content: {sql_preview}")
+                
+                # Use schema manager for validation if available
+                validation_result = validate_sql_query(
+                    answer, 
+                    schema_manager=schema_manager,
+                    validation_level=validation_level
+                )
+                
+                validation_time = time.time() - validation_start
+                
+                if validation_result.is_valid:
+                    logger.info(f"✅ SQL validation passed ({len(validation_result.tables_found)} tables, {len(validation_result.columns_found)} columns)")
+                else:
+                    logger.warning(f"⚠️ SQL validation found {len(validation_result.errors)} errors, {len(validation_result.warnings)} warnings")
+                    
+                    # Log specific errors
+                    for i, error in enumerate(validation_result.errors, 1):
+                        logger.warning(f"   Error {i}: {error}")
+                    
+                    # Log warnings if any
+                    for i, warning in enumerate(validation_result.warnings, 1):
+                        logger.warning(f"   Warning {i}: {warning}")
+                    
+                    # Log what was found for debugging
+                    if validation_result.tables_found:
+                        logger.info(f"   Tables found: {list(validation_result.tables_found)}")
+                    if validation_result.columns_found:
+                        logger.info(f"   Columns found: {list(validation_result.columns_found)}")
+                    
+                    # Log suggestions if any
+                    for i, suggestion in enumerate(validation_result.suggestions, 1):
+                        logger.info(f"   Suggestion {i}: {suggestion}")
+                    
+                logger.info(f"SQL validation completed in {validation_time:.3f}s")
+                
+            except Exception as e:
+                logger.error(f"SQL validation failed: {e}")
+                # Continue without validation
+        
         # Calculate token usage (rough estimates) with enhanced information
         prompt_tokens = estimate_token_count(prompt)
         completion_tokens = estimate_token_count(answer)
@@ -659,6 +728,27 @@ def answer_question_simple_gemini(
             })
         else:
             token_usage['schema_filtering'] = {'enabled': False}
+        
+        # Add SQL validation information if available
+        if sql_validation and validation_result:
+            token_usage.update({
+                'sql_validation': {
+                    'enabled': True,
+                    'is_valid': validation_result.is_valid,
+                    'validation_level': validation_result.validation_level.value,
+                    'errors': validation_result.errors,
+                    'warnings': validation_result.warnings,
+                    'tables_found': list(validation_result.tables_found),
+                    'columns_found': list(validation_result.columns_found),
+                    'joins_found': validation_result.joins_found,
+                    'suggestions': validation_result.suggestions,
+                    'has_errors': validation_result.has_errors,
+                    'has_warnings': validation_result.has_warnings,
+                    'validation_time': validation_time if 'validation_time' in locals() else 0
+                }
+            })
+        else:
+            token_usage['sql_validation'] = {'enabled': False}
         
         # Add hybrid search specific information
         if hybrid_results:

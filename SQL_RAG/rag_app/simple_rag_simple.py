@@ -204,9 +204,9 @@ def load_and_test_vector_store(index_path: str) -> Optional[FAISS]:
         Loaded vector store or None if failed
     """
     try:
-        from langchain_ollama import OllamaEmbeddings
-        
-        embeddings = OllamaEmbeddings(model="nomic-embed-text")
+        # Use the same embedding provider as the rest of the app
+        from utils.embedding_provider import get_embedding_function
+        embeddings = get_embedding_function()
         
         vector_store = FAISS.load_local(
             index_path,

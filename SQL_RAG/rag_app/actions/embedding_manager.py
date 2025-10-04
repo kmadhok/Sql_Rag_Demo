@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 from langchain_community.vectorstores import FAISS
-from langchain_ollama import OllamaEmbeddings
+from utils.embedding_provider import get_embedding_function
 from langchain.schema.document import Document
 
 # Configure logging
@@ -38,9 +38,11 @@ class EmbeddingManager:
         self.lock = threading.Lock()
         self._initialize_status()
         
-        # Initialize Ollama embeddings
-        self.embedding_function = OllamaEmbeddings(model="nomic-embed-text")
-        logger.info(f"EmbeddingManager initialized with nomic-embed-text model. Vector store path: {vector_store_path}")
+        # Initialize embeddings via provider factory (Ollama or OpenAI)
+        self.embedding_function = get_embedding_function()
+        logger.info(
+            f"EmbeddingManager initialized. Vector store path: {vector_store_path}"
+        )
     
     def _initialize_status(self) -> None:
         """Initialize or load existing status file"""
