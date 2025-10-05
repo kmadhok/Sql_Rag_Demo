@@ -1,0 +1,281 @@
+[
+  {
+    "query": "SELECT p.category, COUNTIF(oi.returned_at IS NOT NULL) AS returned_items, COUNT(*) AS total_items, SAFE_DIVIDE(COUNTIF(oi.returned_at IS NOT NULL), COUNT(*)) AS return_rate FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id GROUP BY p.category ORDER BY return_rate DESC",
+    "description": "This query calculates the total number of items, returned items, and the return rate for each product category. The results are ordered by return rate in descending order to identify categories with the highest return rates.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 283,
+    "completion_tokens": 193,
+    "total_tokens": 1102
+  },
+  {
+    "query": "SELECT status, AVG(TIMESTAMP_DIFF(delivered_at, created_at, HOUR)) AS avg_hours_from_order_to_delivery FROM ( SELECT o.order_id, o.status, o.created_at, MIN(oi.delivered_at) AS delivered_at FROM `bigquery-public-data.thelook_ecommerce.orders` o JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.order_id = o.order_id WHERE oi.delivered_at IS NOT NULL GROUP BY o.order_id, o.status, o.created_at ) GROUP BY status ORDER BY avg_hours_from_order_to_delivery",
+    "description": "This query calculates the average time in hours from when an order was created to its earliest item delivery, grouped by the order's status. It filters for orders that have at least one delivered item.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.order_items\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"left_column\": \"order_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"order_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 326,
+    "completion_tokens": 195,
+    "total_tokens": 1125
+  },
+  {
+    "query": "WITH first_order AS ( SELECT user_id, MIN(created_at) AS first_order_at FROM `bigquery-public-data.thelook_ecommerce.orders` GROUP BY user_id ) SELECT u.id AS user_id, COUNT(e.id) AS events_before_first_order FROM `bigquery-public-data.thelook_ecommerce.users` u JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = u.id LEFT JOIN first_order f ON u.id = f.user_id WHERE e.created_at < f.first_order_at GROUP BY user_id ORDER BY events_before_first_order DESC",
+    "description": "This query calculates the total number of events each user performed before their very first order. It first identifies the earliest order timestamp for every user and then counts all associated events that occurred prior to that specific time.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.users\", \"bigquery-public-data.thelook_ecommerce.events\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"first_order\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}]",
+    "prompt_tokens": 330,
+    "completion_tokens": 280,
+    "total_tokens": 2582
+  },
+  {
+    "query": "WITH cohort AS ( SELECT u.id AS user_id, DATE(u.created_at) AS cohort_date FROM `bigquery-public-data.thelook_ecommerce.users` u ), revenue AS ( SELECT oi.user_id, DATE(o.created_at) AS order_date, SUM(oi.sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id GROUP BY oi.user_id, order_date ) SELECT cohort_date, SUM(CASE WHEN order_date <= DATE_ADD(cohort_date, INTERVAL 30 DAY) THEN revenue ELSE 0 END) AS revenue_first_30_days FROM cohort LEFT JOIN revenue r ON cohort.user_id = r.user_id GROUP BY cohort_date ORDER BY cohort_date LIMIT 60",
+    "description": "This query calculates the total revenue generated within the first 30 days after a user's signup date, grouped by the signup date (cohort date). It helps analyze 30-day post-acquisition revenue performance for different user cohorts.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.users\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.orders\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"order_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"order_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}]",
+    "prompt_tokens": 384,
+    "completion_tokens": 306,
+    "total_tokens": 3110
+  },
+  {
+    "query": "WITH order_counts AS ( SELECT user_id, COUNT(order_id) AS num_orders FROM `bigquery-public-data.thelook_ecommerce.orders` GROUP BY user_id ), age_group AS ( SELECT id AS user_id, CASE WHEN age < 25 THEN '<25' WHEN age BETWEEN 25 AND 34 THEN '25-34' WHEN age BETWEEN 35 AND 44 THEN '35-44' WHEN age BETWEEN 45 AND 54 THEN '45-54' ELSE '55+' END AS age_group FROM `bigquery-public-data.thelook_ecommerce.users` ) SELECT age_group, COUNTIF(oc.num_orders > 1) AS repeat_customers, COUNT(*) AS total_customers, SAFE_DIVIDE(COUNTIF(oc.num_orders > 1), COUNT(*)) AS repeat_rate FROM age_group ag LEFT JOIN order_counts oc ON ag.user_id = oc.user_id GROUP BY age_group ORDER BY repeat_rate DESC",
+    "description": "This query calculates the repeat customer rate for different age groups. It categorizes users into age segments, counts the number of orders per user, and then determines the proportion of users with more than one order within each age group.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"user_id\", \"join_type\": \"LEFT\"}]",
+    "prompt_tokens": 408,
+    "completion_tokens": 193,
+    "total_tokens": 1634
+  },
+  {
+    "query": "SELECT order_id, created_at AS order_created_at, returned_at, DATE_DIFF(DATE(returned_at), DATE(created_at), DAY) AS days_to_return FROM `bigquery-public-data.thelook_ecommerce.order_items` WHERE returned_at IS NOT NULL AND DATE_DIFF(DATE(returned_at), DATE(created_at), DAY) <= 14 ORDER BY days_to_return LIMIT 100",
+    "description": "This query retrieves the order ID, creation date, return date, and calculates the number of days taken to return for the top 100 returned orders. It filters for orders that have been returned within 14 days of their creation.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\"]",
+    "joins": "[]",
+    "prompt_tokens": 276,
+    "completion_tokens": 97,
+    "total_tokens": 811
+  },
+  {
+    "query": "WITH user_orders AS ( SELECT user_id, COUNT(order_id) AS num_orders FROM `bigquery-public-data.thelook_ecommerce.orders` GROUP BY user_id ), user_events AS ( SELECT user_id, COUNT(id) AS num_events FROM `bigquery-public-data.thelook_ecommerce.events` GROUP BY user_id ) SELECT u.id AS user_id, SAFE_DIVIDE(e.num_events, o.num_orders) AS events_per_order FROM `bigquery-public-data.thelook_ecommerce.users` u LEFT JOIN user_orders o ON u.id = o.user_id LEFT JOIN user_events e ON u.id = e.user_id WHERE o.num_orders > 0 ORDER BY events_per_order DESC",
+    "description": "This query calculates the ratio of events to orders for each user. It first aggregates the total orders and events for individual users and then joins these counts with user details to compute the `events_per_order` metric, filtering for users who have placed at least one order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}]",
+    "prompt_tokens": 354,
+    "completion_tokens": 304,
+    "total_tokens": 2376
+  },
+  {
+    "query": "WITH user_day_revenue AS ( SELECT oi.user_id, DATE(o.created_at) AS order_date, SUM(oi.sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id GROUP BY oi.user_id, order_date ) SELECT user_id, order_date, revenue FROM user_day_revenue ORDER BY revenue DESC LIMIT 100",
+    "description": "This query calculates the total daily revenue for each user by joining order items with orders. It then retrieves the top 100 user-day combinations based on the highest daily revenue.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.orders\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"order_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"order_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 296,
+    "completion_tokens": 192,
+    "total_tokens": 1010
+  },
+  {
+    "query": "WITH age_group AS ( SELECT id AS user_id, CASE WHEN age < 25 THEN '<25' WHEN age BETWEEN 25 AND 34 THEN '25-34' WHEN age BETWEEN 35 AND 44 THEN '35-44' WHEN age BETWEEN 45 AND 54 THEN '45-54' ELSE '55+' END AS age_group FROM `bigquery-public-data.thelook_ecommerce.users` ) SELECT e.traffic_source, ag.age_group, SUM(oi.sale_price) AS total_revenue FROM `bigquery-public-data.thelook_ecommerce.events` e JOIN age_group ag ON e.user_id = ag.user_id JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.user_id = e.user_id GROUP BY e.traffic_source, ag.age_group ORDER BY total_revenue DESC",
+    "description": "This query calculates the total revenue, categorized by the traffic source and the user's age group. It first classifies users into distinct age ranges and then aggregates sale prices by these groups and traffic sources.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.users\", \"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.order_items\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 388,
+    "completion_tokens": 297,
+    "total_tokens": 3776
+  },
+  {
+    "query": "WITH users_with_events AS ( SELECT DISTINCT user_id FROM `bigquery-public-data.thelook_ecommerce.events` ), category_purchases AS ( SELECT DISTINCT oi.user_id, p.category FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id ) SELECT cp.category, COUNT(DISTINCT cp.user_id) AS buyers, COUNT(DISTINCT ue.user_id) AS total_users, SAFE_DIVIDE(COUNT(DISTINCT cp.user_id), COUNT(DISTINCT ue.user_id)) AS conversion_rate FROM users_with_events ue LEFT JOIN category_purchases cp ON ue.user_id = cp.user_id GROUP BY cp.category ORDER BY conversion_rate DESC",
+    "description": "This query calculates the conversion rate for each product category. It identifies all distinct users who have performed any event and then joins them with users who have purchased items in specific product categories to determine the proportion of event-active users who made a purchase in each category.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"LEFT\"}]",
+    "prompt_tokens": 366,
+    "completion_tokens": 307,
+    "total_tokens": 2804
+  },
+  {
+    "query": "WITH dc_revenue AS ( SELECT p.distribution_center_id AS dc_id, SUM(oi.sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id GROUP BY dc_id ), dc_events AS ( SELECT dc.id AS dc_id, COUNT(e.id) AS event_count FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc JOIN `bigquery-public-data.thelook_ecommerce.products` p ON p.distribution_center_id = dc.id JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id GROUP BY dc.id ) SELECT dc.id AS distribution_center_id, dc.name, COALESCE(dr.revenue, 0) AS total_revenue, COALESCE(de.event_count, 0) AS total_events FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc LEFT JOIN dc_revenue dr ON dc.id = dr.dc_id LEFT JOIN dc_events de ON dc.id = de.dc_id ORDER BY total_revenue DESC",
+    "description": "This query calculates the total revenue and total related events for each distribution center. It combines aggregated data from order items and events with distribution center information, presenting all centers even if they have no associated activity.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"bigquery-public-data.thelook_ecommerce.events\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"distribution_center_id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"product_id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"dc_revenue\", \"right_column\": \"dc_id\", \"join_type\": \"LEFT\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"dc_events\", \"right_column\": \"dc_id\", \"join_type\": \"LEFT\"}]",
+    "prompt_tokens": 495,
+    "completion_tokens": 632,
+    "total_tokens": 4336
+  },
+  {
+    "query": "WITH user_events AS ( SELECT user_id, COUNT(id) AS num_events FROM `bigquery-public-data.thelook_ecommerce.events` GROUP BY user_id ), user_orders AS ( SELECT user_id, COUNT(order_id) AS num_orders FROM `bigquery-public-data.thelook_ecommerce.orders` GROUP BY user_id ) SELECT u.gender, SUM(ue.num_events) AS total_events, SUM(uo.num_orders) AS total_orders, SAFE_DIVIDE(SUM(ue.num_events), SUM(uo.num_orders)) AS event_order_ratio FROM `bigquery-public-data.thelook_ecommerce.users` u LEFT JOIN user_events ue ON u.id = ue.user_id LEFT JOIN user_orders uo ON u.id = uo.user_id GROUP BY u.gender ORDER BY event_order_ratio DESC",
+    "description": "This query aggregates the total number of user events and orders by gender. It then calculates an event-to-order ratio for each gender, ordering the results by this ratio in descending order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}]",
+    "prompt_tokens": 378,
+    "completion_tokens": 287,
+    "total_tokens": 2226
+  },
+  {
+    "query": "WITH product_revenue AS ( SELECT p.id AS product_id, SUM(oi.sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id GROUP BY product_id ), product_events AS ( SELECT p.id AS product_id, COUNT(e.id) AS num_events FROM `bigquery-public-data.thelook_ecommerce.products` p JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id GROUP BY p.id ) SELECT p.id AS product_id, p.name, COALESCE(pr.revenue, 0) AS revenue, COALESCE(pe.num_events, 0) AS events FROM `bigquery-public-data.thelook_ecommerce.products` p LEFT JOIN product_revenue pr ON p.id = pr.product_id LEFT JOIN product_events pe ON p.id = pe.product_id ORDER BY revenue DESC LIMIT 50",
+    "description": "This query calculates the total revenue and event count for each product. It then retrieves the top 50 products by revenue, including their name, total sales revenue (defaulting to 0 if none), and total associated events (defaulting to 0 if none).",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.events\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"product_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 454,
+    "completion_tokens": 397,
+    "total_tokens": 6292
+  },
+  {
+    "query": "SELECT e.traffic_source, p.category, AVG(oi.sale_price) AS avg_sale_price FROM `bigquery-public-data.thelook_ecommerce.events` e JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON e.user_id = oi.user_id JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id GROUP BY e.traffic_source, p.category ORDER BY avg_sale_price DESC",
+    "description": "This query calculates the average sale price for products, grouped by the traffic source of the event and the product category. The results are ordered by the average sale price in descending order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 292,
+    "completion_tokens": 293,
+    "total_tokens": 743
+  },
+  {
+    "query": "WITH browser_events AS ( SELECT browser, COUNT(id) AS num_events FROM `bigquery-public-data.thelook_ecommerce.events` GROUP BY browser ), browser_orders AS ( SELECT e.browser, COUNT(DISTINCT o.order_id) AS num_orders FROM `bigquery-public-data.thelook_ecommerce.events` e JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON e.user_id = o.user_id GROUP BY e.browser ) SELECT be.browser, COALESCE(be.num_events, 0) AS events, COALESCE(bo.num_orders, 0) AS orders FROM browser_events be LEFT JOIN browser_orders bo ON be.browser = bo.browser ORDER BY events DESC",
+    "description": "This query calculates the total number of events and the distinct number of orders, grouped by browser. It then combines these metrics, presenting all browsers that had events, and orders the results by the total event count in descending order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.events\", \"bigquery-public-data.thelook_ecommerce.orders\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 345,
+    "completion_tokens": 196,
+    "total_tokens": 1868
+  },
+  {
+    "query": "WITH user_sale AS ( SELECT user_id, SUM(sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` GROUP BY user_id ), user_cost AS ( SELECT ii.user_id, SUM(ii.cost) AS cost FROM ( SELECT oi.user_id, ii.cost FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.inventory_items` ii ON oi.inventory_item_id = ii.id ) ii GROUP BY ii.user_id ) SELECT u.id AS user_id, COALESCE(us.revenue, 0) AS revenue, COALESCE(uc.cost, 0) AS cost, COALESCE(us.revenue, 0) - COALESCE(uc.cost, 0) AS profit FROM `bigquery-public-data.thelook_ecommerce.users` u LEFT JOIN user_sale us ON u.id = us.user_id LEFT JOIN user_cost uc ON u.id = uc.user_id ORDER BY profit DESC LIMIT 50",
+    "description": "This query calculates the total revenue and cost for each user, then determines their profit. It ultimately retrieves the top 50 users ranked by total profit, displaying their user ID, calculated revenue, cost, and profit.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.inventory_items\", \"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"inventory_item_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.inventory_items\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"user_id\", \"join_type\": \"LEFT JOIN\"}]",
+    "prompt_tokens": 427,
+    "completion_tokens": 390,
+    "total_tokens": 3746
+  },
+  {
+    "query": "WITH item_events AS ( SELECT ii.id AS inventory_item_id, COUNT(e.id) AS num_events FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.inventory_item_id = ii.id JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id GROUP BY ii.id ) SELECT AVG(num_events) AS avg_events_per_item FROM item_events",
+    "description": "This query calculates the average number of events associated with each inventory item. It first identifies events related to inventory items by linking inventory records with order items and user events, then computes the average of these event counts.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.inventory_items\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.events\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.inventory_items\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"inventory_item_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"user_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.events\", \"right_column\": \"user_id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 304,
+    "completion_tokens": 305,
+    "total_tokens": 1693
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, COUNT(DISTINCT o.order_id) AS num_orders FROM `bigquery-public-data.thelook_ecommerce.orders` o JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON o.order_id = oi.order_id JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name ORDER BY num_orders DESC",
+    "description": "This query calculates the total number of distinct orders for each distribution center. It returns the distribution center ID, its name, and the count of unique orders, sorted by the number of orders in descending order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"left_column\": \"order_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"order_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 325,
+    "completion_tokens": 404,
+    "total_tokens": 1765
+  },
+  {
+    "query": "SELECT a.id AS dc_a_id, a.name AS dc_a_name, b.id AS dc_b_id, b.name AS dc_b_name, ST_DISTANCE(a.distribution_center_geom, b.distribution_center_geom) AS distance_meters FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` a JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` b ON a.id < b.id ORDER BY distance_meters LIMIT 100",
+    "description": "This query performs a self-join on the `distribution_centers` table to find all unique pairs of distribution centers. It then calculates the geographical distance between each pair and returns the 100 pairs with the shortest distances.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 294,
+    "completion_tokens": 182,
+    "total_tokens": 1249
+  },
+  {
+    "query": "WITH reference_point AS ( SELECT ST_GEOGPOINT(-87.6298, 41.8781) AS ref_geom ) SELECT dc.id, dc.name, ST_DISTANCE(dc.distribution_center_geom, ref_geom) AS distance_meters FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc, reference_point ORDER BY distance_meters LIMIT 5",
+    "description": "This query identifies the 5 distribution centers closest to a specific geographic reference point. It calculates the geographic distance in meters from each distribution center to the reference point and orders the results by this distance.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[]",
+    "prompt_tokens": 268,
+    "completion_tokens": 87,
+    "total_tokens": 2245
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, AVG(oi.sale_price) AS avg_sale_price FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name ORDER BY avg_sale_price DESC",
+    "description": "This query calculates the average sale price for items associated with each distribution center. It aggregates results by distribution center ID and name, then orders them by the highest average sale price.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 298,
+    "completion_tokens": 294,
+    "total_tokens": 1320
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, SUM(ii.cost) AS total_cost FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON ii.product_distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name ORDER BY total_cost DESC",
+    "description": "This query calculates the total cost of all inventory items associated with each distribution center. It groups the results by distribution center and orders them by the total cost in descending order.",
+    "tables": "[\"`bigquery-public-data.thelook_ecommerce.inventory_items`\", \"`bigquery-public-data.thelook_ecommerce.distribution_centers`\"]",
+    "joins": "[{\"left_table\": \"`bigquery-public-data.thelook_ecommerce.inventory_items`\", \"left_column\": \"product_distribution_center_id\", \"right_table\": \"`bigquery-public-data.thelook_ecommerce.distribution_centers`\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 267,
+    "completion_tokens": 199,
+    "total_tokens": 1042
+  },
+  {
+    "query": "-- This query approximates distance using the haversine formula via geography types WITH dc AS ( SELECT id, name, distribution_center_geom FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` WHERE name = 'Distribution Center A' ) SELECT u.id AS user_id, u.first_name, u.last_name, dc.name, ST_DISTANCE(dc.distribution_center_geom, ST_GEOGPOINT(u.longitude, u.latitude)) AS distance_meters FROM `bigquery-public-data.thelook_ecommerce.users` u, dc WHERE ST_DISTANCE(dc.distribution_center_geom, ST_GEOGPOINT(u.longitude, u.latitude)) <= 50000 ORDER BY distance_meters LIMIT 100",
+    "description": "This query identifies the top 100 users located within 50 kilometers (50,000 meters) of 'Distribution Center A'. It calculates the geographical distance between each user's location and the specified distribution center's geometry.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.users\", \"left_column\": null, \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"distribution_center_geom\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 346,
+    "completion_tokens": 205,
+    "total_tokens": 3810
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, EXTRACT(YEAR FROM ii.sold_at) AS sold_year, EXTRACT(MONTH FROM ii.sold_at) AS sold_month, COUNT(ii.id) AS sold_count FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON ii.product_distribution_center_id = dc.id WHERE ii.sold_at IS NOT NULL GROUP BY distribution_center_id, dc.name, sold_year, sold_month ORDER BY sold_count DESC LIMIT 100",
+    "description": "This query calculates the total number of items sold per distribution center per month and year, focusing only on items that have been sold. It then retrieves the top 100 distribution centers by sold count.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.inventory_items\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.inventory_items\", \"left_column\": \"product_distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 321,
+    "completion_tokens": 202,
+    "total_tokens": 1168
+  },
+  {
+    "query": "WITH dc_revenue AS ( SELECT p.distribution_center_id AS dc_id, SUM(oi.sale_price) AS revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id GROUP BY dc_id ), dc_cost AS ( SELECT ii.product_distribution_center_id AS dc_id, SUM(ii.cost) AS cost FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii GROUP BY dc_id ) SELECT dc.id AS distribution_center_id, dc.name, COALESCE(r.revenue, 0) AS revenue, COALESCE(c.cost, 0) AS cost, COALESCE(r.revenue, 0) - COALESCE(c.cost, 0) AS profit FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc LEFT JOIN dc_revenue r ON dc.id = r.dc_id LEFT JOIN dc_cost c ON dc.id = c.dc_id ORDER BY profit DESC",
+    "description": "This query calculates the total revenue, total cost, and profit for each distribution center. It aggregates revenue from order items and products, and cost from inventory items, then combines these with distribution center details to derive the final profit.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.inventory_items\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"dc_revenue\", \"right_column\": \"dc_id\", \"join_type\": \"LEFT\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"left_column\": \"id\", \"right_table\": \"dc_cost\", \"right_column\": \"dc_id\", \"join_type\": \"LEFT\"}]",
+    "prompt_tokens": 430,
+    "completion_tokens": 383,
+    "total_tokens": 1786
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc LEFT JOIN ( SELECT DISTINCT p.distribution_center_id FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id WHERE o.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY) ) recent_dc ON dc.id = recent_dc.distribution_center_id WHERE recent_dc.distribution_center_id IS NULL",
+    "description": "Error generating metadata: 504 Deadline Exceeded",
+    "tables": [],
+    "joins": [],
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, p.category, SUM(oi.sale_price) AS total_revenue FROM `bigquery-public-data.thelook_ecommerce.order_items` oi JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name, p.category ORDER BY total_revenue DESC LIMIT 100",
+    "description": "This query calculates the total revenue for each product category within every distribution center. It then ranks and returns the top 100 combinations of distribution center and product category by their total revenue.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 307,
+    "completion_tokens": 297,
+    "total_tokens": 1233
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, COUNT(DISTINCT o.user_id) AS num_users FROM `bigquery-public-data.thelook_ecommerce.orders` o JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON o.order_id = oi.order_id JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name ORDER BY num_users DESC",
+    "description": "This query calculates the number of unique users who have placed orders associated with each distribution center. It joins orders, order items, products, and distribution centers to achieve this, then groups and counts distinct users per center.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.orders\", \"bigquery-public-data.thelook_ecommerce.order_items\", \"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.orders\", \"left_column\": \"order_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"right_column\": \"order_id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.order_items\", \"left_column\": \"product_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}, {\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 325,
+    "completion_tokens": 406,
+    "total_tokens": 1597
+  },
+  {
+    "query": "SELECT dc.id AS distribution_center_id, dc.name, AVG(p.cost) AS avg_product_cost FROM `bigquery-public-data.thelook_ecommerce.products` p JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id GROUP BY distribution_center_id, dc.name ORDER BY avg_product_cost DESC",
+    "description": "This query calculates the average product cost for each distribution center. It returns the distribution center ID, name, and its corresponding average product cost, ordered by the average cost in descending order.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.products\", \"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[{\"left_table\": \"bigquery-public-data.thelook_ecommerce.products\", \"left_column\": \"distribution_center_id\", \"right_table\": \"bigquery-public-data.thelook_ecommerce.distribution_centers\", \"right_column\": \"id\", \"join_type\": \"INNER JOIN\"}]",
+    "prompt_tokens": 267,
+    "completion_tokens": 192,
+    "total_tokens": 943
+  },
+  {
+    "query": "SELECT ST_CENTROID(ST_UNION_AGG(distribution_center_geom)) AS all_dc_centroid FROM `bigquery-public-data.thelook_ecommerce.distribution_centers`",
+    "description": "This query calculates the geographical centroid of all distribution centers by aggregating their geometries into a single unioned shape and then finding the centroid of that combined shape.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.distribution_centers\"]",
+    "joins": "[]",
+    "prompt_tokens": 215,
+    "completion_tokens": 78,
+    "total_tokens": 600
+  },
+  {
+    "query": "WITH reference_point AS ( SELECT ST_GEOGPOINT(-87.6298, 41.8781) AS ref_geom ), user_dist AS ( SELECT u.id AS user_id, ST_DISTANCE(ref_geom, ST_GEOGPOINT(u.longitude, u.latitude)) / 1000 AS distance_km FROM `bigquery-public-data.thelook_ecommerce.users` u, reference_point ) SELECT CASE WHEN distance_km < 10 THEN '<10km' WHEN distance_km BETWEEN 10 AND 50 THEN '10-50km' WHEN distance_km BETWEEN 50 AND 100 THEN '50-100km' ELSE '>100km' END AS distance_bucket, COUNT(*) AS num_users FROM user_dist GROUP BY distance_bucket ORDER BY num_users DESC",
+    "description": "This query calculates the geographical distance in kilometers between each user's location and a fixed reference point. It then categorizes users into predefined distance buckets and counts the number of users within each bucket.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[]",
+    "prompt_tokens": 370,
+    "completion_tokens": 85,
+    "total_tokens": 1576
+  }
+]

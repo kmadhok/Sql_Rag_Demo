@@ -1,0 +1,889 @@
+Queries,description,tables,joins,prompt_tokens,completion_tokens,total_tokens
+"SELECT name, category, retail_price
+FROM `bigquery-public-data.thelook_ecommerce.products`
+ORDER BY retail_price DESC
+LIMIT 10",,,,,,
+"SELECT gender, COUNT(*) AS num_users
+FROM `bigquery-public-data.thelook_ecommerce.users`
+GROUP BY gender
+ORDER BY num_users DESC",,,,,,
+"SELECT order_id, user_id, status, created_at
+FROM `bigquery-public-data.thelook_ecommerce.orders`
+ORDER BY created_at DESC
+LIMIT 5",,,,,,
+"SELECT traffic_source, COUNT(*) AS event_count
+FROM `bigquery-public-data.thelook_ecommerce.events`
+GROUP BY traffic_source
+ORDER BY event_count DESC",,,,,,
+"SELECT state, AVG(age) AS avg_age
+FROM `bigquery-public-data.thelook_ecommerce.users`
+GROUP BY state
+ORDER BY avg_age DESC",,,,,,
+"SELECT id, name, latitude, longitude
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers`
+ORDER BY id",,,,,,
+"SELECT city, COUNT(*) AS event_count
+FROM `bigquery-public-data.thelook_ecommerce.events`
+GROUP BY city
+ORDER BY event_count DESC
+LIMIT 10",,,,,,
+"SELECT id, first_name, last_name, created_at
+FROM `bigquery-public-data.thelook_ecommerce.users`
+WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+ORDER BY created_at DESC",,,,,,
+"SELECT id, product_id, sold_at, cost
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items`
+WHERE sold_at >= DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY), WEEK)
+ORDER BY sold_at DESC",,,,,,
+"SELECT DISTINCT department
+FROM `bigquery-public-data.thelook_ecommerce.products`
+ORDER BY department",,,,,,
+"SELECT status, COUNT(*) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.orders`
+GROUP BY status
+ORDER BY num_orders DESC",,,,,,
+"SELECT status, AVG(sale_price) AS avg_sale_price
+FROM `bigquery-public-data.thelook_ecommerce.order_items`
+GROUP BY status
+ORDER BY avg_sale_price DESC",,,,,,
+"SELECT category, SUM(cost) AS total_cost
+FROM `bigquery-public-data.thelook_ecommerce.products`
+GROUP BY category
+ORDER BY total_cost DESC",,,,,,
+"SELECT brand, AVG(cost) AS avg_cost
+FROM `bigquery-public-data.thelook_ecommerce.products`
+GROUP BY brand
+ORDER BY avg_cost DESC",,,,,,
+"SELECT EXTRACT(YEAR FROM sold_at) AS sold_year, EXTRACT(MONTH FROM sold_at) AS sold_month, COUNT(*) AS num_items
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items`
+WHERE sold_at IS NOT NULL
+GROUP BY sold_year, sold_month
+ORDER BY sold_year DESC, sold_month DESC",,,,,,
+"SELECT browser, COUNT(*) AS event_count
+FROM `bigquery-public-data.thelook_ecommerce.events`
+GROUP BY browser
+ORDER BY event_count DESC",,,,,,
+"SELECT DATE(created_at) AS signup_date, COUNT(*) AS new_users
+FROM `bigquery-public-data.thelook_ecommerce.users`
+WHERE created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)
+GROUP BY signup_date
+ORDER BY signup_date",,,,,,
+"SELECT DATE(created_at) AS order_date, COUNT(*) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.orders`
+GROUP BY order_date
+ORDER BY order_date",,,,,,
+"SELECT name,
+       AVG(latitude) AS avg_latitude,
+       AVG(longitude) AS avg_longitude
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers`
+GROUP BY name
+ORDER BY name",,,,,,
+"SELECT category,
+       APPROX_QUANTILES(sale_price, 100)[OFFSET(90)] AS pct90_sale_price
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY category
+ORDER BY pct90_sale_price DESC",,,,,,
+"SELECT u.id AS user_id, u.first_name, u.last_name, COUNT(o.order_id) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON o.user_id = u.id
+GROUP BY user_id, first_name, last_name
+ORDER BY num_orders DESC",,,,,,
+"SELECT AVG(order_count) AS avg_orders_per_user
+FROM (
+  SELECT u.id, COUNT(o.order_id) AS order_count
+  FROM `bigquery-public-data.thelook_ecommerce.users` u
+  LEFT JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+    ON o.user_id = u.id
+  GROUP BY u.id
+) sub",,,,,,
+"SELECT o.order_id, u.email, o.status, o.created_at
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.users` u
+  ON o.user_id = u.id
+ORDER BY o.created_at DESC
+LIMIT 20",,,,,,
+"SELECT o.order_id, COUNT(oi.id) AS num_items
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.order_id = o.order_id
+GROUP BY o.order_id
+ORDER BY num_items DESC",,,,,,
+"SELECT o.order_id, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.order_id = o.order_id
+GROUP BY o.order_id
+ORDER BY total_revenue DESC",,,,,,
+"SELECT p.category, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY p.category
+ORDER BY total_revenue DESC",,,,,,
+"SELECT p.id AS product_id, p.name, SUM(oi.sale_price - p.cost) AS profit
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY product_id, p.name
+ORDER BY profit DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(p.id) AS num_products
+FROM `bigquery-public-data.thelook_ecommerce.products` p
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_products DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(ii.id) AS num_inventory_items
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON ii.product_distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_inventory_items DESC",,,,,,
+"SELECT u.gender, COUNT(e.id) AS num_events
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+JOIN `bigquery-public-data.thelook_ecommerce.events` e
+  ON e.user_id = u.id
+GROUP BY u.gender
+ORDER BY num_events DESC",,,,,,
+"SELECT u.id AS user_id, COUNT(DISTINCT e.session_id) AS num_sessions
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.events` e
+  ON e.user_id = u.id
+GROUP BY user_id
+ORDER BY num_sessions DESC",,,,,,
+"SELECT u.gender, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.users` u
+  ON oi.user_id = u.id
+GROUP BY u.gender
+ORDER BY total_revenue DESC",,,,,,
+"SELECT o.order_id, p.name AS product_name, oi.sale_price
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON oi.order_id = o.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+ORDER BY o.order_id, oi.sale_price DESC
+LIMIT 50",,,,,,
+"SELECT u.id AS user_id, u.first_name, u.last_name, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON o.user_id = u.id
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.order_id = o.order_id
+GROUP BY user_id, u.first_name, u.last_name
+ORDER BY total_revenue DESC",,,,,,
+"SELECT u.id AS user_id, COUNT(DISTINCT p.category) AS num_categories
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON o.user_id = u.id
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.order_id = o.order_id
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY user_id
+ORDER BY num_categories DESC",,,,,,
+"SELECT p.category, o.status, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON oi.order_id = o.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY p.category, o.status
+ORDER BY total_revenue DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY total_revenue DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name,
+       SUM(ii.cost) AS total_cost,
+       COUNT(ii.sold_at) AS sold_count
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON ii.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY total_cost DESC",,,,,,
+"SELECT p.id AS product_id, p.name,
+       SUM(oi.sale_price - ii.cost) AS total_profit
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+  ON oi.inventory_item_id = ii.id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON ii.product_id = p.id
+GROUP BY product_id, p.name
+ORDER BY total_profit DESC",,,,,,
+"SELECT u.id AS user_id,
+       COUNT(DISTINCT e.id) AS num_events,
+       COUNT(DISTINCT o.order_id) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.events` e
+  ON e.user_id = u.id
+LEFT JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON o.user_id = u.id
+GROUP BY user_id
+ORDER BY num_events DESC",,,,,,
+"SELECT u.state, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON oi.order_id = o.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.users` u
+  ON o.user_id = u.id
+GROUP BY u.state
+ORDER BY total_revenue DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(ii.id) AS sold_items
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON ii.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON ii.product_distribution_center_id = dc.id
+WHERE ii.sold_at IS NOT NULL
+GROUP BY distribution_center_id, dc.name
+ORDER BY sold_items DESC",,,,,,
+"SELECT o.order_id,
+       SUM(ii.cost) AS total_cost,
+       SUM(oi.sale_price) AS total_revenue,
+       SUM(oi.sale_price) - SUM(ii.cost) AS profit
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.order_id = o.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+  ON oi.inventory_item_id = ii.id
+GROUP BY o.order_id
+ORDER BY profit DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(ii.id) AS num_items
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON ii.product_distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_items DESC",,,,,,
+"SELECT p.id AS product_id, p.name, COUNT(DISTINCT o.order_id) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+  ON oi.order_id = o.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY product_id, p.name
+ORDER BY num_orders DESC",,,,,,
+"SELECT p.id AS product_id, p.name, COUNT(e.id) AS total_events
+FROM `bigquery-public-data.thelook_ecommerce.events` e
+JOIN `bigquery-public-data.thelook_ecommerce.users` u
+  ON e.user_id = u.id
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+  ON oi.user_id = u.id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY product_id, p.name
+ORDER BY total_events DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(DISTINCT p.id) AS num_products
+FROM `bigquery-public-data.thelook_ecommerce.products` p
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_products DESC",,,,,,
+"SELECT u.gender, p.category, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.users` u
+  ON oi.user_id = u.id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY u.gender, p.category
+ORDER BY total_revenue DESC",,,,,,
+"SELECT user_id, MIN(DATE(created_at)) AS first_order_date
+FROM `bigquery-public-data.thelook_ecommerce.orders`
+GROUP BY user_id
+ORDER BY first_order_date",,,,,,
+"SELECT user_id, order_id, created_at,
+       ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) AS order_number
+FROM `bigquery-public-data.thelook_ecommerce.orders`
+ORDER BY user_id, order_number",,,,,,
+"SELECT user_id, total_spent,
+       DENSE_RANK() OVER (ORDER BY total_spent DESC) AS spend_rank
+FROM (
+  SELECT u.id AS user_id, SUM(oi.sale_price) AS total_spent
+  FROM `bigquery-public-data.thelook_ecommerce.users` u
+  LEFT JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+    ON oi.user_id = u.id
+  GROUP BY user_id
+) sub
+ORDER BY spend_rank
+LIMIT 20",,,,,,
+"WITH ordered_orders AS (
+  SELECT user_id, created_at,
+         ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) AS rn
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+)
+SELECT a.user_id,
+       DATE_DIFF(
+         (SELECT created_at FROM ordered_orders b WHERE b.user_id=a.user_id AND b.rn=2),
+         (SELECT created_at FROM ordered_orders c WHERE c.user_id=a.user_id AND c.rn=1),
+         DAY
+       ) AS days_between
+FROM (
+  SELECT DISTINCT user_id
+  FROM ordered_orders
+  WHERE rn >= 2
+) a
+ORDER BY days_between",,,,,,
+"SELECT order_date,
+       num_orders,
+       SUM(num_orders) OVER (ORDER BY order_date) AS running_total
+FROM (
+  SELECT DATE(created_at) AS order_date, COUNT(*) AS num_orders
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY order_date
+)
+ORDER BY order_date",,,,,,
+"WITH user_brand_spend AS (
+  SELECT u.id AS user_id, p.brand,
+         SUM(oi.sale_price) AS brand_spend,
+         RANK() OVER (PARTITION BY u.id ORDER BY SUM(oi.sale_price) DESC) AS rnk
+  FROM `bigquery-public-data.thelook_ecommerce.users` u
+  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+    ON oi.user_id = u.id
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p
+    ON oi.product_id = p.id
+  GROUP BY user_id, p.brand
+)
+SELECT user_id, brand AS top_brand, brand_spend
+FROM user_brand_spend
+WHERE rnk = 1
+ORDER BY brand_spend DESC",,,,,,
+"SELECT product_id, inventory_item_id, sale_price,
+       LAG(sale_price) OVER (PARTITION BY product_id ORDER BY created_at) AS previous_sale_price,
+       sale_price - LAG(sale_price) OVER (PARTITION BY product_id ORDER BY created_at) AS sale_price_diff
+FROM `bigquery-public-data.thelook_ecommerce.order_items`
+ORDER BY product_id, created_at
+LIMIT 100",,,,,,
+"SELECT user_id, created_at,
+       LAG(created_at) OVER (PARTITION BY user_id ORDER BY created_at) AS previous_event_time,
+       TIMESTAMP_DIFF(created_at, LAG(created_at) OVER (PARTITION BY user_id ORDER BY created_at), SECOND) AS seconds_since_prior_event
+FROM `bigquery-public-data.thelook_ecommerce.events`
+ORDER BY user_id, created_at
+LIMIT 100",,,,,,
+"WITH user_daily AS (
+  SELECT oi.user_id, DATE(o.created_at) AS order_date, SUM(oi.sale_price) AS daily_revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+    ON oi.order_id = o.order_id
+  GROUP BY oi.user_id, order_date
+)
+SELECT user_id, order_date, daily_revenue,
+       SUM(daily_revenue) OVER (PARTITION BY user_id ORDER BY order_date) AS cumulative_revenue
+FROM user_daily
+ORDER BY user_id, order_date",,,,,,
+"SELECT distribution_center_id, name, total_cost,
+       RANK() OVER (ORDER BY total_cost DESC) AS cost_rank
+FROM (
+  SELECT dc.id AS distribution_center_id, dc.name, SUM(ii.cost) AS total_cost
+  FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  JOIN `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+    ON ii.product_distribution_center_id = dc.id
+  GROUP BY distribution_center_id, dc.name
+) sub
+ORDER BY cost_rank",,,,,,
+"SELECT order_id, id AS order_item_id, sale_price,
+       ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY sale_price DESC) AS item_position
+FROM `bigquery-public-data.thelook_ecommerce.order_items`
+ORDER BY order_id, item_position
+LIMIT 100",,,,,,
+"SELECT id AS order_item_id,
+       shipped_at,
+       delivered_at,
+       TIMESTAMP_DIFF(delivered_at, shipped_at, HOUR) AS hours_in_transit
+FROM `bigquery-public-data.thelook_ecommerce.order_items`
+WHERE shipped_at IS NOT NULL AND delivered_at IS NOT NULL
+ORDER BY hours_in_transit DESC
+LIMIT 100",,,,,,
+"WITH daily_rev AS (
+  SELECT DATE(created_at) AS order_date, SUM(sale_price) AS daily_revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o
+    ON oi.order_id = o.order_id
+  GROUP BY order_date
+)
+SELECT order_date, daily_revenue,
+       AVG(daily_revenue) OVER (ORDER BY order_date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) AS moving_avg_7d
+FROM daily_rev
+ORDER BY order_date",,,,,,
+"SELECT category, sale_price,
+       NTILE(10) OVER (PARTITION BY category ORDER BY sale_price) AS decile
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+ORDER BY category, sale_price DESC
+LIMIT 200",,,,,,
+"WITH monthly_revenue AS (
+  SELECT EXTRACT(YEAR FROM o.created_at) AS yr, EXTRACT(MONTH FROM o.created_at) AS mon,
+         p.category,
+         SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+  GROUP BY yr, mon, p.category
+)
+SELECT yr, mon, category, revenue
+FROM (
+  SELECT *,
+         DENSE_RANK() OVER (PARTITION BY yr, mon ORDER BY revenue DESC) AS rnk
+  FROM monthly_revenue
+) t
+WHERE rnk <= 3
+ORDER BY yr, mon, revenue DESC",,,,,,
+"WITH user_first_order AS (
+  SELECT user_id, MIN(created_at) AS first_order_at
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+),
+user_first_event AS (
+  SELECT user_id, MIN(created_at) AS first_event_at
+  FROM `bigquery-public-data.thelook_ecommerce.events`
+  GROUP BY user_id
+)
+SELECT e.traffic_source,
+       COUNT(DISTINCT CASE WHEN o.first_order_at <= TIMESTAMP_ADD(e.created_at, INTERVAL 7 DAY) THEN e.user_id END) AS converters,
+       COUNT(DISTINCT e.user_id) AS total_users,
+       SAFE_DIVIDE(
+         COUNT(DISTINCT CASE WHEN o.first_order_at <= TIMESTAMP_ADD(e.created_at, INTERVAL 7 DAY) THEN e.user_id END),
+         COUNT(DISTINCT e.user_id)
+       ) AS conversion_rate
+FROM `bigquery-public-data.thelook_ecommerce.events` e
+LEFT JOIN user_first_order o ON e.user_id = o.user_id
+GROUP BY e.traffic_source
+ORDER BY conversion_rate DESC",,,,,,
+"WITH ordered_orders AS (
+  SELECT user_id, created_at,
+         ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at) AS rn
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+)
+SELECT COUNT(*) AS repeat_customers
+FROM (
+  SELECT user_id
+  FROM ordered_orders
+  WHERE rn = 2
+    AND created_at <= TIMESTAMP_ADD((SELECT created_at FROM ordered_orders o2 WHERE o2.user_id = ordered_orders.user_id AND o2.rn = 1), INTERVAL 30 DAY)
+) t",,,,,,
+"WITH weekly_rev AS (
+  SELECT EXTRACT(YEAR FROM o.created_at) AS yr,
+         EXTRACT(WEEK FROM o.created_at) AS wk,
+         SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id
+  GROUP BY yr, wk
+)
+SELECT yr, wk, revenue,
+       LAG(revenue) OVER (ORDER BY yr, wk) AS prev_week_revenue,
+       SAFE_DIVIDE(revenue - LAG(revenue) OVER (ORDER BY yr, wk), LAG(revenue) OVER (ORDER BY yr, wk)) AS wo_w_growth
+FROM weekly_rev
+ORDER BY yr, wk",,,,,,
+"WITH first_order AS (
+  SELECT user_id, MIN(created_at) AS first_order_at
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+)
+SELECT u.id AS user_id, DATE_DIFF(DATE(f.first_order_at), DATE(u.created_at), DAY) AS days_to_first_order
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN first_order f ON u.id = f.user_id
+WHERE f.first_order_at IS NOT NULL
+ORDER BY days_to_first_order",,,,,,
+"SELECT p.category,
+       COUNTIF(oi.returned_at IS NOT NULL) AS returned_items,
+       COUNT(*) AS total_items,
+       SAFE_DIVIDE(COUNTIF(oi.returned_at IS NOT NULL), COUNT(*)) AS return_rate
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p
+  ON oi.product_id = p.id
+GROUP BY p.category
+ORDER BY return_rate DESC",,,,,,
+"SELECT status,
+       AVG(TIMESTAMP_DIFF(delivered_at, created_at, HOUR)) AS avg_hours_from_order_to_delivery
+FROM (
+  SELECT o.order_id, o.status, o.created_at, MIN(oi.delivered_at) AS delivered_at
+  FROM `bigquery-public-data.thelook_ecommerce.orders` o
+  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi
+    ON oi.order_id = o.order_id
+  WHERE oi.delivered_at IS NOT NULL
+  GROUP BY o.order_id, o.status, o.created_at
+)
+GROUP BY status
+ORDER BY avg_hours_from_order_to_delivery",,,,,,
+"WITH first_order AS (
+  SELECT user_id, MIN(created_at) AS first_order_at
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+)
+SELECT u.id AS user_id, COUNT(e.id) AS events_before_first_order
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+JOIN `bigquery-public-data.thelook_ecommerce.events` e
+  ON e.user_id = u.id
+LEFT JOIN first_order f ON u.id = f.user_id
+WHERE e.created_at < f.first_order_at
+GROUP BY user_id
+ORDER BY events_before_first_order DESC",,,,,,
+"WITH cohort AS (
+  SELECT u.id AS user_id, DATE(u.created_at) AS cohort_date
+  FROM `bigquery-public-data.thelook_ecommerce.users` u
+),
+revenue AS (
+  SELECT oi.user_id, DATE(o.created_at) AS order_date, SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id
+  GROUP BY oi.user_id, order_date
+)
+SELECT cohort_date,
+       SUM(CASE WHEN order_date <= DATE_ADD(cohort_date, INTERVAL 30 DAY) THEN revenue ELSE 0 END) AS revenue_first_30_days
+FROM cohort
+LEFT JOIN revenue r ON cohort.user_id = r.user_id
+GROUP BY cohort_date
+ORDER BY cohort_date
+LIMIT 60",,,,,,
+"WITH order_counts AS (
+  SELECT user_id, COUNT(order_id) AS num_orders
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+),
+age_group AS (
+  SELECT id AS user_id,
+         CASE
+           WHEN age < 25 THEN '<25'
+           WHEN age BETWEEN 25 AND 34 THEN '25-34'
+           WHEN age BETWEEN 35 AND 44 THEN '35-44'
+           WHEN age BETWEEN 45 AND 54 THEN '45-54'
+           ELSE '55+'
+         END AS age_group
+  FROM `bigquery-public-data.thelook_ecommerce.users`
+)
+SELECT age_group,
+       COUNTIF(oc.num_orders > 1) AS repeat_customers,
+       COUNT(*) AS total_customers,
+       SAFE_DIVIDE(COUNTIF(oc.num_orders > 1), COUNT(*)) AS repeat_rate
+FROM age_group ag
+LEFT JOIN order_counts oc ON ag.user_id = oc.user_id
+GROUP BY age_group
+ORDER BY repeat_rate DESC",,,,,,
+"SELECT order_id,
+       created_at AS order_created_at,
+       returned_at,
+       DATE_DIFF(DATE(returned_at), DATE(created_at), DAY) AS days_to_return
+FROM `bigquery-public-data.thelook_ecommerce.order_items`
+WHERE returned_at IS NOT NULL
+  AND DATE_DIFF(DATE(returned_at), DATE(created_at), DAY) <= 14
+ORDER BY days_to_return
+LIMIT 100",,,,,,
+"WITH user_orders AS (
+  SELECT user_id, COUNT(order_id) AS num_orders
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+),
+user_events AS (
+  SELECT user_id, COUNT(id) AS num_events
+  FROM `bigquery-public-data.thelook_ecommerce.events`
+  GROUP BY user_id
+)
+SELECT u.id AS user_id,
+       SAFE_DIVIDE(e.num_events, o.num_orders) AS events_per_order
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN user_orders o ON u.id = o.user_id
+LEFT JOIN user_events e ON u.id = e.user_id
+WHERE o.num_orders > 0
+ORDER BY events_per_order DESC",,,,,,
+"WITH user_day_revenue AS (
+  SELECT oi.user_id, DATE(o.created_at) AS order_date, SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id
+  GROUP BY oi.user_id, order_date
+)
+SELECT user_id, order_date, revenue
+FROM user_day_revenue
+ORDER BY revenue DESC
+LIMIT 100",,,,,,
+"WITH age_group AS (
+  SELECT id AS user_id,
+         CASE
+           WHEN age < 25 THEN '<25'
+           WHEN age BETWEEN 25 AND 34 THEN '25-34'
+           WHEN age BETWEEN 35 AND 44 THEN '35-44'
+           WHEN age BETWEEN 45 AND 54 THEN '45-54'
+           ELSE '55+'
+         END AS age_group
+  FROM `bigquery-public-data.thelook_ecommerce.users`
+)
+SELECT e.traffic_source, ag.age_group, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.events` e
+JOIN age_group ag ON e.user_id = ag.user_id
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.user_id = e.user_id
+GROUP BY e.traffic_source, ag.age_group
+ORDER BY total_revenue DESC",,,,,,
+"WITH users_with_events AS (
+  SELECT DISTINCT user_id
+  FROM `bigquery-public-data.thelook_ecommerce.events`
+),
+category_purchases AS (
+  SELECT DISTINCT oi.user_id, p.category
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+)
+SELECT cp.category,
+       COUNT(DISTINCT cp.user_id) AS buyers,
+       COUNT(DISTINCT ue.user_id) AS total_users,
+       SAFE_DIVIDE(COUNT(DISTINCT cp.user_id), COUNT(DISTINCT ue.user_id)) AS conversion_rate
+FROM users_with_events ue
+LEFT JOIN category_purchases cp ON ue.user_id = cp.user_id
+GROUP BY cp.category
+ORDER BY conversion_rate DESC",,,,,,
+"WITH dc_revenue AS (
+  SELECT p.distribution_center_id AS dc_id, SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+  GROUP BY dc_id
+),
+dc_events AS (
+  SELECT dc.id AS dc_id, COUNT(e.id) AS event_count
+  FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON p.distribution_center_id = dc.id
+  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.product_id = p.id
+  JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id
+  GROUP BY dc.id
+)
+SELECT dc.id AS distribution_center_id, dc.name,
+       COALESCE(dr.revenue, 0) AS total_revenue,
+       COALESCE(de.event_count, 0) AS total_events
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+LEFT JOIN dc_revenue dr ON dc.id = dr.dc_id
+LEFT JOIN dc_events de ON dc.id = de.dc_id
+ORDER BY total_revenue DESC",,,,,,
+"WITH user_events AS (
+  SELECT user_id, COUNT(id) AS num_events
+  FROM `bigquery-public-data.thelook_ecommerce.events`
+  GROUP BY user_id
+),
+user_orders AS (
+  SELECT user_id, COUNT(order_id) AS num_orders
+  FROM `bigquery-public-data.thelook_ecommerce.orders`
+  GROUP BY user_id
+)
+SELECT u.gender,
+       SUM(ue.num_events) AS total_events,
+       SUM(uo.num_orders) AS total_orders,
+       SAFE_DIVIDE(SUM(ue.num_events), SUM(uo.num_orders)) AS event_order_ratio
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN user_events ue ON u.id = ue.user_id
+LEFT JOIN user_orders uo ON u.id = uo.user_id
+GROUP BY u.gender
+ORDER BY event_order_ratio DESC",,,,,,
+"WITH product_revenue AS (
+  SELECT p.id AS product_id, SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+  GROUP BY product_id
+),
+product_events AS (
+  SELECT p.id AS product_id, COUNT(e.id) AS num_events
+  FROM `bigquery-public-data.thelook_ecommerce.products` p
+  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.product_id = p.id
+  JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id
+  GROUP BY p.id
+)
+SELECT p.id AS product_id, p.name,
+       COALESCE(pr.revenue, 0) AS revenue,
+       COALESCE(pe.num_events, 0) AS events
+FROM `bigquery-public-data.thelook_ecommerce.products` p
+LEFT JOIN product_revenue pr ON p.id = pr.product_id
+LEFT JOIN product_events pe ON p.id = pe.product_id
+ORDER BY revenue DESC
+LIMIT 50",,,,,,
+"SELECT e.traffic_source, p.category, AVG(oi.sale_price) AS avg_sale_price
+FROM `bigquery-public-data.thelook_ecommerce.events` e
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON e.user_id = oi.user_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+GROUP BY e.traffic_source, p.category
+ORDER BY avg_sale_price DESC",,,,,,
+"WITH browser_events AS (
+  SELECT browser, COUNT(id) AS num_events
+  FROM `bigquery-public-data.thelook_ecommerce.events`
+  GROUP BY browser
+),
+browser_orders AS (
+  SELECT e.browser, COUNT(DISTINCT o.order_id) AS num_orders
+  FROM `bigquery-public-data.thelook_ecommerce.events` e
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON e.user_id = o.user_id
+  GROUP BY e.browser
+)
+SELECT be.browser,
+       COALESCE(be.num_events, 0) AS events,
+       COALESCE(bo.num_orders, 0) AS orders
+FROM browser_events be
+LEFT JOIN browser_orders bo ON be.browser = bo.browser
+ORDER BY events DESC",,,,,,
+"WITH user_sale AS (
+  SELECT user_id, SUM(sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items`
+  GROUP BY user_id
+),
+user_cost AS (
+  SELECT ii.user_id, SUM(ii.cost) AS cost
+  FROM (
+    SELECT oi.user_id, ii.cost
+    FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+    JOIN `bigquery-public-data.thelook_ecommerce.inventory_items` ii ON oi.inventory_item_id = ii.id
+  ) ii
+  GROUP BY ii.user_id
+)
+SELECT u.id AS user_id, COALESCE(us.revenue, 0) AS revenue, COALESCE(uc.cost, 0) AS cost,
+       COALESCE(us.revenue, 0) - COALESCE(uc.cost, 0) AS profit
+FROM `bigquery-public-data.thelook_ecommerce.users` u
+LEFT JOIN user_sale us ON u.id = us.user_id
+LEFT JOIN user_cost uc ON u.id = uc.user_id
+ORDER BY profit DESC
+LIMIT 50",,,,,,
+"WITH item_events AS (
+  SELECT ii.id AS inventory_item_id, COUNT(e.id) AS num_events
+  FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+  JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON oi.inventory_item_id = ii.id
+  JOIN `bigquery-public-data.thelook_ecommerce.events` e ON e.user_id = oi.user_id
+  GROUP BY ii.id
+)
+SELECT AVG(num_events) AS avg_events_per_item
+FROM item_events",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(DISTINCT o.order_id) AS num_orders
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON o.order_id = oi.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_orders DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY total_revenue DESC",,,,,,
+"SELECT a.id AS dc_a_id, a.name AS dc_a_name,
+       b.id AS dc_b_id, b.name AS dc_b_name,
+       ST_DISTANCE(a.distribution_center_geom, b.distribution_center_geom) AS distance_meters
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` a
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` b
+  ON a.id < b.id
+ORDER BY distance_meters
+LIMIT 100",,,,,,
+"WITH reference_point AS (
+  SELECT ST_GEOGPOINT(-87.6298, 41.8781) AS ref_geom
+)
+SELECT dc.id, dc.name,
+       ST_DISTANCE(dc.distribution_center_geom, ref_geom) AS distance_meters
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc, reference_point
+ORDER BY distance_meters
+LIMIT 5",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, AVG(oi.sale_price) AS avg_sale_price
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY avg_sale_price DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(ii.id) AS num_items
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON ii.product_distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_items DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, SUM(ii.cost) AS total_cost
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON ii.product_distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY total_cost DESC",,,,,,
+"-- This query approximates distance using the haversine formula via geography types
+WITH dc AS (
+  SELECT id, name, distribution_center_geom
+  FROM `bigquery-public-data.thelook_ecommerce.distribution_centers`
+  WHERE name = 'Distribution Center A'
+)
+SELECT u.id AS user_id, u.first_name, u.last_name, dc.name,
+       ST_DISTANCE(dc.distribution_center_geom, ST_GEOGPOINT(u.longitude, u.latitude)) AS distance_meters
+FROM `bigquery-public-data.thelook_ecommerce.users` u, dc
+WHERE ST_DISTANCE(dc.distribution_center_geom, ST_GEOGPOINT(u.longitude, u.latitude)) <= 50000
+ORDER BY distance_meters
+LIMIT 100",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name,
+       EXTRACT(YEAR FROM ii.sold_at) AS sold_year,
+       EXTRACT(MONTH FROM ii.sold_at) AS sold_month,
+       COUNT(ii.id) AS sold_count
+FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON ii.product_distribution_center_id = dc.id
+WHERE ii.sold_at IS NOT NULL
+GROUP BY distribution_center_id, dc.name, sold_year, sold_month
+ORDER BY sold_count DESC
+LIMIT 100",,,,,,
+"WITH dc_revenue AS (
+  SELECT p.distribution_center_id AS dc_id, SUM(oi.sale_price) AS revenue
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+  GROUP BY dc_id
+),
+ dc_cost AS (
+  SELECT ii.product_distribution_center_id AS dc_id, SUM(ii.cost) AS cost
+  FROM `bigquery-public-data.thelook_ecommerce.inventory_items` ii
+  GROUP BY dc_id
+ )
+SELECT dc.id AS distribution_center_id, dc.name,
+       COALESCE(r.revenue, 0) AS revenue,
+       COALESCE(c.cost, 0) AS cost,
+       COALESCE(r.revenue, 0) - COALESCE(c.cost, 0) AS profit
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+LEFT JOIN dc_revenue r ON dc.id = r.dc_id
+LEFT JOIN dc_cost c ON dc.id = c.dc_id
+ORDER BY profit DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers` dc
+LEFT JOIN (
+  SELECT DISTINCT p.distribution_center_id
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+  JOIN `bigquery-public-data.thelook_ecommerce.orders` o ON oi.order_id = o.order_id
+  JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+  WHERE o.created_at >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+) recent_dc ON dc.id = recent_dc.distribution_center_id
+WHERE recent_dc.distribution_center_id IS NULL",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, p.category, SUM(oi.sale_price) AS total_revenue
+FROM `bigquery-public-data.thelook_ecommerce.order_items` oi
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name, p.category
+ORDER BY total_revenue DESC
+LIMIT 100",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, COUNT(DISTINCT o.user_id) AS num_users
+FROM `bigquery-public-data.thelook_ecommerce.orders` o
+JOIN `bigquery-public-data.thelook_ecommerce.order_items` oi ON o.order_id = oi.order_id
+JOIN `bigquery-public-data.thelook_ecommerce.products` p ON oi.product_id = p.id
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY num_users DESC",,,,,,
+"SELECT dc.id AS distribution_center_id, dc.name, AVG(p.cost) AS avg_product_cost
+FROM `bigquery-public-data.thelook_ecommerce.products` p
+JOIN `bigquery-public-data.thelook_ecommerce.distribution_centers` dc ON p.distribution_center_id = dc.id
+GROUP BY distribution_center_id, dc.name
+ORDER BY avg_product_cost DESC",,,,,,
+"SELECT ST_CENTROID(ST_UNION_AGG(distribution_center_geom)) AS all_dc_centroid
+FROM `bigquery-public-data.thelook_ecommerce.distribution_centers`",,,,,,
+"WITH reference_point AS (
+  SELECT ST_GEOGPOINT(-87.6298, 41.8781) AS ref_geom
+),
+user_dist AS (
+  SELECT u.id AS user_id,
+         ST_DISTANCE(ref_geom, ST_GEOGPOINT(u.longitude, u.latitude)) / 1000 AS distance_km
+  FROM `bigquery-public-data.thelook_ecommerce.users` u, reference_point
+)
+SELECT CASE
+         WHEN distance_km < 10 THEN '<10km'
+         WHEN distance_km BETWEEN 10 AND 50 THEN '10-50km'
+         WHEN distance_km BETWEEN 50 AND 100 THEN '50-100km'
+         ELSE '>100km'
+       END AS distance_bucket,
+       COUNT(*) AS num_users
+FROM user_dist
+GROUP BY distance_bucket
+ORDER BY num_users DESC",,,,,,

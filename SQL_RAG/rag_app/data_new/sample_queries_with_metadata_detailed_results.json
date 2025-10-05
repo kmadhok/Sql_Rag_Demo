@@ -1,0 +1,11 @@
+[
+  {
+    "query": "WITH reference_point AS ( SELECT ST_GEOGPOINT(-87.6298, 41.8781) AS ref_geom ), user_dist AS ( SELECT u.id AS user_id, ST_DISTANCE(ref_geom, ST_GEOGPOINT(u.longitude, u.latitude)) / 1000 AS distance_km FROM `bigquery-public-data.thelook_ecommerce.users` u, reference_point ) SELECT CASE WHEN distance_km < 10 THEN '<10km' WHEN distance_km BETWEEN 10 AND 50 THEN '10-50km' WHEN distance_km BETWEEN 50 AND 100 THEN '50-100km' ELSE '>100km' END AS distance_bucket, COUNT(*) AS num_users FROM user_dist GROUP BY distance_bucket ORDER BY num_users DESC",
+    "description": "This query calculates the geodesic distance for each user from a specific reference point. It then categorizes these distances into predefined buckets and counts the total number of users within each distance range, ordered by the number of users.",
+    "tables": "[\"bigquery-public-data.thelook_ecommerce.users\"]",
+    "joins": "[]",
+    "prompt_tokens": 370,
+    "completion_tokens": 89,
+    "total_tokens": 3217
+  }
+]

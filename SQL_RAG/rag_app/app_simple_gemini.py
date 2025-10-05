@@ -75,10 +75,10 @@ logger = logging.getLogger(__name__)
 
 # Configuration
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
-DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
+DEFAULT_VECTOR_STORE = "index_transformed_sample_queries"  # Expected index name
 CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
-SCHEMA_CSV_PATH = Path(__file__).parent / "sample_queries_metadata_schema.csv"  # Schema file with table_id, column, datatype
+SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"  # Schema file with table_id, column, datatype
 
 # Pagination Configuration
 QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
@@ -1669,13 +1669,29 @@ def main():
             
         if 'vector_store' not in st.session_state or st.session_state.get('current_index') != selected_index:
             with st.spinner(f"Loading vector store: {selected_index}..."):
+                logger.info(f"🗂️ VECTOR DATABASE LOADING")
+                logger.info(f"📂 Selected index: {selected_index}")
+                logger.info(f"📁 Index path: {FAISS_INDICES_DIR / selected_index}")
+                print(f"[VECTOR DEBUG] Loading vector database: {selected_index}")
+                print(f"[VECTOR DEBUG] Vector store path: {FAISS_INDICES_DIR / selected_index}")
+                
                 vector_store = load_vector_store(selected_index)
                 
                 if vector_store:
+                    doc_count = len(vector_store.docstore._dict)
                     st.session_state.vector_store = vector_store
                     st.session_state.current_index = selected_index
-                    st.success(f"✅ Loaded {len(vector_store.docstore._dict):,} documents")
+                    logger.info(f"✅ VECTOR DATABASE LOADED SUCCESSFULLY")
+                    logger.info(f"📊 Vector Store Stats:")
+                    logger.info(f"   - Total documents: {doc_count:,}")
+                    logger.info(f"   - Index name: {selected_index}")
+                    logger.info(f"   - Embedding provider: Ollama (nomic-embed-text)")
+                    print(f"[VECTOR DEBUG] Vector database loaded successfully with {doc_count:,} documents")
+                    st.success(f"✅ Loaded {doc_count:,} documents")
                 else:
+                    logger.error(f"❌ VECTOR DATABASE LOADING FAILED")
+                    logger.error(f"   - Failed index: {selected_index}")
+                    print(f"[VECTOR DEBUG] FAILED to load vector database: {selected_index}")
                     st.error("Failed to load vector store")
                     return
         
@@ -1693,18 +1709,42 @@ def main():
         if st.button("🔍 Search", type="primary") and query.strip():
             with st.spinner("Searching and generating answer..."):
                 try:
+                    # Log the incoming query for debugging
+                    logger.info(f"🔎 PROCESSING NEW QUERY")
+                    logger.info(f"📝 User Query: '{query.strip()}'")
+                    logger.info(f"⚙️ Settings: Gemini={gemini_mode}, Hybrid={hybrid_search}, Schema={schema_injection}, SQL_Val={sql_validation}")
+                    print(f"[QUERY DEBUG] Processing query: '{query.strip()}'")
+                    print(f"[QUERY DEBUG] Settings - Gemini: {gemini_mode}, Hybrid: {hybrid_search}, Schema: {schema_injection}, SQL Validation: {sql_validation}")
                     # Determine schema manager to use
                     schema_manager_to_use = None
                     if schema_injection and st.session_state.schema_manager:
                         schema_manager_to_use = st.session_state.schema_manager
-                        logger.info(f"🗃️ Using schema manager for RAG: {schema_manager_to_use.table_count} tables available")
+                        logger.info(f"🗃️ SCHEMA INJECTION ENABLED")
+                        logger.info(f"📊 Schema Manager Stats:")
+                        logger.info(f"   - Total tables available: {schema_manager_to_use.table_count}")
+                        logger.info(f"   - Total columns available: {schema_manager_to_use.column_count}")
+                        logger.info(f"   - Schema file source: {SCHEMA_CSV_PATH}")
+                        print(f"[SCHEMA DEBUG] Schema injection ENABLED with {schema_manager_to_use.table_count} tables and {schema_manager_to_use.column_count} columns")
                     else:
                         if not schema_injection:
-                            logger.info("Schema injection disabled by user")
+                            logger.info("🚫 Schema injection disabled by user")
+                            print("[SCHEMA DEBUG] Schema injection DISABLED by user setting")
                         elif not st.session_state.schema_manager:
-                            logger.info("No schema manager available in session state")
+                            logger.info("❌ No schema manager available in session state")
+                            print("[SCHEMA DEBUG] Schema manager NOT AVAILABLE - check if schema file exists and loaded properly")
                         else:
-                            logger.info("Schema manager not being used for unknown reason")
+                            logger.info("❓ Schema manager not being used for unknown reason")
+                            print("[SCHEMA DEBUG] Schema manager available but not being used - unknown reason")
+                    
+                    # Log SQL validation status before RAG call
+                    if sql_validation:
+                        logger.info(f"✅ SQL VALIDATION ENABLED")
+                        logger.info(f"📊 Validation Settings:")
+                        logger.info(f"   - Validation level: {validation_level}")
+                        print(f"[SQL VALIDATION DEBUG] SQL validation ENABLED with level: {validation_level}")
+                    else:
+                        logger.info(f"🚫 SQL VALIDATION DISABLED")
+                        print(f"[SQL VALIDATION DEBUG] SQL validation DISABLED by user setting")
                     
                     # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
                     result = answer_question_simple_gemini(
@@ -1876,6 +1916,44 @@ def main():
                             
                             validation_info = token_usage['sql_validation']
                             st.subheader("✅ SQL Query Validation")
+                            
+                            # Add comprehensive logging for SQL validation data
+                            logger.info(f"🔍 SQL VALIDATION RESULTS")
+                            logger.info(f"📊 Validation Summary:")
+                            logger.info(f"   - Validation enabled: True")
+                            logger.info(f"   - Validation level: {validation_info.get('validation_level', 'basic')}")
+                            logger.info(f"   - Is valid: {validation_info.get('is_valid', False)}")
+                            logger.info(f"   - Validation time: {validation_info.get('validation_time', 0):.3f}s")
+                            
+                            print(f"[SQL VALIDATION DEBUG] SQL Validation ENABLED")
+                            print(f"[SQL VALIDATION DEBUG] Validation level: {validation_info.get('validation_level', 'basic')}")
+                            print(f"[SQL VALIDATION DEBUG] Query is valid: {validation_info.get('is_valid', False)}")
+                            
+                            # Log detailed validation data
+                            tables_found = validation_info.get('tables_found', [])
+                            columns_found = validation_info.get('columns_found', [])
+                            errors = validation_info.get('errors', [])
+                            warnings = validation_info.get('warnings', [])
+                            
+                            if tables_found:
+                                logger.info(f"📋 Tables Found ({len(tables_found)}): {', '.join(tables_found)}")
+                                print(f"[SQL VALIDATION DEBUG] Tables found ({len(tables_found)}): {', '.join(tables_found)}")
+                            
+                            if columns_found:
+                                logger.info(f"📊 Columns Found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
+                                print(f"[SQL VALIDATION DEBUG] Columns found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
+                            
+                            if errors:
+                                logger.warning(f"❌ Validation Errors ({len(errors)}):")
+                                for i, error in enumerate(errors, 1):
+                                    logger.warning(f"   {i}. {error}")
+                                print(f"[SQL VALIDATION DEBUG] ERRORS ({len(errors)}): {errors}")
+                            
+                            if warnings:
+                                logger.warning(f"⚠️ Validation Warnings ({len(warnings)}):")
+                                for i, warning in enumerate(warnings, 1):
+                                    logger.warning(f"   {i}. {warning}")
+                                print(f"[SQL VALIDATION DEBUG] WARNINGS ({len(warnings)}): {warnings}")
                             
                             # Validation status
                             if validation_info.get('is_valid'):

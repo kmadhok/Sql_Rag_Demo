@@ -78,8 +78,18 @@ class SchemaManager:
             df = pd.read_csv(self.schema_csv_path)
             initial_rows = len(df)
             
-            # Validate required columns
-            required_cols = ['table_id', 'column', 'datatype']
+            # Validate required columns - handle different column naming conventions
+            if 'table_id' in df.columns:
+                # Original format: table_id, column, datatype
+                required_cols = ['table_id', 'column', 'datatype']
+                table_col, column_col, datatype_col = 'table_id', 'column', 'datatype'
+            elif 'table' in df.columns and 'column_data_type' in df.columns:
+                # New format: table, column, column_data_type
+                required_cols = ['table', 'column', 'column_data_type']
+                table_col, column_col, datatype_col = 'table', 'column', 'column_data_type'
+            else:
+                raise ValueError(f"Schema CSV must have either ['table_id', 'column', 'datatype'] or ['table', 'column', 'column_data_type'] columns. Found: {list(df.columns)}")
+            
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 raise ValueError(f"Schema CSV missing required columns: {missing_cols}")
@@ -87,9 +97,9 @@ class SchemaManager:
             # Clean data - remove rows with empty values
             df = df.dropna()
             df = df[
-                (df['table_id'].str.strip() != '') &
-                (df['column'].str.strip() != '') &
-                (df['datatype'].str.strip() != '')
+                (df[table_col].str.strip() != '') &
+                (df[column_col].str.strip() != '') &
+                (df[datatype_col].str.strip() != '')
             ]
             
             filtered_rows = len(df)
@@ -103,9 +113,9 @@ class SchemaManager:
             
             for _, row in df.iterrows():
                 try:
-                    table_id = str(row['table_id']).strip()
-                    column = str(row['column']).strip()
-                    datatype = str(row['datatype']).strip()
+                    table_id = str(row[table_col]).strip()
+                    column = str(row[column_col]).strip()
+                    datatype = str(row[datatype_col]).strip()
                     
                     # Normalize table name (extract from project.dataset.table format)
                     table_name = self._normalize_table_name(table_id)

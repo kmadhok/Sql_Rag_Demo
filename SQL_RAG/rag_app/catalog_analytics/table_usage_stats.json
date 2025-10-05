@@ -1,28 +1,28 @@
 {
   "table_usage": {
-    "categories": 32,
-    "customer_contacts": 34,
-    "inventory": 20,
-    "employees": 18,
-    "locations": 34,
-    "shipments": 30,
-    "return_orders": 38,
-    "payments": 28,
-    "orders": 18,
-    "products": 44,
-    "departments": 16,
-    "sales": 12,
-    "customers": 14,
-    "suppliers": 22,
-    "order_details": 14,
-    "inventory_movements": 26
+    "products": 80,
+    "users": 56,
+    "orders": 75,
+    "events": 37,
+    "distribution_centers": 48,
+    "inventory_items": 29,
+    "order_items": 109,
+    "user_sale": 1,
+    "user_cost": 1,
+    "recent_dc": 1
   },
   "join_types": {
-    "LEFT JOIN": 33,
-    "INNER JOIN": 33,
-    "RIGHT JOIN": 34
+    "INNER JOIN": 81,
+    "LEFT JOIN": 23,
+    "INNER": 7,
+    "LEFT": 4
   },
   "join_count_distribution": {
-    "1": 100
+    "0": 31,
+    "1": 34,
+    "2": 27,
+    "3": 6,
+    "4": 1,
+    "5": 1
   }
 }

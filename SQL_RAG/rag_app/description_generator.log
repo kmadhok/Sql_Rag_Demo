@@ -1,0 +1,529 @@
+ERROR:utils.rate_limiter:API error: 504 Deadline Exceeded
+=== SQL METADATA GENERATOR WITH RATE LIMITING ===
+Using model: gemini-2.5-flash-lite
+Rate limits: 15 RPM, 250K TPM, 1K RPD
+
+🔧 CSV MODE: Processing file data_new/generated_sql_queries.csv
+📁 Input: data_new/generated_sql_queries.csv
+📁 Output: data_new/enhanced_generated_sql_queries.csv
+🔍 Query column: sql
+
+📂 Loading queries from CSV...
+📄 Loaded CSV with 100 rows and columns: ['query_id', 'difficulty_level', 'description', 'sql']
+✅ Successfully loaded 100 unique, valid queries from CSV
+📊 Found 100 queries to process
+Loaded checkpoint: 40 items already processed
+
+=== STARTING METADATA GENERATION ===
+Features enabled:
+✅ Rate limiting (15 RPM)
+✅ Adaptive concurrency
+✅ Exponential backoff
+✅ Progress checkpointing
+✅ Error recovery
+Loaded checkpoint: 40 items already processed
+Processing 100 queries with adaptive concurrency (starting with 2)...
+Resuming from checkpoint: 40/100 already processed
+Remaining items to process: 59
+Processing 59 remaining queries...
+
+Processing batch of 2 queries (batch 1)
+Current concurrency: 2
+Rate limiter stats - RPM: 0/15, Success rate: 0.0%
+
+=== PROGRESS UPDATE ===
+Processed: 40/100 (40.0%)
+Successful: 40
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 22m 50s
+ETA: 33m 45s
+Processing query 41/100...
+Completed query 41 (tokens: 1302)
+Processing query 42/100...
+Completed query 42 (tokens: 1789)
+
+Processing batch of 2 queries (batch 2)
+Current concurrency: 2
+Rate limiter stats - RPM: 2/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 42/100 (42.0%)
+Successful: 42
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 22m 6s
+ETA: 31m 31s
+Processing query 43/100...
+Completed query 43 (tokens: 1436)
+Processing query 44/100...
+Completed query 44 (tokens: 853)
+
+Processing batch of 2 queries (batch 3)
+Current concurrency: 2
+Rate limiter stats - RPM: 4/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 44/100 (44.0%)
+Successful: 44
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 22m 18s
+ETA: 28m 22s
+Processing query 45/100...
+Completed query 45 (tokens: 1651)
+Processing query 46/100...
+Completed query 46 (tokens: 2129)
+
+Processing batch of 2 queries (batch 4)
+Current concurrency: 2
+Rate limiter stats - RPM: 6/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 46/100 (46.0%)
+Successful: 46
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 37s
+ETA: 27m 33s
+Processing query 47/100...
+Completed query 47 (tokens: 885)
+Processing query 48/100...
+Completed query 48 (tokens: 1429)
+
+Processing batch of 2 queries (batch 5)
+Current concurrency: 2
+Rate limiter stats - RPM: 8/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 48/100 (48.0%)
+Successful: 48
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 51s
+ETA: 25m 46s
+Processing query 49/100...
+Completed query 49 (tokens: 615)
+Processing query 50/100...
+Completed query 50 (tokens: 627)
+
+Processing batch of 2 queries (batch 6)
+Current concurrency: 2
+Rate limiter stats - RPM: 9/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 50/100 (50.0%)
+Successful: 50
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 58s
+ETA: 23m 58s
+Processing query 51/100...
+Completed query 51 (tokens: 893)
+Processing query 52/100...
+Completed query 52 (tokens: 1098)
+
+Processing batch of 2 queries (batch 7)
+Current concurrency: 2
+Rate limiter stats - RPM: 10/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 52/100 (52.0%)
+Successful: 52
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 10s
+ETA: 21m 23s
+Processing query 53/100...
+Completed query 53 (tokens: 575)
+Processing query 54/100...
+Completed query 54 (tokens: 1407)
+
+Processing batch of 2 queries (batch 8)
+Current concurrency: 2
+Rate limiter stats - RPM: 10/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 54/100 (54.0%)
+Successful: 54
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 20s
+ETA: 20m 53s
+Processing query 55/100...
+Completed query 55 (tokens: 671)
+Processing query 56/100...
+Completed query 56 (tokens: 533)
+
+Processing batch of 2 queries (batch 9)
+Current concurrency: 2
+Rate limiter stats - RPM: 11/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 56/100 (56.0%)
+Successful: 56
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 23m 26s
+ETA: 18m 25s
+Processing query 57/100...
+Completed query 57 (tokens: 871)
+Processing query 58/100...
+Completed query 58 (tokens: 907)
+
+Processing batch of 2 queries (batch 10)
+Current concurrency: 2
+Rate limiter stats - RPM: 13/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 58/100 (58.0%)
+Successful: 58
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 24m 35s
+ETA: 17m 5s
+Processing query 59/100...
+Completed query 59 (tokens: 601)
+Processing query 60/100...
+Completed query 60 (tokens: 697)
+
+Processing batch of 2 queries (batch 11)
+Current concurrency: 2
+Rate limiter stats - RPM: 13/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 60/100 (60.0%)
+Successful: 60
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 24m 42s
+ETA: 16m 48s
+Processing query 61/100...
+Completed query 61 (tokens: 1024)
+Processing query 62/100...
+Completed query 62 (tokens: 860)
+
+Processing batch of 2 queries (batch 12)
+Current concurrency: 2
+Rate limiter stats - RPM: 14/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 62/100 (62.0%)
+Successful: 62
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 24m 53s
+ETA: 15m 38s
+Processing query 63/100...
+Completed query 63 (tokens: 1349)
+Processing query 64/100...
+Completed query 64 (tokens: 1854)
+
+Processing batch of 2 queries (batch 13)
+Current concurrency: 2
+Rate limiter stats - RPM: 12/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 64/100 (64.0%)
+Successful: 64
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 24m 10s
+ETA: 14m 36s
+Processing query 65/100...
+Completed query 65 (tokens: 971)
+Processing query 66/100...
+Completed query 66 (tokens: 1426)
+
+Processing batch of 2 queries (batch 14)
+Current concurrency: 2
+Rate limiter stats - RPM: 10/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 66/100 (66.0%)
+Successful: 66
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 24m 26s
+ETA: 13m 35s
+Processing query 67/100...
+Completed query 67 (tokens: 3419)
+Processing query 68/100...
+Completed query 68 (tokens: 1148)
+
+Processing batch of 2 queries (batch 15)
+Current concurrency: 2
+Rate limiter stats - RPM: 6/15, Success rate: 100.0%
+
+=== PROGRESS UPDATE ===
+Processed: 68/100 (68.0%)
+Successful: 68
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 25m 54s
+ETA: 12m 43s
+Processing query 69/100...
+Completed query 69 (tokens: 1169)
+Processing query 70/100...
+Error on query 70: 504 Deadline Exceeded
+
+Processing batch of 2 queries (batch 16)
+Current concurrency: 2
+Rate limiter stats - RPM: 0/15, Success rate: 96.7%
+
+=== PROGRESS UPDATE ===
+Processed: 70/100 (70.0%)
+Successful: 70
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 35m 2s
+ETA: 15m 1s
+Processing query 71/100...
+Completed query 71 (tokens: 2677)
+Processing query 72/100...
+Completed query 72 (tokens: 1866)
+
+Processing batch of 2 queries (batch 17)
+Current concurrency: 2
+Rate limiter stats - RPM: 2/15, Success rate: 96.9%
+
+=== PROGRESS UPDATE ===
+Processed: 72/100 (72.0%)
+Successful: 72
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 35m 29s
+ETA: 14m 48s
+Processing query 73/100...
+Completed query 73 (tokens: 658)
+Processing query 74/100...
+Completed query 74 (tokens: 2174)
+
+Processing batch of 2 queries (batch 18)
+Current concurrency: 2
+Rate limiter stats - RPM: 4/15, Success rate: 97.1%
+
+=== PROGRESS UPDATE ===
+Processed: 74/100 (74.0%)
+Successful: 74
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 36m 45s
+ETA: 13m 34s
+Processing query 75/100...
+Completed query 75 (tokens: 931)
+Processing query 76/100...
+Completed query 76 (tokens: 1952)
+
+Processing batch of 2 queries (batch 19)
+Current concurrency: 2
+Rate limiter stats - RPM: 6/15, Success rate: 97.2%
+
+=== PROGRESS UPDATE ===
+Processed: 76/100 (76.0%)
+Successful: 76
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 36m 0s
+ETA: 11m 22s
+Processing query 77/100...
+Completed query 77 (tokens: 3158)
+Processing query 78/100...
+Completed query 78 (tokens: 3419)
+
+Processing batch of 2 queries (batch 20)
+Current concurrency: 2
+Rate limiter stats - RPM: 5/15, Success rate: 97.4%
+
+=== PROGRESS UPDATE ===
+Processed: 78/100 (78.0%)
+Successful: 78
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 37m 36s
+ERROR:utils.rate_limiter:API error: 504 Deadline Exceeded
+ETA: 10m 19s
+Processing query 79/100...
+Completed query 79 (tokens: 3229)
+Processing query 80/100...
+Completed query 80 (tokens: 4304)
+
+Processing batch of 2 queries (batch 21)
+Current concurrency: 2
+Rate limiter stats - RPM: 3/15, Success rate: 97.5%
+
+=== PROGRESS UPDATE ===
+Processed: 80/100 (80.0%)
+Successful: 80
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 37m 22s
+ETA: 9m 21s
+Processing query 81/100...
+Completed query 81 (tokens: 1361)
+Processing query 82/100...
+Completed query 82 (tokens: 4031)
+
+Processing batch of 2 queries (batch 22)
+Current concurrency: 2
+Rate limiter stats - RPM: 4/15, Success rate: 97.6%
+
+=== PROGRESS UPDATE ===
+Processed: 82/100 (82.0%)
+Successful: 82
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 38m 55s
+ETA: 8m 19s
+Processing query 83/100...
+Completed query 83 (tokens: 4767)
+Processing query 84/100...
+Completed query 84 (tokens: 1667)
+
+Processing batch of 2 queries (batch 23)
+Current concurrency: 2
+Rate limiter stats - RPM: 3/15, Success rate: 97.7%
+
+=== PROGRESS UPDATE ===
+Processed: 84/100 (84.0%)
+Successful: 84
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 39m 31s
+ETA: 7m 20s
+Processing query 85/100...
+Completed query 85 (tokens: 1566)
+Processing query 87/100...
+Error on query 87: 504 Deadline Exceeded
+
+Processing batch of 2 queries (batch 24)
+Current concurrency: 2
+Rate limiter stats - RPM: 0/15, Success rate: 95.7%
+
+=== PROGRESS UPDATE ===
+Processed: 86/100 (86.0%)
+Successful: 86
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 50m 8s
+ETA: 8m 10s
+Processing query 88/100...
+Completed query 88 (tokens: 2436)
+Processing query 89/100...
+Completed query 89 (tokens: 1423)
+
+Processing batch of 2 queries (batch 25)
+Current concurrency: 2
+Rate limiter stats - RPM: 2/15, Success rate: 95.8%
+
+=== PROGRESS UPDATE ===
+Processed: 88/100 (88.0%)
+Successful: 88
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 51m 34s
+ETA: 7m 54s
+Processing query 44/100...
+Completed query 44 (tokens: 868)
+Processing query 91/100...
+Completed query 91 (tokens: 724)
+
+Processing batch of 2 queries (batch 26)
+Current concurrency: 2
+Rate limiter stats - RPM: 4/15, Success rate: 96.0%
+
+=== PROGRESS UPDATE ===
+Processed: 89/100 (89.0%)
+Successful: 89
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 51m 44s
+ETA: 6m 16s
+Processing query 92/100...
+Completed query 92 (tokens: 3073)
+Processing query 93/100...
+Completed query 93 (tokens: 1049)
+
+Processing batch of 2 queries (batch 27)
+Current concurrency: 2
+Rate limiter stats - RPM: 6/15, Success rate: 96.2%
+
+=== PROGRESS UPDATE ===
+Processed: 91/100 (91.0%)
+Successful: 91
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 51m 11s
+ETA: 5m 4s
+Processing query 94/100...
+Completed query 94 (tokens: 3859)
+Processing query 95/100...
+Completed query 95 (tokens: 3319)
+
+Processing batch of 2 queries (batch 28)
+Current concurrency: 2
+Rate limiter stats - RPM: 4/15, Success rate: 96.3%
+
+=== PROGRESS UPDATE ===
+Processed: 93/100 (93.0%)
+Successful: 93
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 52m 52s
+ETA: 4m 54s
+Processing query 96/100...
+Completed query 96 (tokens: 1270)
+Processing query 97/100...
+Completed query 97 (tokens: 1501)
+
+Processing batch of 2 queries (batch 29)
+Current concurrency: 2
+Rate limiter stats - RPM: 5/15, Success rate: 96.4%
+
+=== PROGRESS UPDATE ===
+Processed: 95/100 (95.0%)
+Successful: 95
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 52m 7s
+ETA: 3m 45s
+Processing query 98/100...
+Completed query 98 (tokens: 793)
+Processing query 99/100...
+Completed query 99 (tokens: 525)
+
+Processing batch of 1 queries (batch 30)
+Current concurrency: 2
+Rate limiter stats - RPM: 6/15, Success rate: 96.6%
+
+=== PROGRESS UPDATE ===
+Processed: 97/100 (97.0%)
+Successful: 97
+Failed: 0
+Success Rate: 100.0%
+Elapsed: 52m 15s
+ETA: 2m 37s
+Processing query 100/100...
+Completed query 100 (tokens: 1404)
+
+=== BATCH PROCESSING COMPLETE ===
+Final success rate: 96.6%
+Total requests: 57
+Total errors: 2
+
+💾 Saving results to CSV...
+📊 Generated metadata for 59 queries
+🔗 Merging results with original data to preserve all columns...
+✅ Merged results saved to: data_new/enhanced_generated_sql_queries.csv
+📋 Final CSV has 100 rows and 10 columns
+📋 Detailed results also saved to: data_new/enhanced_generated_sql_queries_detailed_results.json
+Final results saved to: checkpoints/sql_metadata_generation_results.json
+
+=== PROCESSING SUMMARY ===
+✅ Generated metadata for 59 queries
+✅ Used 94,193 total tokens
+✅ Success rate: 96.6%
+✅ Results saved to: data_new/enhanced_generated_sql_queries.csv
+
+🚀 Next step: Run embedding generator with your enhanced CSV file:
+   python standalone_embedding_generator.py --csv "data_new/enhanced_generated_sql_queries.csv"
