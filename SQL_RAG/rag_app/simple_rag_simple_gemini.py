@@ -441,6 +441,86 @@ Current Question: {question}
 Answer:"""
 
 
+def build_lookml_context(question: str, lookml_safe_join_map: dict) -> str:
+    """
+    Build LookML context based on the user's question to enhance SQL generation
+    
+    Args:
+        question: User's question
+        lookml_safe_join_map: LookML safe-join map data
+        
+    Returns:
+        LookML context string with relevant join information
+    """
+    if not lookml_safe_join_map:
+        return ""
+    
+    question_lower = question.lower()
+    explores = lookml_safe_join_map.get('explores', {})
+    join_graph = lookml_safe_join_map.get('join_graph', {})
+    
+    # Extract table names mentioned in the question
+    mentioned_tables = []
+    for table in join_graph.keys():
+        if table in question_lower:
+            mentioned_tables.append(table)
+    
+    # If no specific tables mentioned, use common ecommerce patterns
+    if not mentioned_tables:
+        if any(word in question_lower for word in ['user', 'customer', 'buyer']):
+            mentioned_tables.append('users')
+        if any(word in question_lower for word in ['order', 'purchase', 'transaction']):
+            mentioned_tables.extend(['orders', 'order_items'])
+        if any(word in question_lower for word in ['product', 'item', 'merchandise']):
+            mentioned_tables.append('products')
+    
+    if not mentioned_tables:
+        return ""
+    
+    # Build context for relevant explores and joins
+    context_parts = []
+    context_parts.append("🔗 **LookML Join Information:**")
+    
+    # Find the best explore that includes the mentioned tables
+    best_explore = None
+    max_table_coverage = 0
+    
+    for explore_name, explore_data in explores.items():
+        available_tables = set([explore_name] + list(explore_data.get('joins', {}).keys()))
+        covered_tables = set(mentioned_tables).intersection(available_tables)
+        if len(covered_tables) > max_table_coverage:
+            max_table_coverage = len(covered_tables)
+            best_explore = explore_name
+    
+    if best_explore and best_explore in explores:
+        explore_data = explores[best_explore]
+        context_parts.append(f"\n**Recommended Explore:** `{best_explore}` ({explore_data.get('label', best_explore)})")
+        
+        # Add join conditions for mentioned tables
+        joins = explore_data.get('joins', {})
+        for table in mentioned_tables:
+            if table in joins:
+                join_info = joins[table]
+                sql_on = join_info.get('sql_on', '')
+                join_type = join_info.get('join_type', 'left_outer')
+                relationship = join_info.get('relationship', 'many_to_one')
+                
+                context_parts.append(f"\n**{table} Join:**")
+                context_parts.append(f"  SQL: `{sql_on}`")
+                context_parts.append(f"  Type: {join_type}")
+                context_parts.append(f"  Relationship: {relationship}")
+    
+    # Add general join graph information
+    context_parts.append(f"\n**Available Join Paths:**")
+    for table in mentioned_tables:
+        if table in join_graph:
+            joinable_tables = join_graph[table]
+            if joinable_tables:
+                context_parts.append(f"  {table} → {', '.join(joinable_tables)}")
+    
+    return '\n'.join(context_parts) if len(context_parts) > 1 else ""
+
+
 def answer_question_simple_gemini(
     question: str, 
     vector_store: FAISS, 
@@ -451,6 +531,7 @@ def answer_question_simple_gemini(
     auto_adjust_weights: bool = True,
     query_rewriting: bool = False,
     schema_manager=None,
+    lookml_safe_join_map=None,
     conversation_context: str = "",
     agent_type: Optional[str] = None,
     sql_validation: bool = False,
@@ -469,6 +550,7 @@ def answer_question_simple_gemini(
         auto_adjust_weights: Automatically adjust weights based on query analysis
         query_rewriting: Enable intelligent query rewriting for better retrieval
         schema_manager: Optional SchemaManager for smart schema injection (reduces noise from 39K+ to ~100-500 relevant rows)
+        lookml_safe_join_map: Optional LookML safe-join map for enhanced SQL generation with accurate join syntax
         conversation_context: Previous conversation history for context continuity
         agent_type: Agent specialization type ("explain", "create", or None for default)
         sql_validation: Enable SQL query validation against schema
@@ -602,8 +684,15 @@ def answer_question_simple_gemini(
         # Step 3: Generate answer using LLM
         logger.info(f"Generating answer using {GEMINI_MODEL}...")
         
-        # Build prompt with agent specialization, schema injection, and conversation context
+        # Build prompt with agent specialization, schema injection, LookML joins, and conversation context
         schema_section = f"\n{relevant_schema}\n" if relevant_schema else ""
+        
+        # Add LookML join information for enhanced SQL generation
+        if lookml_safe_join_map and (agent_type == "create" or "join" in question.lower() or "sql" in question.lower()):
+            lookml_context = build_lookml_context(question, lookml_safe_join_map)
+            if lookml_context:
+                schema_section += f"\n{lookml_context}\n"
+        
         conversation_section = f"\nPrevious conversation:\n{conversation_context}\n" if conversation_context.strip() else ""
         
         # Use agent-specific prompt template

@@ -1,0 +1,21 @@
+{
+  "original_query": "How do I join users, orders, and order_items to get distinct buyers per products?",
+  "rewritten_query": "How do I join users, orders, and order_items to get distinct buyers per products?",
+  "confidence": 1.0,
+  "rewrite_method": "original_low_confidence",
+  "model_used": "gemini-2.5-pro",
+  "intent_analysis": {
+    "has_sql_terms": true,
+    "focus_areas": [
+      "joins_and_relationships",
+      "customer_analysis"
+    ],
+    "complexity": "complex",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 11.62180495262146,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1759687618.5224059,
+  "cache_key": "a9b8984724c370e12035ea3a7fbec59f"
+}

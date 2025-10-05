@@ -43,6 +43,8 @@ try:
     from langchain_community.vectorstores import FAISS
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     from langchain_core.documents import Document
+    # Import LookML parser
+    from simple_lookml_parser import SimpleLookMLParser
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Please ensure all required packages are installed:")
@@ -122,7 +124,7 @@ class GPUStandaloneEmbeddingGenerator:
     
     def __init__(self, csv_path: str, output_dir: str = "faiss_indices", 
                  batch_size: int = 100, max_workers: int = 16, verbose: bool = False,
-                 schema_path: Optional[str] = None):
+                 schema_path: Optional[str] = None, lookml_dir: Optional[str] = None):
         """
         Initialize the GPU-accelerated standalone embedding generator
         
@@ -144,6 +146,7 @@ class GPUStandaloneEmbeddingGenerator:
         self.max_workers = max_workers
         self.verbose = verbose
         self.schema_path = Path(schema_path) if schema_path else None
+        self.lookml_dir = Path(lookml_dir) if lookml_dir else None
         
         # Validate inputs
         if not self.csv_path.exists():
@@ -695,6 +698,68 @@ class GPUStandaloneEmbeddingGenerator:
         
         return documents
     
+    def _create_lookml_documents(self) -> List[Document]:
+        """Create documents from LookML files for business logic and join relationships"""
+        if not self.lookml_dir or not self.lookml_dir.exists():
+            return []
+        
+        try:
+            if self.verbose:
+                print(f"🔗 Processing LookML files from {self.lookml_dir}...")
+            
+            # Parse LookML files
+            parser = SimpleLookMLParser(verbose=False)  # Keep parser output clean
+            models = parser.parse_directory(self.lookml_dir)
+            
+            if not models:
+                if self.verbose:
+                    print("⚠️  No LookML models parsed successfully")
+                return []
+            
+            # Generate safe-join map for saving
+            safe_join_map = parser.generate_safe_join_map(models)
+            
+            # Save safe-join map for later use by the application
+            safe_join_path = self.output_dir / "lookml_safe_join_map.json"
+            try:
+                import json
+                with open(safe_join_path, 'w') as f:
+                    json.dump(safe_join_map, f, indent=2)
+                if self.verbose:
+                    print(f"💾 Saved safe-join map to {safe_join_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save safe-join map: {e}")
+            
+            # Create embedding documents
+            documents = parser.create_embedding_documents(models)
+            
+            # Convert to LangChain Document format with source=lookml metadata
+            lookml_documents = []
+            for doc_dict in documents:
+                # Ensure source is marked as lookml
+                metadata = doc_dict['metadata'].copy()
+                metadata['source'] = 'lookml'
+                
+                doc = Document(
+                    page_content=doc_dict['page_content'],
+                    metadata=metadata
+                )
+                lookml_documents.append(doc)
+            
+            if self.verbose:
+                explores_count = len([d for d in documents if d['metadata']['type'] == 'explore'])
+                joins_count = len([d for d in documents if d['metadata']['type'] == 'join'])
+                print(f"   📊 Created {explores_count} explore documents and {joins_count} join documents")
+                print(f"   🔗 Total join relationships: {safe_join_map['metadata']['total_joins']}")
+            
+            return lookml_documents
+            
+        except Exception as e:
+            logger.error(f"Failed to process LookML files: {e}")
+            if self.verbose:
+                print(f"❌ LookML processing failed: {e}")
+            return []
+    
     def _extract_tables_from_row(self, row: pd.Series) -> List[str]:
         """
         Extract table names from a query row's metadata
@@ -1219,8 +1284,16 @@ class GPUStandaloneEmbeddingGenerator:
             if not self._initialize_embeddings():
                 return False
             
-            # Create documents
+            # Create documents from CSV
             documents = self._create_documents(df)
+            
+            # Add LookML documents if directory provided
+            if self.lookml_dir:
+                lookml_documents = self._create_lookml_documents()
+                documents.extend(lookml_documents)
+                if self.verbose:
+                    print(f"🔗 Added {len(lookml_documents)} LookML documents")
+            
             split_documents = self._split_documents(documents)
             
             # Generate embeddings with GPU-accelerated threading
@@ -1327,6 +1400,11 @@ Performance Notes:
     )
     
     parser.add_argument(
+        '--lookml-dir',
+        help='Path to directory containing LookML files (.lkml) for business logic and join relationships'
+    )
+    
+    parser.add_argument(
         '--batch-size', type=int, default=100,
         help='Documents per batch (higher values recommended for GPU/high RAM systems, default: 100)'
     )
@@ -1386,6 +1464,25 @@ Performance Notes:
             print(f"   Please ensure {args.schema} is a valid CSV file with columns: table_id, column, datatype")
             return 1
     
+    # Validate LookML directory if provided
+    if args.lookml_dir:
+        lookml_path = Path(args.lookml_dir)
+        if not lookml_path.exists():
+            print(f"❌ LookML directory not found: {args.lookml_dir}")
+            return 1
+        
+        if not lookml_path.is_dir():
+            print(f"❌ LookML path is not a directory: {args.lookml_dir}")
+            return 1
+        
+        # Check for .lkml files
+        lkml_files = list(lookml_path.rglob("*.lkml"))
+        if not lkml_files:
+            print(f"❌ No .lkml files found in directory: {args.lookml_dir}")
+            return 1
+        
+        print(f"✅ Found {len(lkml_files)} LookML files in {args.lookml_dir}")
+    
     if args.batch_size < 1:
         print("❌ Batch size must be at least 1")
         return 1
@@ -1414,7 +1511,8 @@ Performance Notes:
             batch_size=args.batch_size,
             max_workers=args.workers,
             verbose=args.verbose,
-            schema_path=args.schema
+            schema_path=args.schema,
+            lookml_dir=args.lookml_dir
         )
         
         # Generate embeddings

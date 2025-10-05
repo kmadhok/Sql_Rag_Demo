@@ -1,0 +1,236 @@
+{
+  "project": "TheLook",
+  "explores": {
+    "users": {
+      "label": "Ecommerce Core",
+      "description": "User \u2192 Orders \u2192 Order Items \u2192 Products",
+      "base_table": "users",
+      "joins": {
+        "orders": {
+          "sql_on": "${orders.user_id} = ${users.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "order_items": {
+          "sql_on": "${order_items.order_id} = ${orders.order_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [
+            "orders"
+          ],
+          "required": true
+        },
+        "products": {
+          "sql_on": "${order_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [
+            "order_items"
+          ],
+          "required": true
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "inventory_items": {
+      "label": "Operations Core",
+      "description": "Inventory Items \u2192 Products \u2192 Distribution Centers",
+      "base_table": "inventory_items",
+      "joins": {
+        "products": {
+          "sql_on": "${inventory_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "distribution_centers": {
+          "sql_on": "${products.distribution_center_id} = ${distribution_centers.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [
+            "products"
+          ],
+          "required": true
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "orders": {
+      "label": "Orders (Base)",
+      "description": "",
+      "base_table": "orders",
+      "joins": {
+        "users": {
+          "sql_on": "${orders.user_id} = ${users.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "order_items": {
+          "sql_on": "${order_items.order_id} = ${orders.order_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "products": {
+          "sql_on": "${order_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [
+            "order_items"
+          ],
+          "required": true
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "order_items": {
+      "label": "Order Items (Base)",
+      "description": "",
+      "base_table": "order_items",
+      "joins": {
+        "orders": {
+          "sql_on": "${order_items.order_id} = ${orders.order_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "users": {
+          "sql_on": "${order_items.user_id} = ${users.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "products": {
+          "sql_on": "${order_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "products": {
+      "label": "Products (Base)",
+      "description": "",
+      "base_table": "products",
+      "joins": {
+        "order_items": {
+          "sql_on": "${order_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "orders": {
+          "sql_on": "${order_items.order_id} = ${orders.order_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [
+            "order_items"
+          ],
+          "required": true
+        },
+        "distribution_centers": {
+          "sql_on": "${products.distribution_center_id} = ${distribution_centers.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "inventory_items": {
+          "sql_on": "${inventory_items.product_id} = ${products.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "distribution_centers": {
+      "label": "Distribution Centers (Base)",
+      "description": "",
+      "base_table": "distribution_centers",
+      "joins": {
+        "products": {
+          "sql_on": "${distribution_centers.id} = ${products.distribution_center_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        },
+        "inventory_items": {
+          "sql_on": "${distribution_centers.id} = ${inventory_items.product_distribution_center_id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    },
+    "events": {
+      "label": "Events (Base)",
+      "description": "",
+      "base_table": "events",
+      "joins": {
+        "users": {
+          "sql_on": "${events.user_id} = ${users.id}",
+          "relationship": "many_to_one",
+          "join_type": "left_outer",
+          "required_joins": [],
+          "required": false
+        }
+      },
+      "file_path": "lookml_data/model/thelook.model.lkml"
+    }
+  },
+  "join_graph": {
+    "users": [
+      "orders",
+      "order_items",
+      "products"
+    ],
+    "inventory_items": [
+      "products",
+      "distribution_centers"
+    ],
+    "orders": [
+      "users",
+      "order_items",
+      "products"
+    ],
+    "order_items": [
+      "orders",
+      "users",
+      "products"
+    ],
+    "products": [
+      "order_items",
+      "orders",
+      "distribution_centers",
+      "inventory_items"
+    ],
+    "distribution_centers": [
+      "products",
+      "inventory_items"
+    ],
+    "events": [
+      "users"
+    ]
+  },
+  "metadata": {
+    "total_explores": 7,
+    "total_joins": 18,
+    "files_processed": 9
+  }
+}

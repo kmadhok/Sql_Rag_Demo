@@ -79,6 +79,9 @@ DEFAULT_VECTOR_STORE = "index_transformed_sample_queries"  # Expected index name
 CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
 CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
 SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"  # Schema file with table_id, column, datatype
+LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"  # LookML join relationships
+SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
+LOOKML_DIR = Path(__file__).parent / "lookml_data"
 
 # Pagination Configuration
 QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
@@ -164,6 +167,78 @@ def get_available_indices() -> List[str]:
             indices.append(path.name)
     
     return sorted(indices)
+
+@st.cache_resource
+def load_lookml_safe_join_map() -> Optional[Dict[str, Any]]:
+    """
+    Load LookML safe-join map for enhanced SQL generation.
+    
+    Returns:
+        Dictionary containing LookML join relationships or None if loading fails
+    """
+    # 1) Primary: load from faiss_indices (created by standalone_embedding_generator --lookml-dir)
+    if LOOKML_SAFE_JOIN_MAP_PATH.exists():
+        try:
+            with open(LOOKML_SAFE_JOIN_MAP_PATH, 'r') as f:
+                safe_join_map = json.load(f)
+            logger.info(
+                f"✅ Loaded LookML safe-join map from {LOOKML_SAFE_JOIN_MAP_PATH} with "
+                f"{safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load safe-join map from {LOOKML_SAFE_JOIN_MAP_PATH}: {e}")
+
+    # 2) Secondary: load from project root if present
+    if SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH.exists():
+        try:
+            with open(SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH, 'r') as f:
+                safe_join_map = json.load(f)
+            logger.info(
+                f"✅ Loaded LookML safe-join map from {SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH} with "
+                f"{safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load safe-join map from {SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH}: {e}")
+
+    # 3) Fallback: parse LookML files on the fly if available
+    try:
+        if LOOKML_DIR.exists():
+            logger.info(f"🔎 LookML safe-join map not found; attempting to parse LookML from {LOOKML_DIR}")
+            try:
+                from simple_lookml_parser import SimpleLookMLParser
+            except Exception as ie:
+                logger.warning(f"⚠️ SimpleLookMLParser import failed: {ie}")
+                return None
+
+            parser = SimpleLookMLParser(verbose=False)
+            models = parser.parse_directory(LOOKML_DIR)
+            if not models:
+                logger.info("No LookML models parsed; LookML features disabled")
+                return None
+
+            safe_join_map = parser.generate_safe_join_map(models)
+
+            # Attempt to cache to faiss_indices for reuse
+            try:
+                LOOKML_SAFE_JOIN_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(LOOKML_SAFE_JOIN_MAP_PATH, 'w') as f:
+                    json.dump(safe_join_map, f, indent=2)
+                logger.info(f"💾 Cached LookML safe-join map to {LOOKML_SAFE_JOIN_MAP_PATH}")
+            except Exception as we:
+                logger.debug(f"Could not cache safe-join map: {we}")
+
+            logger.info(
+                f"✅ Generated LookML safe-join map with {safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        else:
+            logger.info(f"LookML directory not found at {LOOKML_DIR}; LookML features disabled")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Error generating LookML safe-join map on the fly: {e}")
+        return None
 
 @st.cache_resource
 def load_schema_manager() -> Optional[SchemaManager]:
@@ -878,6 +953,9 @@ def detect_agent_type(user_input: str) -> Tuple[Optional[str], str]:
     elif user_input.startswith("@create"):
         question = user_input[7:].strip()  # Remove "@create" prefix
         return "create", question
+    elif user_input.startswith("@schema"):
+        question = user_input[7:].strip()  # Remove "@schema" prefix
+        return "schema", question
     else:
         return None, user_input
 
@@ -900,6 +978,9 @@ def detect_chat_agent_type(user_input: str) -> Tuple[Optional[str], str]:
     elif user_input.startswith("@create"):
         question = user_input[7:].strip()  # Remove "@create" prefix
         return "create", question
+    elif user_input.startswith("@schema"):
+        question = user_input[7:].strip()  # Remove "@schema" prefix
+        return "schema", question
     elif user_input.startswith("@longanswer"):
         question = user_input[11:].strip()  # Remove "@longanswer" prefix
         return "longanswer", question
@@ -913,6 +994,8 @@ def get_agent_indicator(agent_type: Optional[str]) -> str:
         return "🔍 Explain Agent"
     elif agent_type == "create":
         return "⚡ Create Agent"
+    elif agent_type == "schema":
+        return "🗂️ Schema Agent"
     else:
         return "💬 Chat"
 
@@ -923,10 +1006,111 @@ def get_chat_agent_indicator(agent_type: Optional[str]) -> str:
         return "🔍 Explain Agent"
     elif agent_type == "create":
         return "⚡ Create Agent"
+    elif agent_type == "schema":
+        return "🗂️ Schema Agent"
     elif agent_type == "longanswer":
         return "📖 Detailed Answer"
     else:
         return "💬 Concise Chat"
+
+
+def handle_schema_query(question: str, lookml_safe_join_map: Optional[Dict[str, Any]]) -> str:
+    """
+    Handle @schema queries for direct LookML exploration
+    
+    Args:
+        question: User's schema question
+        lookml_safe_join_map: LookML safe-join map data
+        
+    Returns:
+        Direct response about schema/joins without using Gemini
+    """
+    if not lookml_safe_join_map:
+        return "❌ LookML safe-join map not available. Please ensure LookML files were processed during embedding generation."
+    
+    question_lower = question.lower()
+    explores = lookml_safe_join_map.get('explores', {})
+    join_graph = lookml_safe_join_map.get('join_graph', {})
+    metadata = lookml_safe_join_map.get('metadata', {})
+    
+    # Handle different types of schema queries
+    if not question.strip():
+        # No specific query - show overview
+        return f"""🗂️ **LookML Schema Overview**
+
+📊 **Project**: {lookml_safe_join_map.get('project', 'Unknown')}
+📈 **Available Explores**: {metadata.get('total_explores', 0)}
+🔗 **Total Joins**: {metadata.get('total_joins', 0)}
+
+**Explores Available:**
+{chr(10).join([f"• **{explore_name}**: {explore_data.get('label', explore_name)} - {explore_data.get('description', 'No description')}" for explore_name, explore_data in explores.items()])}
+
+💡 **Try asking**: "@schema how do I join users with orders" or "@schema show me ecommerce explores"
+"""
+    
+    elif any(word in question_lower for word in ['join', 'relationship', 'connect']):
+        # Join-related query
+        if 'users' in question_lower and 'orders' in question_lower:
+            users_explore = explores.get('users', {})
+            if users_explore:
+                orders_join = users_explore.get('joins', {}).get('orders', {})
+                if orders_join:
+                    return f"""🔗 **Users → Orders Join**
+
+**SQL Join Condition**: `{orders_join.get('sql_on', 'Not available')}`
+**Relationship**: {orders_join.get('relationship', 'Unknown')}
+**Join Type**: {orders_join.get('join_type', 'Unknown')}
+
+**Explore Context**: {users_explore.get('label', 'Users')}
+**Path**: {users_explore.get('description', 'User → Orders → Order Items → Products')}
+"""
+                    
+        # Generic join query - show all possible joins
+        result = "🔗 **Available Join Relationships**\n\n"
+        for explore_name, tables in join_graph.items():
+            if tables:
+                result += f"**{explore_name}** can join with: {', '.join(tables)}\n"
+        return result
+        
+    elif 'explore' in question_lower:
+        # Explore-related query
+        result = "📊 **Available Explores**\n\n"
+        for explore_name, explore_data in explores.items():
+            label = explore_data.get('label', explore_name)
+            description = explore_data.get('description', 'No description')
+            base_table = explore_data.get('base_table', 'Unknown')
+            join_count = len(explore_data.get('joins', {}))
+            
+            result += f"**{label}** (`{explore_name}`)\n"
+            result += f"  • Base Table: {base_table}\n"
+            result += f"  • Available Joins: {join_count}\n"
+            result += f"  • Description: {description}\n\n"
+        return result
+        
+    else:
+        # Search for specific table mentions
+        mentioned_tables = [table for table in join_graph.keys() if table in question_lower]
+        if mentioned_tables:
+            result = f"🗂️ **Schema Information for: {', '.join(mentioned_tables)}**\n\n"
+            for table in mentioned_tables:
+                if table in explores:
+                    explore_data = explores[table]
+                    result += f"**{table}**\n"
+                    result += f"  • Label: {explore_data.get('label', table)}\n"
+                    result += f"  • Base Table: {explore_data.get('base_table', 'Unknown')}\n"
+                    result += f"  • Can join with: {', '.join(join_graph.get(table, []))}\n\n"
+            return result
+        else:
+            return f"""❓ **Schema Query Not Recognized**
+
+I can help with:
+• **General overview**: "@schema" (no question)
+• **Join relationships**: "@schema how to join users with orders"
+• **Explore listing**: "@schema show explores"
+• **Table information**: "@schema tell me about users table"
+
+Available tables: {', '.join(join_graph.keys())}
+"""
 
 
 def get_chat_prompt_template(agent_type: Optional[str], question: str, schema_section: str, conversation_section: str, context: str) -> str:
@@ -1272,7 +1456,9 @@ def create_chat_page(vector_store, csv_data):
             st.success("**Default:** 💬 Concise 2-3 sentence responses")
             st.info("**@explain** 🔍 Detailed explanations for learning")
         with col2:
-            st.warning("**@create** ⚡ SQL code generation with examples")  
+            st.warning("**@create** ⚡ SQL code generation with examples")
+            if st.session_state.lookml_safe_join_map:
+                st.info("**@schema** 🗂️ Direct LookML schema exploration")  
             st.error("**@longanswer** 📖 Comprehensive detailed analysis")
         
         st.markdown("---")
@@ -1287,7 +1473,7 @@ def create_chat_page(vector_store, csv_data):
     
     # Use Streamlit's native chat input
     user_input = st.chat_input(
-        placeholder="Ask about SQL queries, joins, optimizations... Use @explain, @create, or @longanswer for specialized responses"
+        placeholder="Ask about SQL queries, joins, optimizations... Use @explain, @create, @schema, or @longanswer for specialized responses"
     )
     
     # Process new message
@@ -1324,55 +1510,70 @@ def create_chat_page(vector_store, csv_data):
             else:
                 conversation_context += f"Assistant: {msg['content']}\n"
         
-        # Generate response using chat-specific function
-        agent_indicator = get_chat_agent_indicator(agent_type)
-        with st.spinner(f"Generating response with {agent_indicator}..."):
-            try:
-                result = answer_question_chat_mode(
-                    question=actual_question,
-                    vector_store=vector_store,
-                    k=100,  # Use high k for comprehensive retrieval
-                    schema_manager=st.session_state.get('schema_manager'),
-                    conversation_context=conversation_context,
-                    agent_type=agent_type
-                )
-                
-                if result:
-                    answer, sources, token_usage = result
+        # Handle @schema agent queries directly
+        if agent_type == "schema":
+            # Generate @schema response directly without using Gemini/RAG
+            schema_response = handle_schema_query(actual_question, st.session_state.lookml_safe_join_map)
+            
+            # Add schema response to chat history
+            st.session_state.chat_messages.append({
+                'role': 'assistant',
+                'content': schema_response,
+                'agent_type': agent_type,
+                'token_usage': {'total_tokens': 0, 'prompt_tokens': 0, 'completion_tokens': 0}  # No token usage for schema agent
+            })
+            
+            st.rerun()
+        else:
+            # Generate response using chat-specific function
+            agent_indicator = get_chat_agent_indicator(agent_type)
+            with st.spinner(f"Generating response with {agent_indicator}..."):
+                try:
+                    result = answer_question_chat_mode(
+                        question=actual_question,
+                        vector_store=vector_store,
+                        k=100,  # Use high k for comprehensive retrieval
+                        schema_manager=st.session_state.get('schema_manager'),
+                        conversation_context=conversation_context,
+                        agent_type=agent_type
+                    )
                     
-                    # Add assistant response with agent info
-                    st.session_state.chat_messages.append({
-                        'role': 'assistant',
-                        'content': answer,
-                        'sources': sources,
-                        'token_usage': token_usage,
-                        'agent_type': agent_type
-                    })
-                    
-                    # Track token usage
-                    if 'token_usage' not in st.session_state:
-                        st.session_state.token_usage = []
-                    st.session_state.token_usage.append(token_usage)
-                    
-                else:
+                    if result:
+                        answer, sources, token_usage = result
+                        
+                        # Add assistant response with agent info
+                        st.session_state.chat_messages.append({
+                            'role': 'assistant',
+                            'content': answer,
+                            'sources': sources,
+                            'token_usage': token_usage,
+                            'agent_type': agent_type
+                        })
+                        
+                        # Track token usage
+                        if 'token_usage' not in st.session_state:
+                            st.session_state.token_usage = []
+                        st.session_state.token_usage.append(token_usage)
+                        
+                    else:
+                        # Add error message to chat
+                        st.session_state.chat_messages.append({
+                            'role': 'assistant',
+                            'content': "❌ I apologize, but I encountered an error generating a response. Please try again.",
+                            'sources': [],
+                            'token_usage': {},
+                            'agent_type': agent_type
+                        })
+                        
+                except Exception as e:
                     # Add error message to chat
                     st.session_state.chat_messages.append({
                         'role': 'assistant',
-                        'content': "❌ I apologize, but I encountered an error generating a response. Please try again.",
+                        'content': f"❌ Error: {str(e)}. Please try rephrasing your question.",
                         'sources': [],
                         'token_usage': {},
                         'agent_type': agent_type
                     })
-                    
-            except Exception as e:
-                # Add error message to chat
-                st.session_state.chat_messages.append({
-                    'role': 'assistant',
-                    'content': f"❌ Error: {str(e)}. Please try rephrasing your question.",
-                    'sources': [],
-                    'token_usage': {},
-                    'agent_type': agent_type
-                })
         
         # Rerun to show new messages
         st.rerun()
@@ -1443,6 +1644,17 @@ def main():
             logger.info(f"✅ Schema manager ready: {schema_manager.table_count} tables available for injection")
         else:
             logger.info("Schema manager not available - proceeding without schema injection")
+    
+    # Load LookML safe-join map for enhanced SQL generation (cached)
+    if 'lookml_safe_join_map' not in st.session_state:
+        lookml_safe_join_map = load_lookml_safe_join_map()
+        st.session_state.lookml_safe_join_map = lookml_safe_join_map
+        
+        if lookml_safe_join_map:
+            total_explores = lookml_safe_join_map.get('metadata', {}).get('total_explores', 0)
+            logger.info(f"✅ LookML safe-join map ready: {total_explores} explores available for SQL generation")
+        else:
+            logger.info("LookML safe-join map not available - proceeding without LookML features")
     
     # Sidebar for navigation and configuration
     with st.sidebar:
@@ -1715,26 +1927,44 @@ def main():
                     logger.info(f"⚙️ Settings: Gemini={gemini_mode}, Hybrid={hybrid_search}, Schema={schema_injection}, SQL_Val={sql_validation}")
                     print(f"[QUERY DEBUG] Processing query: '{query.strip()}'")
                     print(f"[QUERY DEBUG] Settings - Gemini: {gemini_mode}, Hybrid: {hybrid_search}, Schema: {schema_injection}, SQL Validation: {sql_validation}")
-                    # Determine schema manager to use
-                    schema_manager_to_use = None
-                    if schema_injection and st.session_state.schema_manager:
-                        schema_manager_to_use = st.session_state.schema_manager
-                        logger.info(f"🗃️ SCHEMA INJECTION ENABLED")
-                        logger.info(f"📊 Schema Manager Stats:")
-                        logger.info(f"   - Total tables available: {schema_manager_to_use.table_count}")
-                        logger.info(f"   - Total columns available: {schema_manager_to_use.column_count}")
-                        logger.info(f"   - Schema file source: {SCHEMA_CSV_PATH}")
-                        print(f"[SCHEMA DEBUG] Schema injection ENABLED with {schema_manager_to_use.table_count} tables and {schema_manager_to_use.column_count} columns")
+                    
+                    # Check for @schema agent queries first
+                    agent_type, clean_question = detect_agent_type(query)
+                    if agent_type == "schema":
+                        # Handle @schema queries directly without using Gemini/RAG
+                        schema_response = handle_schema_query(clean_question, st.session_state.lookml_safe_join_map)
+                        
+                        # Display schema response
+                        st.markdown("### 🗂️ Schema Agent Response")
+                        st.markdown(schema_response)
+                        
+                        # Display agent indicator
+                        st.info(f"🤖 **{get_agent_indicator(agent_type)}** - Direct LookML exploration (no Gemini/token usage)")
+                        
+                        logger.info(f"✅ Schema agent handled query directly: '{clean_question}'")
+                        # Skip the rest of the RAG processing by returning early
                     else:
-                        if not schema_injection:
-                            logger.info("🚫 Schema injection disabled by user")
-                            print("[SCHEMA DEBUG] Schema injection DISABLED by user setting")
-                        elif not st.session_state.schema_manager:
-                            logger.info("❌ No schema manager available in session state")
-                            print("[SCHEMA DEBUG] Schema manager NOT AVAILABLE - check if schema file exists and loaded properly")
+                        # Normal RAG processing for non-@schema queries
+                        # Determine schema manager to use
+                        schema_manager_to_use = None
+                        if schema_injection and st.session_state.schema_manager:
+                            schema_manager_to_use = st.session_state.schema_manager
+                            logger.info(f"🗃️ SCHEMA INJECTION ENABLED")
+                            logger.info(f"📊 Schema Manager Stats:")
+                            logger.info(f"   - Total tables available: {schema_manager_to_use.table_count}")
+                            logger.info(f"   - Total columns available: {schema_manager_to_use.column_count}")
+                            logger.info(f"   - Schema file source: {SCHEMA_CSV_PATH}")
+                            print(f"[SCHEMA DEBUG] Schema injection ENABLED with {schema_manager_to_use.table_count} tables and {schema_manager_to_use.column_count} columns")
                         else:
-                            logger.info("❓ Schema manager not being used for unknown reason")
-                            print("[SCHEMA DEBUG] Schema manager available but not being used - unknown reason")
+                            if not schema_injection:
+                                logger.info("🚫 Schema injection disabled by user")
+                                print("[SCHEMA DEBUG] Schema injection DISABLED by user setting")
+                            elif not st.session_state.schema_manager:
+                                logger.info("❌ No schema manager available in session state")
+                                print("[SCHEMA DEBUG] Schema manager NOT AVAILABLE - check if schema file exists and loaded properly")
+                            else:
+                                logger.info("❓ Schema manager not being used for unknown reason")
+                                print("[SCHEMA DEBUG] Schema manager available but not being used - unknown reason")
                     
                     # Log SQL validation status before RAG call
                     if sql_validation:
@@ -1757,6 +1987,7 @@ def main():
                         auto_adjust_weights=auto_adjust_weights,
                         query_rewriting=query_rewriting,
                         schema_manager=schema_manager_to_use,
+                        lookml_safe_join_map=st.session_state.lookml_safe_join_map,
                         sql_validation=sql_validation,
                         validation_level=validation_level
                     )

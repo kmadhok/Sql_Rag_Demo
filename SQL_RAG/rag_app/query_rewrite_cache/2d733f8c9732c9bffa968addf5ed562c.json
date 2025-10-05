@@ -1,0 +1,21 @@
+{
+  "original_query": "How do I join users and orders to get distinct buyers per product?",
+  "rewritten_query": "SQL query to count distinct buyers per product by joining users, orders, and products tables. Example using INNER JOIN and LEFT JOIN with GROUP BY product_id. Aggregate function COUNT(DISTINCT customer_id) for unique customer analysis. Query pattern using Common Table Expressions (CTE) or subqueries to link orders_items, products, and users tables. E-commerce sales reporting to get the number of unique buyers for each item. Customer analytics query for buyer behavior and product popularity based on a relational database schema.",
+  "confidence": 0.7999999999999999,
+  "rewrite_method": "gemini_enhanced",
+  "model_used": "gemini-2.5-pro",
+  "intent_analysis": {
+    "has_sql_terms": true,
+    "focus_areas": [
+      "joins_and_relationships",
+      "customer_analysis"
+    ],
+    "complexity": "complex",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 15.597869157791138,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1759687545.600944,
+  "cache_key": "2d733f8c9732c9bffa968addf5ed562c"
+}
