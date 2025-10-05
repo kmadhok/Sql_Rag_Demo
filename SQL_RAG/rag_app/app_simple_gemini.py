@@ -30,6 +30,10 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
 
+# Configure logging early so it's available to import guards below
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # LangChain imports
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -69,9 +73,7 @@ try:
 except ImportError:
     SQL_VALIDATION_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# (logger already configured above)
 
 # Configuration
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"

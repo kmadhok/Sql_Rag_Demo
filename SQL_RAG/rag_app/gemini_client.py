@@ -19,12 +19,12 @@ import logging
 import os
 from typing import Optional, Tuple, Dict, Any
 
-# Google Generative AI imports
+# Google GenAI imports (new client)
 try:
     from google import genai
     GENAI_AVAILABLE = True
 except ImportError:
-    print("❌ Error: google-generativeai is required. Install with: pip install google-generativeai")
+    print("❌ Error: google-genai is required. Install with: pip install google-genai")
     genai = None
     GENAI_AVAILABLE = False
 
@@ -78,8 +78,7 @@ class GeminiClient:
         
         if not GENAI_AVAILABLE:
             raise ImportError(
-                "google-generativeai is required. Install with: "
-                "pip install google-generativeai"
+                "google-genai is required. Install with: pip install google-genai"
             )
         
         # Initialize Gemini client

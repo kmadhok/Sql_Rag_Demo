@@ -5,13 +5,17 @@ langchain>=0.1.0
 langchain-community>=0.0.20
 langchain-core>=0.1.0
 
-# Google Generative AI (Gemini)
+# Google GenAI client libraries
+# Note: This project uses the newer google-genai client (import style: `from google import genai`).
+# We keep google-generativeai for compatibility with older utilities if any remain.
+google-genai>=0.2.0
 google-generativeai>=0.3.0
 
 # Vector store and embeddings
 faiss-cpu>=1.7.0
 langchain-ollama>=0.1.0  # For embeddings generation (nomic-embed-text)
 langchain-openai>=0.1.0  # For OpenAI embeddings option
+sentence-transformers>=2.5.0  # For local Hugging Face embeddings (offline)
 
 # Streamlit for web interface
 streamlit>=1.28.0
@@ -24,6 +28,8 @@ numpy>=1.24.0
 pyarrow>=10.0.0  # For Parquet file support
 rapidfuzz>=3.0.0  # For fuzzy string matching
 sqlparse>=0.4.0  # For SQL parsing
+rank-bm25>=0.2.2  # For keyword BM25 hybrid search
+tqdm>=4.66.0  # Progress bars used by embedder
 
 # Visualization (optional)
 pyvis>=0.3.0  # For network graphs

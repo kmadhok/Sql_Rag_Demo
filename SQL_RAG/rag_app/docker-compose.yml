@@ -1,0 +1,72 @@
+services:
+  app:
+    build: .
+    container_name: sql-rag-app
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      - STREAMLIT_SERVER_HEADLESS=${STREAMLIT_SERVER_HEADLESS:-true}
+    volumes:
+      # Local development bind mounts
+      - ./faiss_indices:/app/faiss_indices
+      - ./catalog_analytics:/app/catalog_analytics
+      - ./data_new:/app/data_new:ro
+      - ./lookml_data:/app/lookml_data:ro
+      - ./models:/app/models:ro
+      # Optional: mount credentials if using Vertex
+      # - ./credentials.json:/app/credentials.json:ro
+    # Note: If using Ollama as the embedding provider, start the
+    # 'ollama' service as well (e.g. `docker compose --profile ollama up -d ollama app`).
+
+  # Start only when using Ollama embeddings
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+
+  # One-off job: build vector store and LookML map
+  embedder:
+    profiles: ["jobs"]
+    build: .
+    container_name: sql-rag-embedder
+    env_file:
+      - .env
+    volumes:
+      - ./faiss_indices:/app/faiss_indices
+      - ./data_new:/app/data_new:ro
+      - ./lookml_data:/app/lookml_data:ro
+      - ./models:/app/models:ro
+    # Example usage:
+    # docker compose run --rm --profile jobs embedder \
+    #   python standalone_embedding_generator.py \
+    #   --csv /app/sample_queries_with_metadata.csv \
+    #   --lookml-dir /app/lookml_data \
+    #   --embedding-provider ${EMBEDDINGS_PROVIDER} \
+    #   --embedding-model ${HF_EMBEDDING_MODEL}
+    # If using Ollama for embeddings, ensure the 'ollama' service is up or include its profile:
+    #   docker compose --profile ollama --profile jobs run --rm embedder \
+    #     python standalone_embedding_generator.py --csv /app/sample_queries_with_metadata.csv \
+    #     --lookml-dir /app/lookml_data --embedding-provider ollama --embedding-model nomic-embed-text
+
+  # One-off job: build analytics cache
+  analytics:
+    profiles: ["jobs"]
+    build: .
+    container_name: sql-rag-analytics
+    env_file:
+      - .env
+    volumes:
+      - ./catalog_analytics:/app/catalog_analytics
+      - ./data_new:/app/data_new:ro
+    # Example usage:
+    # docker compose run --rm --profile jobs analytics \
+    #   python catalog_analytics_generator.py --csv /app/sample_queries_with_metadata.csv
+
+volumes:
+  ollama:

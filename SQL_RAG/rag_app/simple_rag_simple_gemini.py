@@ -20,6 +20,10 @@ import os
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
+# Configure logging early so it's available to import guards below
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # LangChain imports
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -51,9 +55,7 @@ except ImportError:
     logger.warning("SQL validation not available - check core/sql_validator.py")
     SQL_VALIDATION_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# (logger already configured above)
 
 # Configuration
 GEMINI_MODEL = "gemini-2.5-flash-lite"

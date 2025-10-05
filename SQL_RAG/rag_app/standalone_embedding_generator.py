@@ -36,20 +36,19 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from tqdm import tqdm
 
-# Import required components
+# Import required components (avoid hard dependency on specific embedding backend)
 try:
     from data_source_manager import DataSourceManager
-    from langchain_ollama import OllamaEmbeddings
     from langchain_community.vectorstores import FAISS
     from langchain.text_splitter import RecursiveCharacterTextSplitter
     from langchain_core.documents import Document
     # Import LookML parser
     from simple_lookml_parser import SimpleLookMLParser
+    # Embedding provider factory (supports ollama/openai/huggingface)
+    from utils.embedding_provider import get_embedding_function
 except ImportError as e:
     print(f"❌ Import error: {e}")
-    print("Please ensure all required packages are installed:")
-    print("pip install langchain-ollama langchain-community faiss-gpu pandas tqdm")
-    print("Note: If faiss-gpu installation fails, fallback to faiss-cpu")
+    print("Please ensure all required packages are installed (see requirements.txt)")
     sys.exit(1)
 
 # Configure logging
@@ -76,16 +75,16 @@ def process_document_batch_gpu(batch_data):
     """
     try:
         # Unpack data (no pickle issues with ThreadPoolExecutor)
-        doc_data_list, model_name = batch_data
-        
-        # Import fresh instances (thread-safe)
-        from langchain_ollama import OllamaEmbeddings
+        doc_data_list, embed_cfg = batch_data
+        provider = embed_cfg.get('provider', os.getenv('EMBEDDINGS_PROVIDER', 'ollama'))
+        model_name = embed_cfg.get('model')
+
+        # Initialize embeddings via provider factory (thread-safe import inside worker)
+        from utils.embedding_provider import get_embedding_function  # local import for robustness
         from langchain_community.vectorstores import FAISS
         from langchain_core.documents import Document
-        
-        # Initialize embeddings with GPU acceleration
-        # Ollama automatically uses GPU if available and configured
-        embeddings = OllamaEmbeddings(model=model_name)
+
+        embeddings = get_embedding_function(provider=provider, model=model_name)
         
         # Recreate Document objects from data
         documents = []
@@ -124,7 +123,8 @@ class GPUStandaloneEmbeddingGenerator:
     
     def __init__(self, csv_path: str, output_dir: str = "faiss_indices", 
                  batch_size: int = 100, max_workers: int = 16, verbose: bool = False,
-                 schema_path: Optional[str] = None, lookml_dir: Optional[str] = None):
+                 schema_path: Optional[str] = None, lookml_dir: Optional[str] = None,
+                 embedding_provider: Optional[str] = None, embedding_model: Optional[str] = None):
         """
         Initialize the GPU-accelerated standalone embedding generator
         
@@ -147,6 +147,17 @@ class GPUStandaloneEmbeddingGenerator:
         self.verbose = verbose
         self.schema_path = Path(schema_path) if schema_path else None
         self.lookml_dir = Path(lookml_dir) if lookml_dir else None
+        self.embedding_provider = (embedding_provider or os.getenv('EMBEDDINGS_PROVIDER', 'ollama')).lower()
+        # Allow model to be specified via provider-specific envs if not provided explicitly
+        if embedding_model is not None:
+            self.embedding_model = embedding_model
+        else:
+            if self.embedding_provider == 'huggingface':
+                self.embedding_model = os.getenv('HF_EMBEDDING_MODEL')
+            elif self.embedding_provider == 'openai':
+                self.embedding_model = os.getenv('OPENAI_EMBEDDING_MODEL')
+            else:  # ollama default
+                self.embedding_model = os.getenv('OLLAMA_EMBEDDING_MODEL', 'nomic-embed-text')
         
         # Validate inputs
         if not self.csv_path.exists():
@@ -385,39 +396,33 @@ class GPUStandaloneEmbeddingGenerator:
         return self.schema_lookup.get(normalized_name, [])
     
     def _initialize_embeddings(self) -> bool:
-        """Initialize Ollama embeddings with GPU acceleration testing"""
+        """Initialize embeddings via provider factory and run a quick test"""
         try:
             if self.verbose:
-                print("🔧 Initializing Ollama GPU-accelerated embeddings...")
-            
-            self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
-            
-            # Test connection and GPU acceleration
+                print(f"🔧 Initializing embeddings provider: {self.embedding_provider} (model={self.embedding_model or 'default'})")
+
+            self.embeddings = get_embedding_function(provider=self.embedding_provider, model=self.embedding_model)
+
+            # Test connection
             start_time = time.time()
             test_result = self.embeddings.embed_query("test connection for GPU acceleration")
             embedding_time = time.time() - start_time
             
             if len(test_result) > 0:
                 if self.verbose:
-                    print(f"✅ Ollama connection verified (embedding took {embedding_time:.3f}s)")
+                    print(f"✅ Embedding provider verified (embedding took {embedding_time:.3f}s)")
                     print(f"📊 Embedding dimensions: {len(test_result)}")
-                    if embedding_time < 0.1:  # Very fast = likely GPU accelerated
-                        print("🚀 GPU acceleration appears to be active!")
-                    elif embedding_time < 1.0:  # Fast = good performance
-                        print("⚡ Good embedding performance detected")
-                    else:  # Slow = likely CPU only
-                        print("⚠️  Slower performance - check GPU configuration")
                 return True
             else:
-                print("❌ Ollama returned empty embedding")
+                print("❌ Embedding provider returned empty embedding")
                 return False
                 
         except Exception as e:
-            print(f"❌ Failed to initialize Ollama embeddings: {e}")
-            print("Make sure Ollama is running with GPU support:")
-            print("  1. ollama serve")
-            print("  2. ollama pull nomic-embed-text")
-            print("  3. Set OLLAMA_NUM_PARALLEL=16 for optimal concurrency")
+            print(f"❌ Failed to initialize embeddings: {e}")
+            if self.embedding_provider == 'ollama':
+                print("Make sure Ollama is running and reachable. Set OLLAMA_BASE_URL if using Docker.")
+            elif self.embedding_provider == 'huggingface':
+                print("Ensure the local model path is correct (HF_EMBEDDING_MODEL) and transformers is installed.")
             return False
     
     def _load_and_validate_csv(self) -> pd.DataFrame:
@@ -942,8 +947,8 @@ class GPUStandaloneEmbeddingGenerator:
             if self.verbose:
                 print(f"⚠️  Could not save progress: {e}")
     
-    def _prepare_batch_data(self, docs_batch: List[Document]) -> Tuple[List[Dict], str]:
-        """Convert Document objects to serializable data for Windows multiprocessing"""
+    def _prepare_batch_data(self, docs_batch: List[Document]) -> Tuple[List[Dict], Dict[str, str]]:
+        """Convert Document objects + embedding config to serializable data"""
         doc_data_list = []
         for doc in docs_batch:
             doc_data = {
@@ -951,8 +956,12 @@ class GPUStandaloneEmbeddingGenerator:
                 'metadata': dict(doc.metadata)  # Ensure metadata is serializable
             }
             doc_data_list.append(doc_data)
-        
-        return doc_data_list, "nomic-embed-text"
+
+        embed_cfg = {
+            'provider': self.embedding_provider,
+            'model': self.embedding_model,
+        }
+        return doc_data_list, embed_cfg
     
     def _generate_embeddings_gpu_parallel(self, documents: List[Document], resume: bool = False) -> FAISS:
         """Generate embeddings using GPU-accelerated ThreadPoolExecutor (Windows-compatible)"""
@@ -967,7 +976,7 @@ class GPUStandaloneEmbeddingGenerator:
         
         print(f"🔧 Processing {len(documents)} documents in {total_batches} batches")
         print(f"📊 Batch size: {self.batch_size}, GPU-accelerated workers: {self.max_workers}")
-        print("🚀 Using ThreadPoolExecutor with Ollama GPU acceleration")
+        print(f"🚀 Using ThreadPoolExecutor with embeddings provider: {self.embedding_provider}")
         
         if resume and progress['completed_batches'] > 0:
             print(f"📁 Resuming from batch {progress['completed_batches']}/{total_batches}")
@@ -1263,24 +1272,24 @@ class GPUStandaloneEmbeddingGenerator:
             else:
                 print("🔄 GPU-accelerated embedding generation starting...")
             
-            print("🚀 Leveraging Ollama GPU acceleration with ThreadPoolExecutor")
+            print(f"🚀 Leveraging provider '{self.embedding_provider}' with ThreadPoolExecutor")
             
             # Report GPU capabilities
             if self.gpu_available.get('faiss_gpu') and self.gpu_available.get('nvidia_gpu'):
                 print(f"🎯 Full GPU acceleration enabled:")
                 print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
-                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   ⚡ Embeddings: provider-dependent acceleration")
                 print(f"   🚀 FAISS vector operations: GPU-accelerated")
             elif self.gpu_available.get('nvidia_gpu'):
                 print(f"⚡ Partial GPU acceleration:")
                 print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
-                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   ⚡ Embeddings: provider-dependent acceleration")
                 print(f"   ⚠️  FAISS operations: CPU mode (install faiss-gpu)")
             else:
                 print("⚠️  CPU-only mode detected")
                 print("💡 Consider installing faiss-gpu and ensuring NVIDIA GPU drivers")
-            
-            # Initialize Ollama
+
+            # Initialize embeddings
             if not self._initialize_embeddings():
                 return False
             
@@ -1326,10 +1335,8 @@ class GPUStandaloneEmbeddingGenerator:
     def _load_existing_vector_store(self, index_path) -> Optional:
         """Load existing FAISS vector store from disk"""
         try:
-            from langchain_ollama import OllamaEmbeddings
             from langchain_community.vectorstores import FAISS
-            
-            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            embeddings = get_embedding_function(provider=self.embedding_provider, model=self.embedding_model)
             vector_store = FAISS.load_local(
                 str(index_path),
                 embeddings,
@@ -1402,6 +1409,19 @@ Performance Notes:
     parser.add_argument(
         '--lookml-dir',
         help='Path to directory containing LookML files (.lkml) for business logic and join relationships'
+    )
+    
+    # Embedding configuration
+    parser.add_argument(
+        '--embedding-provider',
+        choices=['ollama', 'openai', 'huggingface'],
+        default=None,
+        help='Embedding provider to use when building FAISS (overrides EMBEDDINGS_PROVIDER env)'
+    )
+    parser.add_argument(
+        '--embedding-model',
+        default=None,
+        help='Embedding model identifier or local path (overrides provider-specific env)'
     )
     
     parser.add_argument(
@@ -1497,11 +1517,11 @@ Performance Notes:
     if args.batch_size > 500:
         print("⚠️  Very large batch size (>500) may cause memory issues on some systems")
     
-    # GPU acceleration reminder
-    print("💡 For optimal GPU performance, ensure:")
-    print("   1. Ollama is running: ollama serve")
-    print("   2. GPU model loaded: ollama pull nomic-embed-text") 
-    print("   3. Set concurrency: export OLLAMA_NUM_PARALLEL=16")
+    # Embedding provider reminder
+    print("💡 Embedding provider:")
+    print("   - Set EMBEDDINGS_PROVIDER=ollama|huggingface|openai or use --embedding-provider")
+    print("   - If using Ollama, ensure the server is reachable (OLLAMA_BASE_URL) and model pulled")
+    print("   - If using Hugging Face (offline), set HF_EMBEDDING_MODEL to a local path")
     
     # Create generator
     try:
@@ -1512,7 +1532,9 @@ Performance Notes:
             max_workers=args.workers,
             verbose=args.verbose,
             schema_path=args.schema,
-            lookml_dir=args.lookml_dir
+            lookml_dir=args.lookml_dir,
+            embedding_provider=args.embedding_provider,
+            embedding_model=args.embedding_model
         )
         
         # Generate embeddings
