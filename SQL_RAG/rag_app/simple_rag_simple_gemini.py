@@ -20,6 +20,16 @@ import os
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
+# Load environment variables from .env when available (for GEMINI_API_KEY, etc.)
+try:
+    from dotenv import load_dotenv, find_dotenv
+    _env_path = find_dotenv(usecwd=True)
+    if _env_path:
+        load_dotenv(_env_path, override=False)
+        logging.getLogger(__name__).info(f"Loaded environment from {_env_path}")
+except Exception as _e:
+    logging.getLogger(__name__).debug(f"dotenv not loaded: {_e}")
+
 # LangChain imports
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
@@ -379,7 +389,7 @@ Explanation:"""
     elif agent_type == "create":
         # Creation Agent - Focus on generating working SQL code
         if gemini_mode:
-            return f"""You are a SQL Creation Expert. Your role is to generate efficient, working SQL queries from natural language requirements. Use the provided schema, context, and conversation history to create optimal SQL solutions.
+            return f"""You are a SQL Creation Expert. Your role is to generate efficient, working SQL queries from natural language requirements. Use the provided schema, context, and conversation history to create optimal SQL solutions. When targeting BigQuery, always use fully-qualified table names (project.dataset.table); aliases are allowed after qualification.
 {schema_section}
 {conversation_section}
 {context}
@@ -414,7 +424,7 @@ SQL Solution:"""
     else:
         # Default behavior - General SQL assistance
         if gemini_mode:
-            return f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema, context, and conversation history to give a detailed, helpful answer.
+            return f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema, context, and conversation history to give a detailed, helpful answer. When writing SQL for BigQuery, always reference tables with fully-qualified names (project.dataset.table) and optionally use aliases.
 {schema_section}
 {conversation_section}
 {context}
@@ -535,7 +545,9 @@ def answer_question_simple_gemini(
     conversation_context: str = "",
     agent_type: Optional[str] = None,
     sql_validation: bool = False,
-    validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC
+    validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC,
+    excluded_tables: Optional[List[str]] = None,
+    user_context: str = ""
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
@@ -555,6 +567,8 @@ def answer_question_simple_gemini(
         agent_type: Agent specialization type ("explain", "create", or None for default)
         sql_validation: Enable SQL query validation against schema
         validation_level: Validation strictness level (SYNTAX_ONLY, SCHEMA_BASIC, SCHEMA_STRICT)
+        excluded_tables: Optional list of table names to exclude from schema and discourage in SQL
+        user_context: Optional user-provided context to prepend to prompt context
         
     Returns:
         Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
@@ -618,13 +632,51 @@ def answer_question_simple_gemini(
                 docs = [result.document for result in hybrid_results]
                 logger.info(f"Hybrid search: {len(docs)} documents retrieved")
             else:
-                # Fallback to vector search
-                docs = vector_store.similarity_search(search_query, k=k)
-                logger.warning("Hybrid search failed, using vector search fallback")
+                # Fallback to vector search with timeout and keyword-only backup
+                from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+                embedding_timeout = float(os.getenv('EMBEDDING_TIMEOUT_SECONDS', '15'))
+                
+                def _do_vector_search():
+                    return vector_store.similarity_search(search_query, k=k)
+                
+                try:
+                    with ThreadPoolExecutor(max_workers=1) as ex:
+                        fut = ex.submit(_do_vector_search)
+                        docs = fut.result(timeout=embedding_timeout)
+                    logger.warning("Hybrid retriever unavailable; used vector search fallback")
+                except FuturesTimeout:
+                    logger.warning(f"Vector search timed out after {embedding_timeout}s (hybrid unavailable). Falling back to keyword-only search.")
+                    hr = _initialize_hybrid_retriever(vector_store)
+                    if hr:
+                        docs = hr.search(search_query, k=k, method='keyword')
+                        search_method = 'keyword'
+                    else:
+                        docs = []
         else:
-            # Standard vector search
-            docs = vector_store.similarity_search(search_query, k=k)
-            logger.info(f"Vector search: {len(docs)} documents retrieved")
+            # Standard vector search (with timeout + keyword fallback)
+            from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+            embedding_timeout = float(os.getenv('EMBEDDING_TIMEOUT_SECONDS', '15'))
+            
+            def _do_vector_search():
+                return vector_store.similarity_search(search_query, k=k)
+            
+            try:
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(_do_vector_search)
+                    docs = fut.result(timeout=embedding_timeout)
+                logger.info(f"Vector search: {len(docs)} documents retrieved")
+            except FuturesTimeout:
+                logger.warning(f"Vector search timed out after {embedding_timeout}s. Falling back to keyword-only search.")
+                if HYBRID_SEARCH_AVAILABLE:
+                    hr = _initialize_hybrid_retriever(vector_store)
+                    if hr:
+                        docs = hr.search(search_query, k=k, method='keyword')
+                        search_method = 'keyword'
+                        logger.info(f"Keyword fallback: {len(docs)} documents retrieved")
+                    else:
+                        docs = []
+                else:
+                    docs = []
         
         retrieval_time = time.time() - start_time
         
@@ -658,10 +710,18 @@ def answer_question_simple_gemini(
                 relevant_tables.extend(question_tables)
                 
                 if relevant_tables:
+                    # Apply exclusions if provided
+                    excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
+                    filtered_tables = [t for t in relevant_tables if schema_manager._normalize_table_name(t) not in excluded_set]
+
                     # Filter schema to only relevant tables (39K → ~100-500 rows)
-                    relevant_schema = schema_manager.get_relevant_schema(relevant_tables)
+                    relevant_schema = schema_manager.get_relevant_schema(filtered_tables)
                     
                     if relevant_schema:
+                        # Append exclusion directive if needed
+                        if excluded_set:
+                            excl_list = ", ".join(sorted(excluded_set))
+                            relevant_schema += f"\n\nEXCLUDED TABLES: {excl_list}\nInstruction: Do not reference excluded tables in the SQL."
                         logger.info(f"Smart schema filtering: {len(relevant_tables)} tables identified, schema filtered for injection")
                     else:
                         logger.info("No matching schema found for identified tables")
@@ -672,12 +732,36 @@ def answer_question_simple_gemini(
                 logger.warning(f"Schema filtering failed, continuing without schema: {e}")
                 relevant_schema = ""
         
+        # If we have fully-qualified table names, append instruction block to schema
+        if schema_manager and relevant_schema:
+            try:
+                # Recompute relevant tables from question + docs for mapping
+                _tables_for_map = schema_manager.extract_tables_from_documents(processed_docs)
+                _tables_for_map += schema_manager.extract_tables_from_content(question)
+                # Respect exclusions
+                excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
+                _tables_for_map = [t for t in _tables_for_map if schema_manager._normalize_table_name(t) not in excluded_set]
+                fqn_map = schema_manager.get_fqn_map(_tables_for_map)
+            except Exception:
+                fqn_map = {}
+            if fqn_map:
+                fqn_lines = ["\nBIGQUERY FULLY QUALIFIED TABLES (use in FROM/JOIN):"]
+                for t, fqn in fqn_map.items():
+                    fqn_lines.append(f"  - {t} -> `{fqn}`")
+                fqn_lines.append("\nInstruction: Always reference tables using fully-qualified names above (project.dataset.table). You may use SQL aliases after qualification.")
+                relevant_schema = relevant_schema + "\n" + "\n".join(fqn_lines)
+
+        # Prepend user context when provided
+        prepend_ctx = ""
+        if user_context and user_context.strip():
+            prepend_ctx = f"User Context (high priority):\n{user_context.strip()}\n\n"
+
         if gemini_mode:
             # Build enhanced context for large context windows
-            context = _build_enhanced_context(processed_docs, question)
+            context = prepend_ctx + _build_enhanced_context(processed_docs, question)
         else:
             # Build simple context for standard mode
-            context = f"Question: {question}\n\nRelevant SQL examples:\n\n"
+            context = prepend_ctx + f"Question: {question}\n\nRelevant SQL examples:\n\n"
             for i, doc in enumerate(processed_docs, 1):
                 context += f"Example {i}:\n{doc.page_content}\n\n"
         

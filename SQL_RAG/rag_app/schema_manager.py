@@ -50,6 +50,8 @@ class SchemaManager:
         self.schema_csv_path = Path(schema_csv_path)
         self.verbose = verbose
         self.schema_lookup = {}  # Dict[table_name, List[Tuple[column, datatype]]]
+        # Map normalized table name -> fully qualified name (e.g., project.dataset.table) when available
+        self.table_fqn_map = {}
         self.table_count = 0
         self.column_count = 0
         self.unique_datatypes = set()
@@ -119,6 +121,17 @@ class SchemaManager:
                     
                     # Normalize table name (extract from project.dataset.table format)
                     table_name = self._normalize_table_name(table_id)
+
+                    # Capture fully qualified name if available in CSV (e.g., 'full_table_name')
+                    try:
+                        if 'full_table_name' in df.columns:
+                            fqn_value = str(row['full_table_name']).strip().strip('`"')
+                            if fqn_value:
+                                # Store the first seen FQN for the table
+                                self.table_fqn_map.setdefault(table_name, fqn_value)
+                    except Exception:
+                        # Non-fatal; continue without FQN mapping
+                        pass
                     
                     # Add to lookup
                     schema_lookup[table_name].append((column, datatype))
@@ -164,6 +177,23 @@ class SchemaManager:
             return clean_id.split('.')[-1].strip().lower()
         
         return clean_id.strip().lower()
+
+    # ------------------------------
+    # Fully-qualified name helpers
+    # ------------------------------
+    def get_fqn(self, table_name: str) -> Optional[str]:
+        """Return fully-qualified name for a table if known (e.g., project.dataset.table)."""
+        return self.table_fqn_map.get(self._normalize_table_name(table_name))
+
+    def get_fqn_map(self, table_names: List[str]) -> Dict[str, str]:
+        """Return mapping of table -> fully-qualified name for provided tables (only those known)."""
+        result = {}
+        for t in table_names or []:
+            norm = self._normalize_table_name(t)
+            fqn = self.table_fqn_map.get(norm)
+            if fqn:
+                result[norm] = fqn
+        return result
     
     def extract_tables_from_content(self, content: str) -> List[str]:
         """

@@ -63,7 +63,19 @@ class GeminiClient:
             retry_delay: Delay between retries in seconds
         """
         self.model_name = model
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY')
+        # Attempt to load from .env if not already present
+        if not api_key and not os.getenv('GEMINI_API_KEY'):
+            try:
+                from dotenv import load_dotenv, find_dotenv
+                _env_path = find_dotenv(usecwd=True)
+                if _env_path:
+                    load_dotenv(_env_path, override=False)
+                    logger.debug(f"Loaded environment from {_env_path}")
+            except Exception as _e:
+                logger.debug(f"dotenv not loaded in GeminiClient: {_e}")
+
+        # Accept both GEMINI_API_KEY and GOOGLE_API_KEY for convenience
+        self.api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.client = None

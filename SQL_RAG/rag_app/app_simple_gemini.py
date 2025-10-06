@@ -19,6 +19,7 @@ Features:
 """
 
 import streamlit as st
+import os
 import pandas as pd
 import time
 import logging
@@ -29,6 +30,16 @@ import math
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
+
+# Load environment variables from .env if present (for GEMINI_API_KEY, etc.)
+try:
+    from dotenv import load_dotenv, find_dotenv
+    _env_path = find_dotenv(usecwd=True)
+    if _env_path:
+        load_dotenv(_env_path, override=False)
+        logging.getLogger(__name__).info(f"Loaded environment from {_env_path}")
+except Exception as _e:
+    logging.getLogger(__name__).debug(f"dotenv not loaded: {_e}")
 
 # LangChain imports
 from langchain_community.vectorstores import FAISS
@@ -53,7 +64,8 @@ try:
     SCHEMA_MANAGER_AVAILABLE = True
 except ImportError:
     SCHEMA_MANAGER_AVAILABLE = False
-    logger.warning("Schema manager not available - schema injection disabled")
+    # Logger may not be configured yet at import time; fall back to root logger
+    logging.warning("Schema manager not available - schema injection disabled")
 
 # Import hybrid search components
 try:
@@ -69,8 +81,9 @@ try:
 except ImportError:
     SQL_VALIDATION_AVAILABLE = False
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging (idempotent)
+if not logging.getLogger(__name__).handlers:
+    logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
@@ -142,10 +155,16 @@ def load_vector_store(index_name: str = DEFAULT_VECTOR_STORE) -> Optional[FAISS]
         embeddings = get_embedding_function()
         
         # Load the pre-built vector store
+        # Default keeps existing behavior; can be overridden via env for stricter safety
+        allow_dangerous = os.getenv("FAISS_SAFE_DESERIALIZATION", "0").lower() not in ("1", "true", "yes")
+        if allow_dangerous:
+            logger.info("Loading FAISS index with allow_dangerous_deserialization=True (trusted local data)")
+        else:
+            logger.info("Loading FAISS index with safe deserialization")
         vector_store = FAISS.load_local(
             str(index_path),
             embeddings,
-            allow_dangerous_deserialization=True
+            allow_dangerous_deserialization=allow_dangerous
         )
         
         logger.info(f"✅ Loaded vector store from {index_path}")
@@ -348,7 +367,8 @@ def safe_get_value(row, column: str, default: str = '') -> str:
         if pd.isna(value) or value is None:
             return default
         return str(value).strip()
-    except:
+    except Exception as e:
+        logger.debug(f"safe_get_value fallback for column '{column}': {e}")
         return default
 
 def calculate_pagination(total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, Any]:
@@ -718,10 +738,10 @@ def create_query_catalog_page(df: pd.DataFrame):
                 # Display the first available graph
                 graph_file = Path(graph_files[0])
                 if graph_file.suffix.lower() == '.svg':
-                    # Display SVG graph
-                    with open(graph_file, 'r') as f:
+                    # Display SVG graph safely via HTML
+                    with open(graph_file, 'r', encoding='utf-8') as f:
                         svg_content = f.read()
-                    st.image(svg_content, use_column_width=True)
+                    st.markdown(svg_content, unsafe_allow_html=True)
                 else:
                     # Display PNG/other formats
                     st.image(str(graph_file), use_column_width=True)
@@ -1151,7 +1171,7 @@ Explanation:"""
     
     elif agent_type == "create":
         # Creation Agent - Keep detailed for SQL generation
-        return f"""You are a SQL Creation Expert. Generate efficient, working SQL queries from natural language requirements.
+        return f"""You are a SQL Creation Expert. Generate efficient, working SQL queries from natural language requirements. When targeting BigQuery, always use fully-qualified table names (project.dataset.table); aliases are allowed after qualification.
 {schema_section}
 {conversation_section}
 {context}
@@ -1194,7 +1214,7 @@ Detailed Answer:"""
     
     else:
         # Default behavior - Concise 2-3 sentence responses for chat
-        return f"""You are a SQL expert assistant. Provide concise, helpful answers in 2-3 sentences that directly address the user's question.
+        return f"""You are a SQL expert assistant. Provide concise, helpful answers in 2-3 sentences that directly address the user's question. If you include BigQuery SQL, use fully-qualified table names (project.dataset.table).
 {schema_section}
 {conversation_section}
 {context}
@@ -1218,7 +1238,9 @@ def answer_question_chat_mode(
     k: int = 100,
     schema_manager=None,
     conversation_context: str = "",
-    agent_type: Optional[str] = None
+    agent_type: Optional[str] = None,
+    user_context: str = "",
+    excluded_tables: Optional[List[str]] = None
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Chat-specific RAG function with concise default responses
@@ -1236,9 +1258,38 @@ def answer_question_chat_mode(
     """
     
     try:
-        # Step 1: Retrieve relevant documents using vector search
+        # Step 1: Retrieve relevant documents using vector search with timeout + keyword fallback
         retrieval_start = time.time()
-        docs = vector_store.similarity_search(question, k=k)
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+        embedding_timeout = float(os.getenv('EMBEDDING_TIMEOUT_SECONDS', '15'))
+        
+        def _do_vector_search():
+            return vector_store.similarity_search(question, k=k)
+        
+        docs = []
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                fut = ex.submit(_do_vector_search)
+                docs = fut.result(timeout=embedding_timeout)
+        except FuturesTimeout:
+            logger.warning(f"Chat vector search timed out after {embedding_timeout}s. Falling back to keyword-only search if available.")
+            if HYBRID_SEARCH_AVAILABLE:
+                try:
+                    from hybrid_retriever import HybridRetriever
+                    # Build a one-off hybrid retriever for fallback
+                    # Extract documents from vector store docstore
+                    documents = []
+                    docstore = vector_store.docstore
+                    if hasattr(docstore, '_dict'):
+                        for _id, d in docstore._dict.items():
+                            if isinstance(d, Document):
+                                documents.append(d)
+                    hr = HybridRetriever(vector_store, documents)
+                    docs = hr.search(question, k=k, method='keyword')
+                    logger.info(f"Chat keyword fallback: {len(docs)} documents retrieved")
+                except Exception as e:
+                    logger.warning(f"Chat keyword fallback failed: {e}")
+                    docs = []
         retrieval_time = time.time() - retrieval_start
         
         # Step 2: Build context from retrieved documents
@@ -1253,26 +1304,34 @@ def answer_question_chat_mode(
         
         if schema_manager:
             try:
-                # Get relevant schema for the question and context
-                relevant_schema_data = schema_manager.get_relevant_schema(
-                    question=question,
-                    context_chunks=[doc.page_content for doc in docs],
-                    max_tables=10  # Reasonable limit for chat responses
-                )
-                
-                if relevant_schema_data:
-                    relevant_schema = relevant_schema_data['schema_text']
+                # Derive relevant tables from docs + question
+                derived_tables = []
+                for d in docs:
+                    derived_tables += schema_manager.extract_tables_from_content(getattr(d, 'page_content', ''))
+                derived_tables += schema_manager.extract_tables_from_content(question)
+
+                # Apply exclusions if provided
+                excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
+                filtered_tables = [t for t in derived_tables if schema_manager._normalize_table_name(t) not in excluded_set]
+
+                # Build relevant schema
+                schema_text = schema_manager.get_relevant_schema(filtered_tables, max_tables=10)
+                if schema_text:
+                    # Append exclusion directive
+                    if excluded_set:
+                        excl_list = ", ".join(sorted(excluded_set))
+                        schema_text += f"\n\nEXCLUDED TABLES: {excl_list}\nInstruction: Do not reference excluded tables in the SQL."
+                    relevant_schema = schema_text
                     schema_info = {
                         'enabled': True,
-                        'relevant_tables': relevant_schema_data['table_count'],
+                        'relevant_tables': len(filtered_tables),
                         'schema_tokens': estimate_token_count(relevant_schema),
                         'total_schema_tables': schema_manager.table_count,
-                        'schema_coverage': f"{relevant_schema_data['table_count']}/{schema_manager.table_count}",
+                        'schema_coverage': f"{len(filtered_tables)}/{schema_manager.table_count}",
                         'schema_available': True
                     }
                 else:
                     schema_info = {'enabled': True, 'schema_available': False}
-                    
             except Exception as e:
                 logger.warning(f"Schema injection failed: {e}")
                 schema_info = {'enabled': True, 'schema_available': False, 'error': str(e)}
@@ -1286,6 +1345,33 @@ def answer_question_chat_mode(
         schema_section = f"\nDatabase Schema (relevant tables):\n{relevant_schema}\n" if relevant_schema else ""
         conversation_section = f"\nPrevious conversation:\n{conversation_context}\n" if conversation_context.strip() else ""
         
+        # If we have an available schema manager, add BigQuery FQN mapping to schema section
+        if schema_manager and relevant_schema:
+            try:
+                tables_for_map = []
+                for d in docs:
+                    tables_for_map += schema_manager.extract_tables_from_content(getattr(d, 'page_content', ''))
+                tables_for_map += schema_manager.extract_tables_from_content(question)
+                # Respect exclusions in FQN map
+                excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
+                tables_for_map = [t for t in tables_for_map if schema_manager._normalize_table_name(t) not in excluded_set]
+                fqn_map = schema_manager.get_fqn_map(tables_for_map)
+            except Exception:
+                fqn_map = {}
+            if fqn_map:
+                lines = ["\nBIGQUERY FULLY QUALIFIED TABLES (use in FROM/JOIN):"]
+                for t, fqn in fqn_map.items():
+                    lines.append(f"  - {t} -> `{fqn}`")
+                lines.append("\nInstruction: Always use fully-qualified names (project.dataset.table). Aliases are fine after qualification.")
+                relevant_schema = relevant_schema + "\n" + "\n".join(lines)
+
+        # Rebuild schema section after appending FQN block
+        schema_section = f"\nDatabase Schema (relevant tables):\n{relevant_schema}\n" if relevant_schema else ""
+
+        # Add user-provided context into the prompt context
+        if user_context and user_context.strip():
+            context = f"User Context (high priority):\n{user_context.strip()}\n\n" + context
+
         # Use chat-specific prompt template
         prompt = get_chat_prompt_template(
             agent_type=agent_type,
@@ -1535,7 +1621,9 @@ def create_chat_page(vector_store, csv_data):
                         k=100,  # Use high k for comprehensive retrieval
                         schema_manager=st.session_state.get('schema_manager'),
                         conversation_context=conversation_context,
-                        agent_type=agent_type
+                        agent_type=agent_type,
+                        user_context=st.session_state.get('user_context', ""),
+                        excluded_tables=st.session_state.get('excluded_tables', [])
                     )
                     
                     if result:
@@ -1669,7 +1757,7 @@ def main():
         
         st.divider()
         st.header("⚙️ Configuration")
-        
+
         # Show configuration based on selected page
         if page == "🔍 Query Search":
             # Vector store selection (only needed for search)
@@ -1731,6 +1819,34 @@ def main():
                     value=True, 
                     help="Inject relevant database schema (reduces 39K+ schema rows to ~100-500 relevant ones)"
                 )
+
+                # User-provided context and table exclusions
+                if schema_injection and st.session_state.schema_manager:
+                    st.subheader("🧩 User Context & Filters")
+                    # Additional freeform context appended to the prompt
+                    user_context = st.text_area(
+                        "Additional Context (optional)",
+                        value=st.session_state.get('user_context', ""),
+                        help="Add business rules, constraints, or clarifications for the model",
+                        height=120,
+                        key="user_context_input"
+                    )
+                    st.session_state.user_context = user_context
+
+                    # Exclude tables multiselect
+                    try:
+                        table_options = sorted(list(st.session_state.schema_manager.schema_lookup.keys()))
+                    except Exception:
+                        table_options = []
+
+                    excluded_tables = st.multiselect(
+                        "Exclude Tables (optional)",
+                        options=table_options,
+                        default=st.session_state.get('excluded_tables', []),
+                        help="Selected tables will be excluded from schema injection and discouraged in generated SQL",
+                        key="excluded_tables_select"
+                    )
+                    st.session_state.excluded_tables = excluded_tables
             else:
                 schema_injection = False
                 st.warning("⚠️ Schema injection unavailable - check schema_manager.py and schema.csv")
@@ -1756,10 +1872,11 @@ def main():
                         help="Choose validation strictness level"
                     )
                 else:
-                    validation_level = ValidationLevel.SCHEMA_BASIC
+                    # No validation requested; don't require enum
+                    validation_level = None
             else:
                 sql_validation = False
-                validation_level = ValidationLevel.SCHEMA_BASIC
+                validation_level = None
                 st.warning("⚠️ SQL validation unavailable - check core/sql_validator.py")
             
             if gemini_mode:
@@ -1794,6 +1911,18 @@ def main():
                     help="Automatically adjust vector/keyword weights based on query analysis"
                 )
                 
+                # Optional: keyword-only fallback to avoid embedding calls (fast, no network)
+                keyword_only = st.checkbox(
+                    "🧰 Keyword-only (BM25) — no embeddings",
+                    value=False,
+                    help="Use only keyword/BM25 search. Useful if embeddings are slow or unavailable."
+                )
+                
+                if keyword_only:
+                    auto_adjust_weights = False
+                    search_weights = SearchWeights(vector_weight=0.0, keyword_weight=1.0)
+                    st.caption("Vector search disabled. Using BM25 only.")
+                
                 if not auto_adjust_weights:
                     # Manual weight controls
                     st.caption("Manual Weight Configuration:")
@@ -1801,29 +1930,30 @@ def main():
                     # Use columns for better layout
                     weight_col1, weight_col2 = st.columns(2)
                     
-                    with weight_col1:
-                        vector_weight = st.slider(
-                            "Vector Weight", 
-                            0.0, 1.0, 0.7, 0.1,
-                            help="Weight for semantic similarity search"
-                        )
-                    
-                    with weight_col2:
-                        keyword_weight = st.slider(
-                            "Keyword Weight", 
-                            0.0, 1.0, 0.3, 0.1,
-                            help="Weight for exact keyword matching (BM25)"
-                        )
-                    
-                    # Normalize weights
-                    total_weight = vector_weight + keyword_weight
-                    if total_weight > 0:
-                        vector_weight /= total_weight
-                        keyword_weight /= total_weight
-                        search_weights = SearchWeights(vector_weight=vector_weight, keyword_weight=keyword_weight)
+                    if not keyword_only:
+                        with weight_col1:
+                            vector_weight = st.slider(
+                                "Vector Weight", 
+                                0.0, 1.0, 0.7, 0.1,
+                                help="Weight for semantic similarity search"
+                            )
                         
-                        # Display normalized weights
-                        st.caption(f"Normalized: Vector {vector_weight:.2f}, Keyword {keyword_weight:.2f}")
+                        with weight_col2:
+                            keyword_weight = st.slider(
+                                "Keyword Weight", 
+                                0.0, 1.0, 0.3, 0.1,
+                                help="Weight for exact keyword matching (BM25)"
+                            )
+                        
+                        # Normalize weights
+                        total_weight = vector_weight + keyword_weight
+                        if total_weight > 0:
+                            vector_weight /= total_weight
+                            keyword_weight /= total_weight
+                            search_weights = SearchWeights(vector_weight=vector_weight, keyword_weight=keyword_weight)
+                            
+                            # Display normalized weights
+                            st.caption(f"Normalized: Vector {vector_weight:.2f}, Keyword {keyword_weight:.2f}")
                 else:
                     st.info("🔍 Weights will be automatically optimized based on your query")
                 
@@ -1865,6 +1995,33 @@ def main():
                     except Exception as e:
                         st.warning("Could not load status info")
         
+        elif page == "💬 Chat":
+            # Chat page configuration: user context and table exclusions
+            if SCHEMA_MANAGER_AVAILABLE and st.session_state.get('schema_manager'):
+                st.subheader("🧩 User Context & Filters")
+                user_context = st.text_area(
+                    "Additional Context (optional)",
+                    value=st.session_state.get('user_context', ""),
+                    help="Add business rules, constraints, or clarifications for the model",
+                    height=120,
+                    key="user_context_input_chat"
+                )
+                st.session_state.user_context = user_context
+
+                try:
+                    table_options = sorted(list(st.session_state.schema_manager.schema_lookup.keys()))
+                except Exception:
+                    table_options = []
+                excluded_tables = st.multiselect(
+                    "Exclude Tables (optional)",
+                    options=table_options,
+                    default=st.session_state.get('excluded_tables', []),
+                    help="Selected tables will be excluded from schema injection and discouraged in generated SQL",
+                    key="excluded_tables_select_chat"
+                )
+                st.session_state.excluded_tables = excluded_tables
+            else:
+                st.caption("Schema manager not loaded; context filters unavailable.")
         else:
             # Query Catalog page - show data info
             st.subheader("📊 Data Info")
@@ -1884,13 +2041,20 @@ def main():
                 logger.info(f"🗂️ VECTOR DATABASE LOADING")
                 logger.info(f"📂 Selected index: {selected_index}")
                 logger.info(f"📁 Index path: {FAISS_INDICES_DIR / selected_index}")
-                print(f"[VECTOR DEBUG] Loading vector database: {selected_index}")
-                print(f"[VECTOR DEBUG] Vector store path: {FAISS_INDICES_DIR / selected_index}")
+                logger.debug(f"[VECTOR DEBUG] Loading vector database: {selected_index}")
+                logger.debug(f"[VECTOR DEBUG] Vector store path: {FAISS_INDICES_DIR / selected_index}")
                 
                 vector_store = load_vector_store(selected_index)
                 
                 if vector_store:
-                    doc_count = len(vector_store.docstore._dict)
+                    # Prefer FAISS index size, fallback to docstore if available
+                    try:
+                        doc_count = int(getattr(vector_store, 'index').ntotal)
+                    except Exception:
+                        try:
+                            doc_count = len(vector_store.docstore._dict)
+                        except Exception:
+                            doc_count = None
                     st.session_state.vector_store = vector_store
                     st.session_state.current_index = selected_index
                     logger.info(f"✅ VECTOR DATABASE LOADED SUCCESSFULLY")
@@ -1898,12 +2062,15 @@ def main():
                     logger.info(f"   - Total documents: {doc_count:,}")
                     logger.info(f"   - Index name: {selected_index}")
                     logger.info(f"   - Embedding provider: Ollama (nomic-embed-text)")
-                    print(f"[VECTOR DEBUG] Vector database loaded successfully with {doc_count:,} documents")
-                    st.success(f"✅ Loaded {doc_count:,} documents")
+                    logger.debug(f"[VECTOR DEBUG] Vector database loaded successfully with {doc_count:,} documents")
+                    if doc_count is not None:
+                        st.success(f"✅ Loaded {doc_count:,} documents")
+                    else:
+                        st.success("✅ Vector store loaded")
                 else:
                     logger.error(f"❌ VECTOR DATABASE LOADING FAILED")
                     logger.error(f"   - Failed index: {selected_index}")
-                    print(f"[VECTOR DEBUG] FAILED to load vector database: {selected_index}")
+                    logger.debug(f"[VECTOR DEBUG] FAILED to load vector database: {selected_index}")
                     st.error("Failed to load vector store")
                     return
         
@@ -1925,8 +2092,8 @@ def main():
                     logger.info(f"🔎 PROCESSING NEW QUERY")
                     logger.info(f"📝 User Query: '{query.strip()}'")
                     logger.info(f"⚙️ Settings: Gemini={gemini_mode}, Hybrid={hybrid_search}, Schema={schema_injection}, SQL_Val={sql_validation}")
-                    print(f"[QUERY DEBUG] Processing query: '{query.strip()}'")
-                    print(f"[QUERY DEBUG] Settings - Gemini: {gemini_mode}, Hybrid: {hybrid_search}, Schema: {schema_injection}, SQL Validation: {sql_validation}")
+                    logger.debug(f"[QUERY DEBUG] Processing query: '{query.strip()}'")
+                    logger.debug(f"[QUERY DEBUG] Settings - Gemini: {gemini_mode}, Hybrid: {hybrid_search}, Schema: {schema_injection}, SQL Validation: {sql_validation}")
                     
                     # Check for @schema agent queries first
                     agent_type, clean_question = detect_agent_type(query)
@@ -1954,27 +2121,27 @@ def main():
                             logger.info(f"   - Total tables available: {schema_manager_to_use.table_count}")
                             logger.info(f"   - Total columns available: {schema_manager_to_use.column_count}")
                             logger.info(f"   - Schema file source: {SCHEMA_CSV_PATH}")
-                            print(f"[SCHEMA DEBUG] Schema injection ENABLED with {schema_manager_to_use.table_count} tables and {schema_manager_to_use.column_count} columns")
+                            logger.debug(f"[SCHEMA DEBUG] Schema injection ENABLED with {schema_manager_to_use.table_count} tables and {schema_manager_to_use.column_count} columns")
                         else:
                             if not schema_injection:
                                 logger.info("🚫 Schema injection disabled by user")
-                                print("[SCHEMA DEBUG] Schema injection DISABLED by user setting")
+                                logger.debug("[SCHEMA DEBUG] Schema injection DISABLED by user setting")
                             elif not st.session_state.schema_manager:
                                 logger.info("❌ No schema manager available in session state")
-                                print("[SCHEMA DEBUG] Schema manager NOT AVAILABLE - check if schema file exists and loaded properly")
+                                logger.debug("[SCHEMA DEBUG] Schema manager NOT AVAILABLE - check if schema file exists and loaded properly")
                             else:
                                 logger.info("❓ Schema manager not being used for unknown reason")
-                                print("[SCHEMA DEBUG] Schema manager available but not being used - unknown reason")
+                                logger.debug("[SCHEMA DEBUG] Schema manager available but not being used - unknown reason")
                     
                     # Log SQL validation status before RAG call
                     if sql_validation:
                         logger.info(f"✅ SQL VALIDATION ENABLED")
                         logger.info(f"📊 Validation Settings:")
                         logger.info(f"   - Validation level: {validation_level}")
-                        print(f"[SQL VALIDATION DEBUG] SQL validation ENABLED with level: {validation_level}")
+                        logger.debug(f"[SQL VALIDATION DEBUG] SQL validation ENABLED with level: {validation_level}")
                     else:
                         logger.info(f"🚫 SQL VALIDATION DISABLED")
-                        print(f"[SQL VALIDATION DEBUG] SQL validation DISABLED by user setting")
+                        logger.debug(f"[SQL VALIDATION DEBUG] SQL validation DISABLED by user setting")
                     
                     # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
                     result = answer_question_simple_gemini(
@@ -1989,7 +2156,9 @@ def main():
                         schema_manager=schema_manager_to_use,
                         lookml_safe_join_map=st.session_state.lookml_safe_join_map,
                         sql_validation=sql_validation,
-                        validation_level=validation_level
+                        validation_level=validation_level,
+                        excluded_tables=st.session_state.get('excluded_tables', []),
+                        user_context=st.session_state.get('user_context', "")
                     )
                     
                     if result:
@@ -2156,9 +2325,9 @@ def main():
                             logger.info(f"   - Is valid: {validation_info.get('is_valid', False)}")
                             logger.info(f"   - Validation time: {validation_info.get('validation_time', 0):.3f}s")
                             
-                            print(f"[SQL VALIDATION DEBUG] SQL Validation ENABLED")
-                            print(f"[SQL VALIDATION DEBUG] Validation level: {validation_info.get('validation_level', 'basic')}")
-                            print(f"[SQL VALIDATION DEBUG] Query is valid: {validation_info.get('is_valid', False)}")
+                            logger.debug(f"[SQL VALIDATION DEBUG] SQL Validation ENABLED")
+                            logger.debug(f"[SQL VALIDATION DEBUG] Validation level: {validation_info.get('validation_level', 'basic')}")
+                            logger.debug(f"[SQL VALIDATION DEBUG] Query is valid: {validation_info.get('is_valid', False)}")
                             
                             # Log detailed validation data
                             tables_found = validation_info.get('tables_found', [])
@@ -2168,23 +2337,23 @@ def main():
                             
                             if tables_found:
                                 logger.info(f"📋 Tables Found ({len(tables_found)}): {', '.join(tables_found)}")
-                                print(f"[SQL VALIDATION DEBUG] Tables found ({len(tables_found)}): {', '.join(tables_found)}")
+                                logger.debug(f"[SQL VALIDATION DEBUG] Tables found ({len(tables_found)}): {', '.join(tables_found)}")
                             
                             if columns_found:
                                 logger.info(f"📊 Columns Found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
-                                print(f"[SQL VALIDATION DEBUG] Columns found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
+                                logger.debug(f"[SQL VALIDATION DEBUG] Columns found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
                             
                             if errors:
                                 logger.warning(f"❌ Validation Errors ({len(errors)}):")
                                 for i, error in enumerate(errors, 1):
                                     logger.warning(f"   {i}. {error}")
-                                print(f"[SQL VALIDATION DEBUG] ERRORS ({len(errors)}): {errors}")
+                                logger.debug(f"[SQL VALIDATION DEBUG] ERRORS ({len(errors)}): {errors}")
                             
                             if warnings:
                                 logger.warning(f"⚠️ Validation Warnings ({len(warnings)}):")
                                 for i, warning in enumerate(warnings, 1):
                                     logger.warning(f"   {i}. {warning}")
-                                print(f"[SQL VALIDATION DEBUG] WARNINGS ({len(warnings)}): {warnings}")
+                                logger.debug(f"[SQL VALIDATION DEBUG] WARNINGS ({len(warnings)}): {warnings}")
                             
                             # Validation status
                             if validation_info.get('is_valid'):
@@ -2462,7 +2631,17 @@ def main():
                 if vector_store:
                     st.session_state.vector_store = vector_store
                     st.session_state.current_index = selected_index
-                    st.success(f"✅ Loaded {len(vector_store.docstore._dict):,} documents")
+                    try:
+                        doc_count = int(getattr(vector_store, 'index').ntotal)
+                    except Exception:
+                        try:
+                            doc_count = len(vector_store.docstore._dict)
+                        except Exception:
+                            doc_count = None
+                    if doc_count is not None:
+                        st.success(f"✅ Loaded {doc_count:,} documents")
+                    else:
+                        st.success("✅ Vector store loaded")
                 else:
                     st.error("Failed to load vector store")
                     return

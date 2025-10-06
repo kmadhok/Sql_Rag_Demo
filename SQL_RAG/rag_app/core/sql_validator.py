@@ -286,10 +286,13 @@ class SQLValidator:
                 if statement.get_type() is None:
                     result.warnings.append("SQL statement type could not be determined")
                 
-                # Check for common syntax errors
+                # Check for common syntax errors with BigQuery tolerance
                 tokens = list(statement.flatten())
                 for i, token in enumerate(tokens):
                     if token.ttype is sqlparse.tokens.Error:
+                        # Allow BigQuery-style backtick quoting without failing syntax
+                        if token.value == '`':
+                            continue
                         result.errors.append(f"Syntax error near: '{token.value}'")
                         return False
             

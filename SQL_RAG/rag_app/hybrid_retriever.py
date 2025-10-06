@@ -353,13 +353,21 @@ class HybridRetriever:
         # Perform both searches with expanded k for better fusion
         search_k = max(k * 2, 10)  # Search more documents for better fusion
         
-        # Vector search
-        logger.debug("Performing vector search...")
-        vector_results = self._vector_search(query, search_k)
+        # Vector search (skip if weight is effectively zero)
+        if weights and getattr(weights, 'vector_weight', 0.0) <= 0.0:
+            logger.info("Skipping vector search (vector_weight=0.0)")
+            vector_results = []
+        else:
+            logger.debug("Performing vector search...")
+            vector_results = self._vector_search(query, search_k)
         
-        # Keyword search
-        logger.debug("Performing keyword search...")
-        keyword_results = self._keyword_search(query, search_k)
+        # Keyword search (skip if weight is effectively zero)
+        if weights and getattr(weights, 'keyword_weight', 0.0) <= 0.0:
+            logger.info("Skipping keyword search (keyword_weight=0.0)")
+            keyword_results = []
+        else:
+            logger.debug("Performing keyword search...")
+            keyword_results = self._keyword_search(query, search_k)
         
         # Combine using RRF
         logger.debug("Applying Reciprocal Rank Fusion...")

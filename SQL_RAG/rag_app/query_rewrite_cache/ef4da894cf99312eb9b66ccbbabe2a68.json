@@ -1,0 +1,21 @@
+{
+  "original_query": "how to join different users to products",
+  "rewritten_query": "how to join different users to products",
+  "confidence": 1.0,
+  "rewrite_method": "original_low_confidence",
+  "model_used": "gemini-2.5-flash",
+  "intent_analysis": {
+    "has_sql_terms": true,
+    "focus_areas": [
+      "joins_and_relationships",
+      "customer_analysis"
+    ],
+    "complexity": "moderate",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 8.46816372871399,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1759713347.278212,
+  "cache_key": "ef4da894cf99312eb9b66ccbbabe2a68"
+}
