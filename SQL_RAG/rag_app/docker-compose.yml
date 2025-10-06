@@ -1,0 +1,42 @@
+version: '3.9'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-s", "http://localhost:11434/api/tags"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    container_name: sql-rag-app
+    depends_on:
+      ollama:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDINGS_PROVIDER=ollama
+      - STREAMLIT_SERVER_PORT=8502
+      # Set INIT_MODE to 'serve' (default) or 'precompute'
+      - INIT_MODE=serve
+      # Paths for precompute
+      - EMBED_CSV=data_new/sample_queries_with_metadata_recovered.csv
+      - SCHEMA_CSV=data_new/thelook_ecommerce_schema.csv
+      - LOOKML_DIR=lookml_data
+      - ANALYTICS_CSV=sample_queries_with_metadata.csv
+    volumes:
+      - ./:/app
+    ports:
+      - "8502:8502"
+
+volumes:
+  ollama:
