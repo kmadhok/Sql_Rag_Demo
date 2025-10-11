@@ -4,10 +4,10 @@ This is a minimal Retrieval-Augmented Generation (RAG) demo that lets you ask qu
 
 It uses:
 
-* **Ollama nomic-embed-text** for embeddings (local) — default
+* **OpenAI text-embedding-3-small** for embeddings (cloud) — default
 * **FAISS** for the in-memory vector store
-* **Ollama** Phi3 (3.8B parameters) for local answer generation
-* A lightweight script `simple_rag.py` to tie everything together
+* **Google Gemini 2.5 Flash** for fast, intelligent answer generation
+* A sophisticated RAG engine with hybrid search and smart schema injection
 
 ---
 
@@ -18,62 +18,76 @@ python -m venv .venv && source .venv/bin/activate  # optional
 pip install -r rag_app/requirements.txt
 ```
 
-## 2  Set up embeddings and models
+## 2  Set up API keys and embeddings
 
-By default, embeddings run locally via Ollama. You can also switch to OpenAI embeddings.
+By default, the system uses OpenAI embeddings and Google Gemini for generation. You can also switch to local Ollama embeddings.
 
-### Option A: Local (default, Ollama)
+### Option A: OpenAI embeddings (default, recommended)
 
-Install Ollama and download the required models:
+Use OpenAI's state-of-the-art `text-embedding-3-*` models for high-quality embeddings.
+
+1) **Get your OpenAI API key** from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+2) **Set up environment variables**:
+
+```bash
+# Required: OpenAI API key
+export OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# Required: Google Gemini API key (for text generation)
+export GEMINI_API_KEY=your-gemini-api-key-here
+
+# Optional: Embedding model (default: text-embedding-3-small)
+export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
+# Optional: Provider selection (default: openai)
+export EMBEDDINGS_PROVIDER=openai
+```
+
+3) **Generate embeddings** using the new OpenAI provider:
+
+```bash
+# Generate vector embeddings using OpenAI
+python data/standalone_embedding_generator.py --csv "sample_queries_with_metadata.csv"
+
+# Generate analytics cache for fast Query Catalog
+python data/catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
+```
+
+4) **Launch the application**:
+
+```bash
+streamlit run app.py
+```
+
+### Option B: Local Ollama embeddings (legacy)
+
+For local processing without API costs, you can use Ollama:
 
 ```bash
 # Install Ollama (if not already installed)
 curl -fsSL https://ollama.ai/install.sh | sh
 
 # Download required models
-ollama pull phi3              # For LLM inference  
 ollama pull nomic-embed-text  # For embeddings
 
-# Verify installation
-ollama list
+# Set environment to use Ollama
+export EMBEDDINGS_PROVIDER=ollama
+export OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+
+# Generate embeddings locally
+python data/standalone_embedding_generator.py --csv "sample_queries_with_metadata.csv"
 ```
 
-No API keys required - all processing happens locally!
+## 3  Use the application
 
-### Option B: OpenAI embeddings
+The application provides three interfaces:
 
-Use OpenAI’s `text-embedding-3-*` models for embedding generation and loading.
+1. **🔍 Query Search**: Advanced RAG with Gemini optimization, hybrid search, and smart schema injection
+2. **💬 Chat Interface**: ChatGPT-like conversation with specialized agents (@explain, @create, @schema)
+3. **📚 Query Catalog**: Browse and search through your SQL query dataset
 
-1) Install deps (already in requirements): `langchain-openai`
-2) Export your key and choose provider:
-
-```
-export OPENAI_API_KEY=sk-...
-export EMBEDDINGS_PROVIDER=openai
-# Optional: choose model (default: text-embedding-3-small)
-export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-```
-
-3) Build a compatible FAISS store from your CSV using OpenAI:
-
-```
-python rag_app/openai_embedding_generator.py --csv rag_app/sample_queries_with_metadata.csv
-```
-
-This creates `rag_app/faiss_indices/index_sample_queries_with_metadata`, which the app will load.
-
-## 3  Ask questions
-
-```bash
-python rag_app/simple_rag.py "Which SQL file shows how to calculate inventory turnover?"
-```
-
-Example output:
-
-```
-=== Answer ===
-The file **inventory_management/inventory_turnover.sql** contains the query that calculates inventory turnover ratios and identifies slow-moving stock.
-```
+Access the web interface at: `http://localhost:8501`
 
 The first run will build a FAISS index (stored as `rag_app/faiss_index.pkl`). Subsequent runs load the cached index for faster responses.
 

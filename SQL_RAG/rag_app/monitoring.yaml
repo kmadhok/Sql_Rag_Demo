@@ -1,0 +1,352 @@
+# Google Cloud Monitoring Configuration for SQL RAG Application
+# This file defines monitoring, alerting, and logging policies for production deployment
+
+# Service Level Objectives (SLOs)
+apiVersion: monitoring.googleapis.com/v1
+kind: ServiceLevelObjective
+metadata:
+  name: sql-rag-availability-slo
+  project: ${PROJECT_ID}
+spec:
+  serviceLevelIndicator:
+    requestBased:
+      distributionCut:
+        range:
+          min: 0
+          max: 500  # Consider requests under 500ms as good
+  goal: 0.99  # 99% availability target
+  rollingPeriod: 2592000s  # 30 days
+
+---
+# Uptime Check for Health Monitoring
+apiVersion: monitoring.googleapis.com/v1
+kind: UptimeCheckConfig
+metadata:
+  name: sql-rag-uptime-check
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG Application Health Check"
+  httpCheck:
+    path: "/_stcore/health"
+    port: 443
+    useSsl: true
+    validateSsl: true
+  monitoredResource:
+    type: "uptime_url"
+    labels:
+      project_id: ${PROJECT_ID}
+      host: "${SERVICE_NAME}-${PROJECT_HASH}-uc.a.run.app"
+  timeout: 10s
+  period: 60s  # Check every minute
+  contentMatchers:
+    - content: "ok"
+      matcher: CONTAINS_STRING
+
+---
+# Alert Policy for Application Errors
+apiVersion: monitoring.googleapis.com/v1
+kind: AlertPolicy
+metadata:
+  name: sql-rag-error-rate-alert
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG High Error Rate"
+  documentation:
+    content: |
+      This alert fires when the SQL RAG application experiences a high error rate.
+      
+      Troubleshooting steps:
+      1. Check Cloud Run logs: gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=sql-rag-app"
+      2. Verify API key configuration in Secret Manager
+      3. Check OpenAI and Gemini API status
+      4. Review recent deployments for potential issues
+    mimeType: "text/markdown"
+  conditions:
+    - displayName: "Error rate > 5%"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_run_revision"
+          resource.labels.service_name="sql-rag-app"
+          metric.type="run.googleapis.com/request_count"
+          metric.labels.response_code_class!="2xx"
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 0.05
+        duration: 300s  # 5 minutes
+        aggregations:
+          - alignmentPeriod: 60s
+            perSeriesAligner: ALIGN_RATE
+            crossSeriesReducer: REDUCE_SUM
+            groupByFields:
+              - "resource.labels.service_name"
+  notificationChannels: []  # Add notification channels as needed
+  alertStrategy:
+    autoClose: 604800s  # Auto-close after 7 days
+
+---
+# Alert Policy for High Response Time
+apiVersion: monitoring.googleapis.com/v1
+kind: AlertPolicy
+metadata:
+  name: sql-rag-latency-alert
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG High Response Time"
+  documentation:
+    content: |
+      This alert fires when the SQL RAG application response time is consistently high.
+      
+      Common causes and solutions:
+      1. Cold starts: Increase min-instances or implement warming
+      2. OpenAI API latency: Check OpenAI status dashboard
+      3. Large embedding operations: Optimize batch sizes
+      4. Memory pressure: Monitor memory usage and consider increasing allocation
+    mimeType: "text/markdown"
+  conditions:
+    - displayName: "95th percentile latency > 5 seconds"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_run_revision"
+          resource.labels.service_name="sql-rag-app"
+          metric.type="run.googleapis.com/request_latencies"
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 5000  # 5 seconds in milliseconds
+        duration: 300s  # 5 minutes
+        aggregations:
+          - alignmentPeriod: 60s
+            perSeriesAligner: ALIGN_DELTA
+            crossSeriesReducer: REDUCE_PERCENTILE_95
+            groupByFields:
+              - "resource.labels.service_name"
+  notificationChannels: []
+  alertStrategy:
+    autoClose: 604800s
+
+---
+# Alert Policy for Memory Usage
+apiVersion: monitoring.googleapis.com/v1
+kind: AlertPolicy
+metadata:
+  name: sql-rag-memory-alert
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG High Memory Usage"
+  documentation:
+    content: |
+      This alert fires when the SQL RAG application uses excessive memory.
+      
+      Actions to take:
+      1. Check for memory leaks in application logs
+      2. Monitor FAISS index loading and caching
+      3. Review large data processing operations
+      4. Consider increasing Cloud Run memory allocation
+    mimeType: "text/markdown"
+  conditions:
+    - displayName: "Memory utilization > 85%"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_run_revision"
+          resource.labels.service_name="sql-rag-app"
+          metric.type="run.googleapis.com/container/memory/utilizations"
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 0.85
+        duration: 600s  # 10 minutes
+        aggregations:
+          - alignmentPeriod: 60s
+            perSeriesAligner: ALIGN_MEAN
+            crossSeriesReducer: REDUCE_MEAN
+            groupByFields:
+              - "resource.labels.service_name"
+  notificationChannels: []
+  alertStrategy:
+    autoClose: 604800s
+
+---
+# Alert Policy for Cold Start Issues
+apiVersion: monitoring.googleapis.com/v1
+kind: AlertPolicy
+metadata:
+  name: sql-rag-cold-start-alert
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG Excessive Cold Starts"
+  documentation:
+    content: |
+      This alert fires when there are too many cold starts, indicating potential user experience issues.
+      
+      Solutions:
+      1. Increase min-instances in Cloud Run configuration
+      2. Implement application warming strategies
+      3. Review traffic patterns and scaling settings
+      4. Consider using Cloud Scheduler for periodic warming
+    mimeType: "text/markdown"
+  conditions:
+    - displayName: "Cold starts > 10 per hour"
+      conditionThreshold:
+        filter: |
+          resource.type="cloud_run_revision"
+          resource.labels.service_name="sql-rag-app"
+          metric.type="run.googleapis.com/container/startup_latencies"
+        comparison: COMPARISON_GREATER_THAN
+        thresholdValue: 10
+        duration: 3600s  # 1 hour
+        aggregations:
+          - alignmentPeriod: 3600s
+            perSeriesAligner: ALIGN_COUNT
+            crossSeriesReducer: REDUCE_SUM
+            groupByFields:
+              - "resource.labels.service_name"
+  notificationChannels: []
+  alertStrategy:
+    autoClose: 604800s
+
+---
+# Dashboard Configuration
+apiVersion: monitoring.googleapis.com/v1
+kind: Dashboard
+metadata:
+  name: sql-rag-dashboard
+  project: ${PROJECT_ID}
+spec:
+  displayName: "SQL RAG Application Dashboard"
+  mosaicLayout:
+    tiles:
+      # Request Rate Tile
+      - width: 6
+        height: 4
+        xPos: 0
+        yPos: 0
+        widget:
+          title: "Request Rate"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="cloud_run_revision"
+                      resource.labels.service_name="sql-rag-app"
+                      metric.type="run.googleapis.com/request_count"
+                    aggregation:
+                      alignmentPeriod: 60s
+                      perSeriesAligner: ALIGN_RATE
+                      crossSeriesReducer: REDUCE_SUM
+                      groupByFields:
+                        - "metric.labels.response_code_class"
+                plotType: LINE
+            yAxis:
+              label: "Requests per second"
+      
+      # Error Rate Tile
+      - width: 6
+        height: 4
+        xPos: 6
+        yPos: 0
+        widget:
+          title: "Error Rate (%)"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="cloud_run_revision"
+                      resource.labels.service_name="sql-rag-app"
+                      metric.type="run.googleapis.com/request_count"
+                      metric.labels.response_code_class!="2xx"
+                    aggregation:
+                      alignmentPeriod: 60s
+                      perSeriesAligner: ALIGN_RATE
+                      crossSeriesReducer: REDUCE_SUM
+                plotType: LINE
+            yAxis:
+              label: "Error percentage"
+      
+      # Response Time Tile
+      - width: 6
+        height: 4
+        xPos: 0
+        yPos: 4
+        widget:
+          title: "Response Time (95th percentile)"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="cloud_run_revision"
+                      resource.labels.service_name="sql-rag-app"
+                      metric.type="run.googleapis.com/request_latencies"
+                    aggregation:
+                      alignmentPeriod: 60s
+                      perSeriesAligner: ALIGN_DELTA
+                      crossSeriesReducer: REDUCE_PERCENTILE_95
+                plotType: LINE
+            yAxis:
+              label: "Latency (ms)"
+      
+      # Memory Usage Tile
+      - width: 6
+        height: 4
+        xPos: 6
+        yPos: 4
+        widget:
+          title: "Memory Usage"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="cloud_run_revision"
+                      resource.labels.service_name="sql-rag-app"
+                      metric.type="run.googleapis.com/container/memory/utilizations"
+                    aggregation:
+                      alignmentPeriod: 60s
+                      perSeriesAligner: ALIGN_MEAN
+                      crossSeriesReducer: REDUCE_MEAN
+                plotType: LINE
+            yAxis:
+              label: "Memory utilization"
+              scale: LINEAR
+      
+      # Instance Count Tile
+      - width: 6
+        height: 4
+        xPos: 0
+        yPos: 8
+        widget:
+          title: "Active Instances"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="cloud_run_revision"
+                      resource.labels.service_name="sql-rag-app"
+                      metric.type="run.googleapis.com/container/instance_count"
+                    aggregation:
+                      alignmentPeriod: 60s
+                      perSeriesAligner: ALIGN_MEAN
+                      crossSeriesReducer: REDUCE_SUM
+                plotType: LINE
+            yAxis:
+              label: "Instance count"
+      
+      # API Key Usage (Custom Metric)
+      - width: 6
+        height: 4
+        xPos: 6
+        yPos: 8
+        widget:
+          title: "OpenAI API Calls"
+          xyChart:
+            dataSets:
+              - timeSeriesQuery:
+                  timeSeriesFilter:
+                    filter: |
+                      resource.type="global"
+                      metric.type="custom.googleapis.com/sql_rag/openai_api_calls"
+                    aggregation:
+                      alignmentPeriod: 300s
+                      perSeriesAligner: ALIGN_RATE
+                      crossSeriesReducer: REDUCE_SUM
+                plotType: LINE
+            yAxis:
+              label: "API calls per second"

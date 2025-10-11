@@ -1,0 +1,100 @@
+# Cloud Build configuration for SQL RAG application
+# This file defines the CI/CD pipeline for automated deployment to Cloud Run
+
+steps:
+  # Step 1: Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'build',
+      '-t', 'gcr.io/$PROJECT_ID/sql-rag-app:$COMMIT_SHA',
+      '-t', 'gcr.io/$PROJECT_ID/sql-rag-app:latest',
+      '.'
+    ]
+    id: 'build-image'
+
+  # Step 2: Push the image to Google Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push', 
+      'gcr.io/$PROJECT_ID/sql-rag-app:$COMMIT_SHA'
+    ]
+    id: 'push-image'
+    waitFor: ['build-image']
+
+  # Step 3: Push the latest tag
+  - name: 'gcr.io/cloud-builders/docker'
+    args: [
+      'push', 
+      'gcr.io/$PROJECT_ID/sql-rag-app:latest'
+    ]
+    id: 'push-latest'
+    waitFor: ['build-image']
+
+  # Step 4: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args: [
+      'run', 'deploy', 'sql-rag-app',
+      '--image', 'gcr.io/$PROJECT_ID/sql-rag-app:$COMMIT_SHA',
+      '--region', 'us-central1',
+      '--platform', 'managed',
+      '--allow-unauthenticated',
+      '--port', '8080',
+      '--memory', '2Gi',
+      '--cpu', '2',
+      '--max-instances', '10',
+      '--min-instances', '0',
+      '--concurrency', '80',
+      '--timeout', '300',
+      '--set-env-vars', 'PYTHONUNBUFFERED=1,STREAMLIT_SERVER_ENABLE_CORS=false,STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false',
+      '--set-secrets', 'OPENAI_API_KEY=openai-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest',
+      '--labels', 'app=sql-rag,environment=production'
+    ]
+    id: 'deploy-cloudrun'
+    waitFor: ['push-image']
+
+# Build configuration options
+options:
+  # Use high-performance machine for faster builds
+  machineType: 'E2_HIGHCPU_8'
+  
+  # Set build timeout to 20 minutes
+  timeout: '1200s'
+  
+  # Enable Docker layer caching for faster subsequent builds
+  env:
+    - 'DOCKER_BUILDKIT=1'
+
+# Substitute variables for flexible deployment
+substitutions:
+  # Default region for deployment
+  _REGION: 'us-central1'
+  
+  # Default service name
+  _SERVICE_NAME: 'sql-rag-app'
+  
+  # Cloud Run configuration
+  _MEMORY: '2Gi'
+  _CPU: '2'
+  _MAX_INSTANCES: '10'
+  _MIN_INSTANCES: '0'
+  _CONCURRENCY: '80'
+
+# Build triggers configuration
+# To set up automatic triggers, run:
+# gcloud builds triggers create github \
+#   --repo-name=your-repo-name \
+#   --repo-owner=your-github-username \
+#   --branch-pattern="^main$" \
+#   --build-config=cloudbuild.yaml
+
+# Images to push to registry
+images:
+  - 'gcr.io/$PROJECT_ID/sql-rag-app:$COMMIT_SHA'
+  - 'gcr.io/$PROJECT_ID/sql-rag-app:latest'
+
+# Logs bucket (optional - for build log retention)
+# logsBucket: 'gs://your-build-logs-bucket'
+
+# Service account for build (optional - for additional permissions)
+# serviceAccount: 'projects/$PROJECT_ID/serviceAccounts/cloudbuild@$PROJECT_ID.iam.gserviceaccount.com'

@@ -54,6 +54,14 @@ except ImportError:
 
 # Import our enhanced RAG function and hybrid search components
 from simple_rag_simple_gemini import answer_question_simple_gemini
+from utils.embedding_provider import get_provider_info
+
+# Import conversation management
+try:
+    from core.conversation_manager import get_conversation_manager
+    CONVERSATION_MANAGER_AVAILABLE = True
+except ImportError:
+    CONVERSATION_MANAGER_AVAILABLE = False
 
 # Import necessary components for chat-specific RAG function
 from gemini_client import GeminiClient
@@ -370,6 +378,63 @@ def safe_get_value(row, column: str, default: str = '') -> str:
     except Exception as e:
         logger.debug(f"safe_get_value fallback for column '{column}': {e}")
         return default
+
+def get_user_session_id() -> str:
+    """
+    Get or create a unique user session ID for conversation management.
+    
+    Returns:
+        str: Unique user session identifier
+    """
+    if 'user_session_id' not in st.session_state:
+        import hashlib
+        import time
+        
+        # Create a unique session ID based on timestamp and random component
+        timestamp = str(time.time())
+        random_component = str(hash(timestamp + str(id(st.session_state))))
+        
+        # Create hash for shorter, more manageable ID
+        session_content = f"{timestamp}_{random_component}"
+        hash_object = hashlib.md5(session_content.encode())
+        st.session_state.user_session_id = f"user_{hash_object.hexdigest()[:16]}"
+        
+        logger.info(f"Generated new user session ID: {st.session_state.user_session_id}")
+    
+    return st.session_state.user_session_id
+
+def auto_save_conversation():
+    """
+    Auto-save the current conversation if conversation management is available.
+    This is called after each assistant response to keep conversations persisted.
+    """
+    if not CONVERSATION_MANAGER_AVAILABLE:
+        return
+    
+    # Only auto-save if we have messages and conversation manager is ready
+    if (not st.session_state.get('chat_messages') or 
+        'conversation_manager' not in st.session_state):
+        return
+    
+    try:
+        user_session_id = get_user_session_id()
+        conv_id = st.session_state.get('current_conversation_id')
+        
+        # Auto-save conversation
+        saved_id, success = st.session_state.conversation_manager.save_conversation(
+            messages=st.session_state.chat_messages,
+            user_session_id=user_session_id,
+            conversation_id=conv_id
+        )
+        
+        if success:
+            st.session_state.current_conversation_id = saved_id
+            logger.debug(f"Auto-saved conversation: {saved_id}")
+        else:
+            logger.warning("Auto-save failed")
+            
+    except Exception as e:
+        logger.error(f"Auto-save error: {e}")
 
 def calculate_pagination(total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, Any]:
     """Calculate pagination parameters for query display"""
@@ -1609,6 +1674,9 @@ def create_chat_page(vector_store, csv_data):
                 'token_usage': {'total_tokens': 0, 'prompt_tokens': 0, 'completion_tokens': 0}  # No token usage for schema agent
             })
             
+            # Auto-save conversation after schema response
+            auto_save_conversation()
+            
             st.rerun()
         else:
             # Generate response using chat-specific function
@@ -1643,6 +1711,9 @@ def create_chat_page(vector_store, csv_data):
                             st.session_state.token_usage = []
                         st.session_state.token_usage.append(token_usage)
                         
+                        # Auto-save conversation after successful response
+                        auto_save_conversation()
+                        
                     else:
                         # Add error message to chat
                         st.session_state.chat_messages.append({
@@ -1653,6 +1724,9 @@ def create_chat_page(vector_store, csv_data):
                             'agent_type': agent_type
                         })
                         
+                        # Auto-save conversation even with error message
+                        auto_save_conversation()
+                        
                 except Exception as e:
                     # Add error message to chat
                     st.session_state.chat_messages.append({
@@ -1662,6 +1736,9 @@ def create_chat_page(vector_store, csv_data):
                         'token_usage': {},
                         'agent_type': agent_type
                     })
+                    
+                    # Auto-save conversation with error message
+                    auto_save_conversation()
         
         # Rerun to show new messages
         st.rerun()
@@ -1996,7 +2073,176 @@ def main():
                         st.warning("Could not load status info")
         
         elif page == "💬 Chat":
-            # Chat page configuration: user context and table exclusions
+            # Chat page configuration: conversation management + user context and table exclusions
+            
+            # Conversation Management Section
+            if CONVERSATION_MANAGER_AVAILABLE:
+                st.subheader("💾 Conversations")
+                
+                # Initialize conversation manager and user session
+                if 'conversation_manager' not in st.session_state:
+                    try:
+                        st.session_state.conversation_manager = get_conversation_manager()
+                        logger.info("✅ Conversation manager initialized successfully")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to initialize conversation manager: {e}")
+                        st.error("❌ Failed to initialize conversation persistence")
+                        st.caption("Conversations will not be saved. Check Cloud configuration.")
+                        st.session_state.conversation_manager = None
+                
+                # Only proceed if conversation manager is available
+                if st.session_state.conversation_manager is None:
+                    st.warning("⚠️ Conversation persistence unavailable")
+                    st.caption("Check Google Cloud Firestore setup and permissions")
+                    st.divider()
+                    
+                else:
+                    user_session_id = get_user_session_id()
+                    
+                    # Display storage status
+                    try:
+                        storage_status = st.session_state.conversation_manager.get_storage_status()
+                        if storage_status['firestore_available']:
+                            st.success("☁️ Cloud Storage Active")
+                        else:
+                            st.warning("💻 Local Storage Only")
+                            if storage_status.get('fallback_conversations', 0) > 0:
+                                st.caption(f"{storage_status['fallback_conversations']} conversations in memory")
+                    except Exception as e:
+                        logger.error(f"Error getting storage status: {e}")
+                        st.warning("💻 Local Storage Only")
+                    
+                    # New Conversation Button
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("🆕 New Conversation", use_container_width=True):
+                            # Clear current conversation
+                            st.session_state.chat_messages = []
+                            st.session_state.token_usage = []
+                            if 'current_conversation_id' in st.session_state:
+                                del st.session_state.current_conversation_id
+                            st.rerun()
+                    
+                    with col2:
+                        # Save Current Conversation Button
+                        if st.session_state.get('chat_messages', []):
+                            if st.button("💾 Save Conversation", use_container_width=True):
+                                try:
+                                    conv_id = st.session_state.get('current_conversation_id')
+                                    saved_id, success = st.session_state.conversation_manager.save_conversation(
+                                        messages=st.session_state.chat_messages,
+                                        user_session_id=user_session_id,
+                                        conversation_id=conv_id
+                                    )
+                                    if success:
+                                        st.session_state.current_conversation_id = saved_id
+                                        st.success(f"✅ Conversation saved!")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Failed to save conversation")
+                                except Exception as e:
+                                    logger.error(f"Error saving conversation: {e}")
+                                    st.error("❌ Error saving conversation")
+                    
+                    # Load Conversations Section
+                    try:
+                        conversations = st.session_state.conversation_manager.list_conversations(
+                            user_session_id=user_session_id,
+                            limit=20
+                        )
+                        
+                        if conversations:
+                            # Search conversations
+                            search_term = st.text_input(
+                                "🔍 Search conversations:",
+                                placeholder="Search by title or tags...",
+                                key="conversation_search"
+                            )
+                            
+                            # Filter conversations if search term provided
+                            if search_term:
+                                try:
+                                    filtered_conversations = st.session_state.conversation_manager.list_conversations(
+                                        user_session_id=user_session_id,
+                                        limit=20,
+                                        search_term=search_term
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Error searching conversations: {e}")
+                                    filtered_conversations = conversations
+                            else:
+                                filtered_conversations = conversations
+                            
+                            # Display conversations
+                            if filtered_conversations:
+                                st.caption(f"Found {len(filtered_conversations)} conversation(s)")
+                                
+                                for conv in filtered_conversations:
+                                    with st.container():
+                                        # Conversation item
+                                        col1, col2, col3 = st.columns([3, 1, 1])
+                                        
+                                        with col1:
+                                            # Truncate long titles
+                                            display_title = conv.title
+                                            if len(display_title) > 40:
+                                                display_title = display_title[:37] + "..."
+                                            
+                                            st.markdown(f"**{display_title}**")
+                                            st.caption(f"{conv.message_count} messages • {conv.updated_at.strftime('%m/%d %H:%M')}")
+                                        
+                                        with col2:
+                                            # Load conversation button
+                                            if st.button("📂", key=f"load_{conv.conversation_id}", help="Load conversation"):
+                                                try:
+                                                    # Load conversation data
+                                                    conv_data = st.session_state.conversation_manager.load_conversation(
+                                                        conversation_id=conv.conversation_id,
+                                                        user_session_id=user_session_id
+                                                    )
+                                                    
+                                                    if conv_data:
+                                                        st.session_state.chat_messages = conv_data.get('messages', [])
+                                                        st.session_state.current_conversation_id = conv.conversation_id
+                                                        st.success(f"✅ Loaded: {conv.title}")
+                                                        st.rerun()
+                                                    else:
+                                                        st.error("❌ Failed to load conversation")
+                                                except Exception as e:
+                                                    logger.error(f"Error loading conversation: {e}")
+                                                    st.error("❌ Error loading conversation")
+                                        
+                                        with col3:
+                                            # Delete conversation button
+                                            if st.button("🗑️", key=f"delete_{conv.conversation_id}", help="Delete conversation"):
+                                                try:
+                                                    if st.session_state.conversation_manager.delete_conversation(
+                                                        conversation_id=conv.conversation_id,
+                                                        user_session_id=user_session_id
+                                                    ):
+                                                        st.success("✅ Conversation deleted")
+                                                        st.rerun()
+                                                    else:
+                                                        st.error("❌ Failed to delete conversation")
+                                                except Exception as e:
+                                                    logger.error(f"Error deleting conversation: {e}")
+                                                    st.error("❌ Error deleting conversation")
+                            else:
+                                st.info("No conversations found matching your search")
+                        else:
+                            st.info("No saved conversations yet")
+                            
+                    except Exception as e:
+                        logger.error(f"Error listing conversations: {e}")
+                        st.error("❌ Error loading conversations")
+                    
+                    st.divider()
+            else:
+                st.warning("⚠️ Conversation persistence unavailable")
+                st.caption("Install google-cloud-firestore to enable conversation saving")
+                st.divider()
+            
+            # User Context & Filters Section
             if SCHEMA_MANAGER_AVAILABLE and st.session_state.get('schema_manager'):
                 st.subheader("🧩 User Context & Filters")
                 user_context = st.text_area(
@@ -2061,7 +2307,14 @@ def main():
                     logger.info(f"📊 Vector Store Stats:")
                     logger.info(f"   - Total documents: {doc_count:,}")
                     logger.info(f"   - Index name: {selected_index}")
-                    logger.info(f"   - Embedding provider: Ollama (nomic-embed-text)")
+                    provider_info = get_provider_info()
+                    try:
+                        logger.info(
+                            f"   - Embedding provider: {provider_info.get('provider', 'unknown')} "
+                            f"({provider_info.get('model', '')})"
+                        )
+                    except Exception:
+                        pass
                     logger.debug(f"[VECTOR DEBUG] Vector database loaded successfully with {doc_count:,} documents")
                     if doc_count is not None:
                         st.success(f"✅ Loaded {doc_count:,} documents")

@@ -1,0 +1,276 @@
+# Google Cloud Logging Configuration for SQL RAG Application
+# This file defines log sinks, exclusions, and structured logging policies
+
+# Log Router - Error Logs Sink
+apiVersion: logging.googleapis.com/v2
+kind: LogSink
+metadata:
+  name: sql-rag-error-logs
+  project: ${PROJECT_ID}
+spec:
+  destination: "bigquery.googleapis.com/projects/${PROJECT_ID}/datasets/sql_rag_logs"
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    (severity>=ERROR OR jsonPayload.level="ERROR")
+  description: "Sink for SQL RAG application error logs to BigQuery for analysis"
+  includeChildren: true
+
+---
+# Log Router - Application Metrics Sink
+apiVersion: logging.googleapis.com/v2
+kind: LogSink
+metadata:
+  name: sql-rag-metrics-logs
+  project: ${PROJECT_ID}
+spec:
+  destination: "bigquery.googleapis.com/projects/${PROJECT_ID}/datasets/sql_rag_metrics"
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    (jsonPayload.type="metrics" OR jsonPayload.event_type="performance" OR jsonPayload.event_type="usage")
+  description: "Sink for SQL RAG application metrics and performance logs"
+  includeChildren: true
+
+---
+# Log Router - Security Events Sink
+apiVersion: logging.googleapis.com/v2
+kind: LogSink
+metadata:
+  name: sql-rag-security-logs
+  project: ${PROJECT_ID}
+spec:
+  destination: "storage.googleapis.com/${PROJECT_ID}-security-logs"
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    (jsonPayload.event_type="security" OR jsonPayload.type="auth" OR jsonPayload.unauthorized=true)
+  description: "Sink for SQL RAG security-related logs to Cloud Storage"
+  includeChildren: true
+
+---
+# Log Exclusion - Health Check Noise
+apiVersion: logging.googleapis.com/v2
+kind: LogExclusion
+metadata:
+  name: exclude-health-checks
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    httpRequest.requestUrl:"/_stcore/health"
+    httpRequest.status=200
+  description: "Exclude successful health check requests to reduce log volume"
+  disabled: false
+
+---
+# Log Exclusion - Static Asset Requests
+apiVersion: logging.googleapis.com/v2
+kind: LogExclusion
+metadata:
+  name: exclude-static-assets
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    httpRequest.requestUrl:("/static/" OR "/favicon.ico" OR "/_stcore/static/")
+    httpRequest.status=200
+  description: "Exclude successful static asset requests"
+  disabled: false
+
+---
+# Log-based Metric - Error Rate
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_error_rate
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    severity>=ERROR
+  description: "Count of error-level log entries for SQL RAG application"
+  metricDescriptor:
+    metricKind: GAUGE
+    valueType: INT64
+    unit: "1"
+    displayName: "SQL RAG Error Rate"
+    description: "Rate of errors in the SQL RAG application"
+
+---
+# Log-based Metric - OpenAI API Calls
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_openai_api_calls
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    jsonPayload.event_type="openai_api_call"
+  description: "Count of OpenAI API calls made by the SQL RAG application"
+  metricDescriptor:
+    metricKind: CUMULATIVE
+    valueType: INT64
+    unit: "1"
+    displayName: "OpenAI API Calls"
+    description: "Total number of OpenAI API calls"
+  labelExtractors:
+    model: "EXTRACT(jsonPayload.model)"
+    status: "EXTRACT(jsonPayload.status)"
+
+---
+# Log-based Metric - Embedding Generation Time
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_embedding_latency
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    jsonPayload.event_type="embedding_generation"
+  description: "Distribution of embedding generation latency"
+  metricDescriptor:
+    metricKind: CUMULATIVE
+    valueType: DISTRIBUTION
+    unit: "ms"
+    displayName: "Embedding Generation Latency"
+    description: "Time taken to generate embeddings"
+  valueExtractor: "EXTRACT(jsonPayload.duration_ms)"
+  bucketOptions:
+    exponentialBuckets:
+      numFiniteBuckets: 50
+      growthFactor: 1.4
+      scale: 1.0
+
+---
+# Log-based Metric - Query Processing Time
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_query_latency
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    jsonPayload.event_type="query_processing"
+  description: "Distribution of query processing latency"
+  metricDescriptor:
+    metricKind: CUMULATIVE
+    valueType: DISTRIBUTION
+    unit: "ms"
+    displayName: "Query Processing Latency"
+    description: "End-to-end time for query processing"
+  valueExtractor: "EXTRACT(jsonPayload.total_duration_ms)"
+  labelExtractors:
+    query_type: "EXTRACT(jsonPayload.query_type)"
+    success: "EXTRACT(jsonPayload.success)"
+
+---
+# Log-based Metric - Memory Usage
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_memory_usage
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    jsonPayload.event_type="memory_usage"
+  description: "Application memory usage metrics"
+  metricDescriptor:
+    metricKind: GAUGE
+    valueType: DOUBLE
+    unit: "By"
+    displayName: "Application Memory Usage"
+    description: "Memory usage by the SQL RAG application"
+  valueExtractor: "EXTRACT(jsonPayload.memory_bytes)"
+
+---
+# Log-based Metric - User Sessions
+apiVersion: logging.googleapis.com/v2
+kind: LogMetric
+metadata:
+  name: sql_rag_active_sessions
+  project: ${PROJECT_ID}
+spec:
+  filter: |
+    resource.type="cloud_run_revision"
+    resource.labels.service_name="sql-rag-app"
+    jsonPayload.event_type="session_activity"
+  description: "Count of active user sessions"
+  metricDescriptor:
+    metricKind: GAUGE
+    valueType: INT64
+    unit: "1"
+    displayName: "Active Sessions"
+    description: "Number of active user sessions"
+  labelExtractors:
+    session_type: "EXTRACT(jsonPayload.session_type)"
+
+---
+# BigQuery Dataset for Error Logs
+apiVersion: bigquery.googleapis.com/v2
+kind: Dataset
+metadata:
+  name: sql_rag_logs
+  project: ${PROJECT_ID}
+spec:
+  datasetId: "sql_rag_logs"
+  friendlyName: "SQL RAG Application Logs"
+  description: "Error logs and application events from SQL RAG application"
+  location: "US"
+  defaultTableExpirationMs: 7776000000  # 90 days
+  labels:
+    application: "sql-rag"
+    environment: "production"
+    data_type: "logs"
+
+---
+# BigQuery Dataset for Metrics
+apiVersion: bigquery.googleapis.com/v2
+kind: Dataset
+metadata:
+  name: sql_rag_metrics
+  project: ${PROJECT_ID}
+spec:
+  datasetId: "sql_rag_metrics"
+  friendlyName: "SQL RAG Application Metrics"
+  description: "Performance metrics and usage analytics from SQL RAG application"
+  location: "US"
+  defaultTableExpirationMs: 15552000000  # 180 days
+  labels:
+    application: "sql-rag"
+    environment: "production"
+    data_type: "metrics"
+
+---
+# Cloud Storage Bucket for Security Logs
+apiVersion: storage.googleapis.com/v1
+kind: Bucket
+metadata:
+  name: ${PROJECT_ID}-security-logs
+  project: ${PROJECT_ID}
+spec:
+  location: "US"
+  storageClass: "COLDLINE"
+  lifecycle:
+    rule:
+      - action:
+          type: "Delete"
+        condition:
+          age: 2555  # 7 years retention for security logs
+  uniformBucketLevelAccess:
+    enabled: true
+  labels:
+    application: "sql-rag"
+    environment: "production"
+    data_type: "security-logs"

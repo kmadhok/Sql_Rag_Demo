@@ -1,0 +1,118 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+README.md
+*.md
+docs/
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+
+# Environment files (security)
+.env
+.env.*
+!.env.example
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Generated application data (will be recreated)
+# Note: We re-include prebuilt FAISS indices under faiss_indices/index_* so Cloud Run can load them
+faiss_indices/
+!faiss_indices/index_*/
+!faiss_indices/index_*/**
+!faiss_indices/status_*.json
+
+catalog_analytics/
+!catalog_analytics/**
+query_rewrite_cache/
+*.pkl
+*.parquet
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Cloud deployment files
+cloudbuild.yaml
+deployment/
+scripts/
+terraform/
+
+# Large data files (should be downloaded at runtime)
+*.csv
+!sample_queries_with_metadata.csv
+!sample_queries_metadata_schema.csv
+data/
+!data/thelook_ecommerce_schema.csv
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
