@@ -1889,16 +1889,13 @@ def main():
                 query_rewriting = False
                 st.warning("⚠️ Query rewriting module not found")
             
-            # Add schema injection toggle
+            # Schema injection and SQL validation - always enabled when available
             if SCHEMA_MANAGER_AVAILABLE:
-                schema_injection = st.checkbox(
-                    "🗃️ Smart Schema Injection", 
-                    value=True, 
-                    help="Inject relevant database schema (reduces 39K+ schema rows to ~100-500 relevant ones)"
-                )
-
-                # User-provided context and table exclusions
-                if schema_injection and st.session_state.schema_manager:
+                schema_injection = True
+                st.success("✅ Smart Schema Injection: Always Active (reduces 39K+ schema rows to ~100-500 relevant ones)")
+                
+                # User-provided context and table exclusions (still optional)
+                if st.session_state.schema_manager:
                     st.subheader("🧩 User Context & Filters")
                     # Additional freeform context appended to the prompt
                     user_context = st.text_area(
@@ -1928,29 +1925,11 @@ def main():
                 schema_injection = False
                 st.warning("⚠️ Schema injection unavailable - check schema_manager.py and schema.csv")
             
-            # Add SQL validation toggle
+            # SQL validation - always enabled when available
             if SQL_VALIDATION_AVAILABLE:
-                sql_validation = st.checkbox(
-                    "✅ SQL Validation", 
-                    value=False, 
-                    help="Validate generated SQL queries against database schema"
-                )
-                
-                if sql_validation:
-                    validation_level = st.selectbox(
-                        "Validation Level:",
-                        [ValidationLevel.SYNTAX_ONLY, ValidationLevel.SCHEMA_BASIC, ValidationLevel.SCHEMA_STRICT],
-                        index=1,  # Default to SCHEMA_BASIC
-                        format_func=lambda x: {
-                            ValidationLevel.SYNTAX_ONLY: "Syntax Only - Check SQL syntax",
-                            ValidationLevel.SCHEMA_BASIC: "Schema Basic - Check tables/columns exist",
-                            ValidationLevel.SCHEMA_STRICT: "Schema Strict - Full validation with types"
-                        }[x],
-                        help="Choose validation strictness level"
-                    )
-                else:
-                    # No validation requested; don't require enum
-                    validation_level = None
+                sql_validation = True
+                validation_level = ValidationLevel.SCHEMA_BASIC  # Set sensible default
+                st.success("✅ SQL Validation: Always Active (Schema Basic level - validates tables/columns exist)")
             else:
                 sql_validation = False
                 validation_level = None

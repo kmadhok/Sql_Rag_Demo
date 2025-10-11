@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Utility functions for Modular SQL RAG Streamlit application.
+Common utility functions for SQL RAG Streamlit application.
+Originally extracted from app_simple_gemini.py, now properly organized in utils package.
 """
 
 import json
@@ -8,7 +9,8 @@ import math
 import pandas as pd
 from typing import Any, Dict, List
 
-from .config import GEMINI_MAX_TOKENS, QUERIES_PER_PAGE
+# Import from config with absolute import (no relative imports)
+from config import GEMINI_MAX_TOKENS, QUERIES_PER_PAGE
 
 
 def estimate_token_count(text: str) -> int:
@@ -202,61 +204,3 @@ def is_empty_or_whitespace(value) -> bool:
     if isinstance(value, str) and value.strip() == '':
         return True
     return False
-
-
-def find_original_queries_for_sources(sources, csv_data):
-    """
-    Map vector store sources back to original CSV query rows
-    
-    Args:
-        sources: List of Document objects from vector store search
-        csv_data: DataFrame containing original queries
-        
-    Returns:
-        List of unique CSV rows that correspond to the sources
-    """
-    if not sources or csv_data.empty:
-        return []
-    
-    matched_queries = []
-    seen_queries = set()  # Track unique queries to avoid duplicates
-    
-    for doc in sources:
-        # Try to match based on content similarity
-        chunk_content = doc.page_content.strip().lower()
-        
-        # Look for the best matching query in CSV data
-        best_match = None
-        best_similarity = 0
-        
-        for idx, row in csv_data.iterrows():
-            query_content = safe_get_value(row, 'query').strip().lower()
-            
-            # Skip empty queries
-            if not query_content:
-                continue
-            
-            # Calculate similarity (simple approach - substring matching)
-            if chunk_content in query_content or query_content in chunk_content:
-                similarity = min(len(chunk_content), len(query_content)) / max(len(chunk_content), len(query_content))
-                
-                if similarity > best_similarity:
-                    best_similarity = similarity
-                    best_match = row
-            
-            # Also try exact query matching if chunk contains the full query
-            if query_content in chunk_content and len(query_content) > 50:  # Avoid matching very short queries
-                best_match = row
-                best_similarity = 1.0
-                break
-        
-        # Add the best match if it's good enough and not already seen
-        if best_match is not None and best_similarity > 0.3:  # Minimum similarity threshold
-            query_key = safe_get_value(best_match, 'query')[:100]  # Use first 100 chars as unique key
-            
-            if query_key not in seen_queries:
-                matched_queries.append(best_match)
-                seen_queries.add(query_key)
-    
-    # Sort by relevance (maintain original source order for first occurrence)
-    return matched_queries
