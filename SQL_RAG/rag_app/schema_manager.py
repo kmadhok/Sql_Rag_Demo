@@ -309,13 +309,14 @@ class SchemaManager:
         normalized_name = self._normalize_table_name(table_name)
         return self.schema_lookup.get(normalized_name, [])
     
-    def get_relevant_schema(self, table_names: List[str], max_tables: int = 50) -> str:
+    def get_relevant_schema(self, table_names: List[str], max_tables: int = 50, include_bigquery_guidance: bool = True) -> str:
         """
         Get filtered schema for relevant tables, formatted for LLM consumption.
         
         Args:
             table_names: List of table names to include
             max_tables: Maximum number of tables to include (prevents overwhelming context)
+            include_bigquery_guidance: Whether to include BigQuery-specific data type guidance
             
         Returns:
             Formatted schema string ready for LLM prompt injection
@@ -330,6 +331,7 @@ class SchemaManager:
         tables_found = []
         tables_not_found = []
         total_columns = 0
+        data_types_used = set()
         
         for table_name in unique_tables:
             schema = self.get_schema_for_table(table_name)
@@ -337,20 +339,35 @@ class SchemaManager:
             if schema:
                 tables_found.append(table_name)
                 
-                # Format table schema
-                schema_parts.append(f"\n{table_name}:")
+                # Get fully qualified name if available
+                fqn = self.table_fqn_map.get(table_name, table_name)
+                
+                # Format table schema with FQN
+                schema_parts.append(f"\n{fqn}:")
                 for column, datatype in schema:
-                    schema_parts.append(f"  - {column} ({datatype})")
+                    # Add BigQuery-specific data type notes
+                    if include_bigquery_guidance:
+                        datatype_note = self._get_bigquery_datatype_guidance(datatype)
+                        schema_parts.append(f"  - {column} ({datatype}){datatype_note}")
+                    else:
+                        schema_parts.append(f"  - {column} ({datatype})")
                     total_columns += 1
+                    data_types_used.add(datatype)
             else:
                 tables_not_found.append(table_name)
         
         if not tables_found:
             return ""
         
-        # Build final schema string
+        # Build final schema string with BigQuery guidance
         header = f"RELEVANT DATABASE SCHEMA ({len(tables_found)} tables, {total_columns} columns):"
-        schema_text = header + "\n" + "\n".join(schema_parts)
+        
+        # Add BigQuery-specific guidance header
+        bigquery_guidance = ""
+        if include_bigquery_guidance and data_types_used:
+            bigquery_guidance = self._build_bigquery_guidance_section(data_types_used)
+        
+        schema_text = header + bigquery_guidance + "\n" + "\n".join(schema_parts)
         
         # Add coverage info if some tables weren't found
         if tables_not_found and self.verbose:
@@ -363,6 +380,69 @@ class SchemaManager:
                 logger.debug(f"Tables not found in schema: {tables_not_found}")
         
         return schema_text
+    
+    def _get_bigquery_datatype_guidance(self, datatype: str) -> str:
+        """
+        Get BigQuery-specific guidance for a data type.
+        
+        Args:
+            datatype: The data type from schema (e.g., TIMESTAMP, STRING, etc.)
+            
+        Returns:
+            Additional guidance string for the data type
+        """
+        datatype_upper = datatype.upper()
+        
+        if datatype_upper == 'TIMESTAMP':
+            return " - Use TIMESTAMP functions like CURRENT_TIMESTAMP(), TIMESTAMP_SUB(), avoid mixing with DATETIME"
+        elif datatype_upper == 'DATETIME':
+            return " - Use DATETIME functions, avoid mixing with TIMESTAMP"
+        elif datatype_upper == 'DATE':
+            return " - Use DATE functions like CURRENT_DATE(), DATE_SUB()"
+        elif datatype_upper == 'STRING':
+            return " - Text data, use string functions like CONCAT(), LOWER()"
+        elif datatype_upper in ['INTEGER', 'INT64']:
+            return " - Numeric data, use for aggregations like SUM(), COUNT()"
+        elif datatype_upper in ['FLOAT', 'FLOAT64', 'NUMERIC', 'DECIMAL']:
+            return " - Decimal data, use for calculations and aggregations"
+        elif datatype_upper == 'GEOGRAPHY':
+            return " - Geographic data, use ST_* geography functions"
+        else:
+            return ""
+    
+    def _build_bigquery_guidance_section(self, data_types_used: set) -> str:
+        """
+        Build BigQuery-specific guidance section based on data types present.
+        
+        Args:
+            data_types_used: Set of data types present in the schema
+            
+        Returns:
+            Formatted guidance section
+        """
+        guidance_parts = ["\n\nBIGQUERY SQL REQUIREMENTS:"]
+        
+        # General BigQuery guidance
+        guidance_parts.append("- Always use fully qualified table names: `project.dataset.table`")
+        guidance_parts.append("- Use BigQuery standard SQL syntax")
+        
+        # Data type specific guidance based on what's present
+        if 'TIMESTAMP' in data_types_used:
+            guidance_parts.append("- TIMESTAMP columns: Use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL X DAY) for date arithmetic")
+            guidance_parts.append("- TIMESTAMP comparisons: Do NOT mix with DATETIME functions")
+        
+        if 'DATETIME' in data_types_used:
+            guidance_parts.append("- DATETIME columns: Use DATETIME functions, separate from TIMESTAMP")
+        
+        if 'DATE' in data_types_used:
+            guidance_parts.append("- DATE columns: Use DATE_SUB(CURRENT_DATE(), INTERVAL X DAY) for date arithmetic")
+        
+        # Common error prevention
+        guidance_parts.append("- For date filtering with TIMESTAMP columns, use: WHERE timestamp_col >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL X DAY)")
+        guidance_parts.append("- Avoid mixing TIMESTAMP and DATETIME types in comparisons")
+        guidance_parts.append("- Use proper casting when needed: CAST(column AS STRING) or CAST(column AS TIMESTAMP)")
+        
+        return "\n".join(guidance_parts)
     
     def get_schema_stats(self) -> Dict[str, any]:
         """

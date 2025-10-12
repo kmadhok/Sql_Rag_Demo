@@ -52,7 +52,7 @@ class SQLValidator:
     SQL Query Validator that checks generated SQL against database schema
     """
     
-    def __init__(self, schema_manager=None, validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC):
+    def __init__(self, schema_manager=None, validation_level: ValidationLevel = ValidationLevel.SCHEMA_STRICT):
         """
         Initialize SQL validator
         
@@ -330,9 +330,17 @@ class SQLValidator:
             
             # Validate columns exist in their tables
             for column_info in columns:
-                if isinstance(column_info, dict) and 'table' in column_info and 'column' in column_info:
-                    table_name = column_info['table']
-                    column_name = column_info['column']
+                # Handle frozenset of items or dict format
+                if isinstance(column_info, frozenset):
+                    column_dict = dict(column_info)
+                elif isinstance(column_info, dict):
+                    column_dict = column_info
+                else:
+                    continue
+                
+                if 'table' in column_dict and 'column' in column_dict:
+                    table_name = column_dict['table']
+                    column_name = column_dict['column']
                     
                     if not self._validate_column_exists(table_name, column_name):
                         result.errors.append(f"Column '{column_name}' not found in table '{table_name}'")
@@ -344,6 +352,10 @@ class SQLValidator:
             # Validate JOIN relationships
             for join_info in joins:
                 self._validate_join(join_info, result)
+            
+            # Validate BigQuery-specific data type usage
+            if self.validation_level == ValidationLevel.SCHEMA_STRICT:
+                self._validate_bigquery_data_types(sql_query, result)
                 
         except Exception as e:
             logger.error(f"Schema validation error: {e}")
@@ -408,10 +420,11 @@ class SQLValidator:
                 if clean_table:
                     tables.add(clean_table.lower())
             
-            # Extract columns (basic pattern matching)
-            # This is simplified - full parsing would require more sophisticated analysis
+            # Extract columns with table context
+            columns = self._extract_columns_with_tables(sql_query, tables)
             
             logger.debug(f"Extracted {len(tables)} tables from SQL: {list(tables)}")
+            logger.debug(f"Extracted {len(columns)} columns from SQL: {list(columns)}")
             
         except Exception as e:
             logger.error(f"Error extracting SQL elements: {e}")
@@ -490,6 +503,169 @@ class SQLValidator:
             return False
         
         return False
+    
+    def _extract_columns_with_tables(self, sql_query: str, tables: Set[str]) -> Set[Dict]:
+        """
+        Extract columns with their table context from SQL query
+        
+        Args:
+            sql_query: SQL query to analyze
+            tables: Set of tables found in the query
+            
+        Returns:
+            Set of dictionaries with table and column information
+        """
+        columns = set()
+        
+        try:
+            # Parse SQL into tokens
+            parsed = sqlparse.parse(sql_query)[0]
+            
+            # Convert to string for pattern matching
+            sql_upper = sql_query.upper()
+            sql_original = sql_query
+            
+            # Extract SELECT clause columns
+            select_patterns = [
+                # Pattern for table.column references
+                r'([a-zA-Z_][a-zA-Z0-9_.]*)\\.([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Pattern for standalone columns in SELECT (more careful)
+                r'SELECT\\s+(?:[^,]*, *)*([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Pattern for columns in WHERE clause
+                r'WHERE\\s+(?:[^,]*, *)*([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Pattern for columns in GROUP BY
+                r'GROUP\\s+BY\\s+(?:[^,]*, *)*([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Pattern for columns in ORDER BY  
+                r'ORDER\\s+BY\\s+(?:[^,]*, *)*([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Pattern for columns in ON clause (JOINs)
+                r'ON\\s+(?:[^,]*, *)*([a-zA-Z_][a-zA-Z0-9_]*)',
+            ]
+            
+            # Extract table.column references (most reliable)
+            table_column_pattern = r'([a-zA-Z_][a-zA-Z0-9_.]*)\\.([a-zA-Z_][a-zA-Z0-9_]*)'
+            table_column_matches = re.findall(table_column_pattern, sql_original, re.IGNORECASE)
+            
+            for table_ref, column_name in table_column_matches:
+                clean_table = self._clean_identifier(table_ref)
+                clean_column = self._clean_identifier(column_name)
+                
+                if clean_table and clean_column:
+                    # Map table aliases to actual table names if possible
+                    actual_table = self._resolve_table_alias(clean_table, tables, sql_query)
+                    columns.add(frozenset([('table', actual_table), ('column', clean_column)]))
+            
+            # Extract standalone column references (more challenging, needs context)
+            # Look for patterns that are likely column references in known contexts
+            standalone_patterns = [
+                # Columns after SELECT keyword (basic pattern)
+                r'SELECT\\s+(?:DISTINCT\\s+)?([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Columns after commas in SELECT
+                r',\\s*([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Columns in WHERE conditions
+                r'WHERE\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*[=<>!]',
+                # Columns in HAVING conditions  
+                r'HAVING\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*[=<>!]',
+                # Columns in GROUP BY
+                r'GROUP\\s+BY\\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Columns in ORDER BY
+                r'ORDER\\s+BY\\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                # Columns in aggregate functions
+                r'(?:COUNT|SUM|AVG|MIN|MAX|DISTINCT)\\s*\\(\\s*([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\)',
+            ]
+            
+            for pattern in standalone_patterns:
+                matches = re.findall(pattern, sql_original, re.IGNORECASE)
+                for match in matches:
+                    clean_column = self._clean_identifier(match)
+                    if clean_column and not self._is_sql_keyword(clean_column):
+                        # Try to infer table from context or default to first table
+                        inferred_table = self._infer_table_for_column(clean_column, tables, sql_query)
+                        if inferred_table:
+                            columns.add(frozenset([('table', inferred_table), ('column', clean_column)]))
+            
+            # Convert frozenset back to dict for easier handling
+            result_columns = set()
+            for col_set in columns:
+                col_dict = dict(col_set)
+                result_columns.add(frozenset(col_dict.items()))
+            
+        except Exception as e:
+            logger.error(f"Error extracting columns: {e}")
+        
+        return result_columns
+    
+    def _resolve_table_alias(self, table_ref: str, tables: Set[str], sql_query: str) -> str:
+        """
+        Resolve table alias to actual table name
+        
+        Args:
+            table_ref: Table reference (could be alias)
+            tables: Set of actual table names
+            sql_query: Full SQL query for context
+            
+        Returns:
+            Actual table name
+        """
+        # If table_ref is already in tables, return it
+        if table_ref.lower() in [t.lower() for t in tables]:
+            return table_ref
+        
+        # Look for alias patterns like "FROM actual_table alias" or "FROM actual_table AS alias"
+        alias_patterns = [
+            rf'FROM\\s+([a-zA-Z_][a-zA-Z0-9_.]*(?:\\.[a-zA-Z_][a-zA-Z0-9_.]*)*)`?\\s+(?:AS\\s+)?{re.escape(table_ref)}\\b',
+            rf'JOIN\\s+([a-zA-Z_][a-zA-Z0-9_.]*(?:\\.[a-zA-Z_][a-zA-Z0-9_.]*)*)`?\\s+(?:AS\\s+)?{re.escape(table_ref)}\\b'
+        ]
+        
+        for pattern in alias_patterns:
+            matches = re.findall(pattern, sql_query, re.IGNORECASE)
+            for match in matches:
+                clean_match = self._clean_identifier(match)
+                if clean_match and clean_match.lower() in [t.lower() for t in tables]:
+                    return clean_match
+        
+        # Default: return the table_ref as-is or first table if only one
+        if len(tables) == 1:
+            return list(tables)[0]
+        
+        return table_ref
+    
+    def _infer_table_for_column(self, column_name: str, tables: Set[str], sql_query: str) -> Optional[str]:
+        """
+        Infer which table a standalone column belongs to
+        
+        Args:
+            column_name: Column name
+            tables: Available tables
+            sql_query: SQL query for context
+            
+        Returns:
+            Inferred table name or None
+        """
+        # If only one table, assume it belongs to that table
+        if len(tables) == 1:
+            return list(tables)[0]
+        
+        # Try to find the column in schema if available
+        if self.schema_manager and hasattr(self.schema_manager, 'get_table_columns'):
+            for table in tables:
+                table_columns = self.schema_manager.get_table_columns(table)
+                if column_name.lower() in [col.lower() for col in table_columns]:
+                    return table
+        
+        # Default to first table (not ideal but better than nothing)
+        return list(tables)[0] if tables else None
+    
+    def _is_sql_keyword(self, word: str) -> bool:
+        """
+        Check if word is a SQL keyword
+        
+        Args:
+            word: Word to check
+            
+        Returns:
+            True if word is a SQL keyword
+        """
+        return word.upper() in self.sql_keywords
     
     def _validate_table_exists(self, table_name: str) -> bool:
         """
@@ -652,9 +828,111 @@ class SQLValidator:
             logger.error(f"Error generating column suggestions: {e}")
         
         return suggestions
+    
+    def _validate_bigquery_data_types(self, sql_query: str, result: ValidationResult) -> None:
+        """
+        Validate BigQuery-specific data type usage patterns
+        
+        Args:
+            sql_query: SQL query to validate
+            result: ValidationResult to update
+        """
+        sql_upper = sql_query.upper()
+        
+        # Check for common BigQuery data type errors
+        
+        # 1. TIMESTAMP/DATETIME mixing errors
+        timestamp_patterns = [
+            (r'DATE_SUB\s*\(\s*CURRENT_DATE\s*\(\s*\)\s*,', 
+             "Use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), ...) for TIMESTAMP columns, not DATE_SUB(CURRENT_DATE(), ...)"),
+            (r'>=\s*DATE_SUB\s*\(\s*CURRENT_DATE', 
+             "When comparing with TIMESTAMP columns, use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), ...) instead of DATE_SUB"),
+            (r'<=\s*DATE_SUB\s*\(\s*CURRENT_DATE', 
+             "When comparing with TIMESTAMP columns, use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), ...) instead of DATE_SUB"),
+        ]
+        
+        for pattern, error_msg in timestamp_patterns:
+            if re.search(pattern, sql_upper):
+                # Check if query involves TIMESTAMP columns
+                if self._query_uses_timestamp_columns(sql_query):
+                    result.errors.append(f"BigQuery data type error: {error_msg}")
+                    result.suggestions.append("Example: WHERE timestamp_col >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)")
+        
+        # 2. Common casting issues
+        if 'CAST(' in sql_upper:
+            # Look for potentially problematic casts
+            cast_patterns = [
+                (r'CAST\s*\(\s*[^)]+\s+AS\s+DATETIME\s*\)', 
+                 "Be careful when casting to DATETIME - ensure compatibility with column types"),
+                (r'CAST\s*\(\s*[^)]+\s+AS\s+TIMESTAMP\s*\)', 
+                 "When casting to TIMESTAMP, ensure the source format is compatible")
+            ]
+            
+            for pattern, warning_msg in cast_patterns:
+                if re.search(pattern, sql_upper):
+                    result.warnings.append(f"BigQuery casting: {warning_msg}")
+        
+        # 3. Check for missing fully qualified table names
+        if not re.search(r'`[^`]+\.[^`]+\.[^`]+`', sql_query):
+            if any(table in sql_query for table in ['FROM ', 'JOIN ']):
+                result.warnings.append("Consider using fully qualified table names: `project.dataset.table`")
+        
+        # 4. Geography function usage
+        if 'GEOGRAPHY' in sql_upper and not re.search(r'ST_[A-Z]+\s*\(', sql_upper):
+            result.warnings.append("When working with GEOGRAPHY columns, use ST_* functions (e.g., ST_DISTANCE, ST_INTERSECTS)")
+    
+    def _query_uses_timestamp_columns(self, sql_query: str) -> bool:
+        """
+        Check if the query uses columns that are TIMESTAMP type
+        
+        Args:
+            sql_query: SQL query to check
+            
+        Returns:
+            True if query uses TIMESTAMP columns
+        """
+        if not self.schema_manager:
+            return True  # Assume yes if we can't check
+        
+        # Extract table and column references from query
+        tables, columns, _ = self._extract_sql_elements(sql_query)
+        
+        for table_name in tables:
+            table_schema = self.schema_manager.get_schema_for_table(table_name)
+            if table_schema:
+                for column_name, data_type in table_schema:
+                    if data_type.upper() == 'TIMESTAMP':
+                        # Check if this TIMESTAMP column is referenced in WHERE clauses or comparisons
+                        column_pattern = rf'\b{re.escape(column_name)}\b'
+                        if re.search(column_pattern, sql_query, re.IGNORECASE):
+                            return True
+        
+        return False
+    
+    def _get_column_data_type(self, table_name: str, column_name: str) -> Optional[str]:
+        """
+        Get the data type of a specific column
+        
+        Args:
+            table_name: Table name
+            column_name: Column name
+            
+        Returns:
+            Data type string or None if not found
+        """
+        if not self.schema_manager:
+            return None
+        
+        table_schema = self.schema_manager.get_schema_for_table(table_name)
+        if table_schema:
+            for col_name, data_type in table_schema:
+                if col_name.lower() == column_name.lower():
+                    return data_type
+        
+        return None
 
 def validate_sql_query(sql_text: str, schema_manager=None, 
-                      validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC) -> ValidationResult:
+                      validation_level: ValidationLevel = ValidationLevel.SCHEMA_STRICT) -> ValidationResult:
     """
     Convenience function to validate SQL query
     

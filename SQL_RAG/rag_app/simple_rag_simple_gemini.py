@@ -17,6 +17,8 @@ Functions:
 import time
 import logging
 import os
+import json
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Any
 from pathlib import Path
 
@@ -64,6 +66,92 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Debug Logging Utility for SQL Validation Pipeline
+class DebugLogger:
+    """Enhanced debugging utility for SQL validation pipeline"""
+    
+    def __init__(self):
+        self.debug_file = Path("debug_logs.md")
+        self.session_start = datetime.now()
+        self.step_counter = 0
+        
+    def write_header(self, user_question: str):
+        """Write debug session header"""
+        self.step_counter = 0
+        header = f"""# SQL Validation Debug Session
+**Session Started**: {self.session_start.strftime('%Y-%m-%d %H:%M:%S')}
+**User Question**: "{user_question}"
+
+## Pipeline Trace
+
+"""
+        with open(self.debug_file, 'w') as f:
+            f.write(header)
+        logger.info(f"🐛 Debug session started - logging to {self.debug_file}")
+    
+    def log_step(self, step_name: str, content: Any, details: Dict = None):
+        """Log a pipeline step with content and details"""
+        self.step_counter += 1
+        timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        
+        # Format content based on type
+        if isinstance(content, str):
+            formatted_content = content
+        elif isinstance(content, (list, dict)):
+            formatted_content = json.dumps(content, indent=2, default=str)[:2000] + "..." if len(str(content)) > 2000 else json.dumps(content, indent=2, default=str)
+        else:
+            formatted_content = str(content)
+        
+        log_entry = f"""
+### Step {self.step_counter}: {step_name}
+**Timestamp**: {timestamp}
+
+**Content**:
+```
+{formatted_content}
+```
+"""
+        
+        if details:
+            log_entry += f"""
+**Details**:
+```json
+{json.dumps(details, indent=2, default=str)}
+```
+"""
+        
+        with open(self.debug_file, 'a') as f:
+            f.write(log_entry)
+        
+        logger.info(f"🐛 Step {self.step_counter}: {step_name}")
+        
+    def log_schema_injection(self, tables_identified: List[str], schema_content: str):
+        """Log schema injection details"""
+        self.log_step("Schema Injection", schema_content, {
+            "tables_identified": tables_identified,
+            "schema_length": len(schema_content),
+            "tables_count": len(tables_identified)
+        })
+    
+    def log_sql_validation(self, sql: str, validation_result: Any):
+        """Log SQL validation results"""
+        validation_details = {
+            "is_valid": getattr(validation_result, 'is_valid', 'Unknown'),
+            "errors": getattr(validation_result, 'errors', []),
+            "warnings": getattr(validation_result, 'warnings', []),
+            "tables_found": list(getattr(validation_result, 'tables_found', [])),
+            "columns_found": list(getattr(validation_result, 'columns_found', []))
+        }
+        
+        self.log_step("SQL Validation", sql, validation_details)
+    
+    def log_error(self, error_type: str, error_message: str, context: Dict = None):
+        """Log validation errors"""
+        self.log_step(f"ERROR: {error_type}", error_message, context or {})
+
+# Global debug logger instance
+debug_logger = DebugLogger()
 
 # Configuration
 GEMINI_MODEL = "gemini-2.5-flash-lite"
@@ -389,42 +477,59 @@ Explanation:"""
     elif agent_type == "create":
         # Creation Agent - Focus on generating working SQL code
         if gemini_mode:
-            return f"""You are a SQL Creation Expert. Your role is to generate efficient, working SQL queries from natural language requirements. Use the provided schema, context, and conversation history to create optimal SQL solutions. When targeting BigQuery, always use fully-qualified table names (project.dataset.table); aliases are allowed after qualification.
+            return f"""You are a BigQuery SQL Creation Expert. Your role is to generate efficient, working BigQuery SQL queries from natural language requirements. Use the provided schema with data type guidance, context, and conversation history to create optimal SQL solutions.
+
+CRITICAL BIGQUERY REQUIREMENTS:
+- Always use fully-qualified table names: `project.dataset.table` (aliases allowed after qualification)
+- Use BigQuery Standard SQL syntax
+- For TIMESTAMP columns: Use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL X DAY) - NOT DATE_SUB with CURRENT_DATE()
+- For DATE columns: Use DATE_SUB(CURRENT_DATE(), INTERVAL X DAY)
+- NEVER mix TIMESTAMP and DATETIME types in comparisons
+- Use proper data type casting: CAST(column AS STRING), CAST(value AS TIMESTAMP)
+- Pay attention to column data types from the schema to avoid type mismatch errors
+
 {schema_section}
 {conversation_section}
 {context}
 
 Current Requirement: {question}
 
-As a Creation Expert, provide a comprehensive solution that:
-1. Generates working SQL code that meets the specified requirements
-2. Uses appropriate table structures and relationships from the schema
-3. Follows SQL best practices and performance considerations
-4. References similar patterns from the context examples when applicable
-5. Builds on previous conversation context when relevant
-6. Includes clear comments explaining the approach
-7. Considers edge cases and data integrity
-8. Suggests optimizations or alternative approaches when beneficial
+As a BigQuery Creation Expert, provide a comprehensive solution that:
+1. Generates working BigQuery SQL code that meets the specified requirements
+2. Uses appropriate table structures and column data types from the schema
+3. Follows BigQuery SQL best practices and avoids common type errors
+4. Uses correct BigQuery functions for each data type (especially TIMESTAMP vs DATE)
+5. References similar patterns from the context examples when applicable
+6. Builds on previous conversation context when relevant
+7. Includes clear comments explaining the approach and data type considerations
+8. Considers edge cases and data integrity
+9. Uses proper BigQuery date/time functions to avoid TIMESTAMP/DATETIME conflicts
 
-Focus on creating practical, efficient SQL solutions.
+Focus on creating practical, error-free BigQuery SQL solutions that respect column data types.
 
 SQL Solution:"""
         else:
-            return f"""You are a SQL Creation Expert. Generate efficient SQL queries from requirements using the provided schema, examples, and conversation history.
+            return f"""You are a BigQuery SQL Creation Expert. Generate efficient BigQuery SQL queries from requirements using the provided schema with data types, examples, and conversation history.
+
+IMPORTANT: Use BigQuery syntax - TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL X DAY) for TIMESTAMP columns, not DATE_SUB. Pay attention to column data types to avoid type mismatches.
+
 {schema_section}
 {conversation_section}
 {context}
 
 Current Requirement: {question}
 
-Create working SQL code that meets the requirements with clear comments.
+Create working BigQuery SQL code with proper data types and clear comments.
 
 SQL Solution:"""
     
     else:
         # Default behavior - General SQL assistance
         if gemini_mode:
-            return f"""You are a SQL expert analyzing a comprehensive set of examples. Use the provided schema, context, and conversation history to give a detailed, helpful answer. When writing SQL for BigQuery, always reference tables with fully-qualified names (project.dataset.table) and optionally use aliases.
+            return f"""You are a BigQuery SQL expert analyzing a comprehensive set of examples. Use the provided schema with data type guidance, context, and conversation history to give a detailed, helpful answer. When writing SQL for BigQuery, always use proper data types and functions.
+
+BIGQUERY REQUIREMENTS: Use TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL X DAY) for TIMESTAMP columns, not DATE_SUB. Always use fully-qualified table names (project.dataset.table) and respect column data types.
+
 {schema_section}
 {conversation_section}
 {context}
@@ -434,14 +539,17 @@ Current Question: {question}
 Provide a comprehensive answer that:
 1. Directly addresses the user's current question
 2. References relevant examples from the context
-3. Uses the database schema when explaining table structures and relationships
+3. Uses the database schema and respects column data types
 4. Builds on previous conversation when relevant
-5. Explains key SQL concepts and patterns
-6. Suggests best practices when applicable
+5. Explains key BigQuery SQL concepts and patterns
+6. Suggests BigQuery best practices when applicable
 
 Answer:"""
         else:
-            return f"""You are a SQL expert. Based on the provided database schema, SQL examples, and conversation history, answer the user's question clearly and concisely.
+            return f"""You are a BigQuery SQL expert. Based on the provided database schema with data types, SQL examples, and conversation history, answer the user's question clearly and concisely.
+
+IMPORTANT: Use BigQuery syntax with proper data types - TIMESTAMP_SUB for TIMESTAMP columns, not DATE_SUB.
+
 {schema_section}
 {conversation_section}
 {context}
@@ -545,7 +653,7 @@ def answer_question_simple_gemini(
     conversation_context: str = "",
     agent_type: Optional[str] = None,
     sql_validation: bool = False,
-    validation_level: ValidationLevel = ValidationLevel.SCHEMA_BASIC,
+    validation_level: ValidationLevel = ValidationLevel.SCHEMA_STRICT,
     excluded_tables: Optional[List[str]] = None,
     user_context: str = ""
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
@@ -575,6 +683,21 @@ def answer_question_simple_gemini(
     """
     
     try:
+        # Debug Logging: Initialize session
+        debug_logger.write_header(question)
+        debug_logger.log_step("Function Parameters", {
+            "question": question,
+            "k": k,
+            "gemini_mode": gemini_mode,
+            "hybrid_search": hybrid_search,
+            "query_rewriting": query_rewriting,
+            "sql_validation": sql_validation,
+            "validation_level": str(validation_level),
+            "excluded_tables": excluded_tables,
+            "schema_manager_available": schema_manager is not None,
+            "lookml_safe_join_map_available": lookml_safe_join_map is not None
+        })
+        
         # Step 0: Query rewriting for enhanced retrieval (optional)
         rewrite_data = None
         search_query = question  # Default to original question
@@ -610,6 +733,15 @@ def answer_question_simple_gemini(
         search_method = "hybrid" if hybrid_search and HYBRID_SEARCH_AVAILABLE else "vector"
         query_info = f"original: '{question[:30]}...'" if search_query != question else f"'{question[:50]}...'"
         logger.info(f"{'[GEMINI]' if gemini_mode else ''} Retrieving {k} relevant documents using {search_method} search for: {query_info}")
+        
+        # Debug Logging: Document retrieval
+        debug_logger.log_step("Document Retrieval Setup", {
+            "search_method": search_method,
+            "search_query": search_query,
+            "original_question": question,
+            "k_documents": k,
+            "query_rewritten": search_query != question
+        })
         
         start_time = time.time()
         hybrid_results = []
@@ -686,6 +818,12 @@ def answer_question_simple_gemini(
         
         logger.info(f"Retrieved {len(docs)} documents in {retrieval_time:.2f}s")
         
+        # Debug Logging: Retrieved documents
+        debug_logger.log_step("Retrieved Documents", 
+                             [{"content": doc.page_content[:500] + "..." if len(doc.page_content) > 500 else doc.page_content, 
+                               "metadata": doc.metadata} for doc in docs],
+                             {"count": len(docs), "retrieval_time": f"{retrieval_time:.2f}s"})
+        
         # Step 2: Apply Gemini optimizations if enabled
         processed_docs = docs
         
@@ -723,10 +861,16 @@ def answer_question_simple_gemini(
                             excl_list = ", ".join(sorted(excluded_set))
                             relevant_schema += f"\n\nEXCLUDED TABLES: {excl_list}\nInstruction: Do not reference excluded tables in the SQL."
                         logger.info(f"Smart schema filtering: {len(relevant_tables)} tables identified, schema filtered for injection")
+                        
+                        # Debug Logging: Schema injection
+                        debug_logger.log_schema_injection(relevant_tables, relevant_schema)
                     else:
                         logger.info("No matching schema found for identified tables")
+                        debug_logger.log_step("Schema Injection Failed", "No matching schema found", 
+                                            {"relevant_tables": relevant_tables})
                 else:
                     logger.info("No tables identified from retrieved documents")
+                    debug_logger.log_step("Schema Injection Skipped", "No tables identified from documents")
                     
             except Exception as e:
                 logger.warning(f"Schema filtering failed, continuing without schema: {e}")
@@ -789,12 +933,35 @@ def answer_question_simple_gemini(
             gemini_mode=gemini_mode
         )
         
+        # Debug Logging: LLM prompt details
+        debug_logger.log_step("LLM Prompt Building", {
+            "agent_type": agent_type,
+            "schema_section_length": len(schema_section),
+            "conversation_section_length": len(conversation_section),
+            "context_length": len(context),
+            "full_prompt_length": len(prompt),
+            "gemini_mode": gemini_mode,
+            "model": GEMINI_MODEL
+        }, {
+            "schema_section": schema_section[:1000] + "..." if len(schema_section) > 1000 else schema_section,
+            "full_prompt": prompt[:2000] + "..." if len(prompt) > 2000 else prompt
+        })
+        
         # Initialize LLM and generate response
         llm = GeminiClient(model=GEMINI_MODEL)
         
         generation_start = time.time()
         answer = llm.invoke(prompt)
         generation_time = time.time() - generation_start
+        
+        # Debug Logging: LLM response
+        debug_logger.log_step("LLM Response", {
+            "generation_time": f"{generation_time:.2f}s",
+            "response_length": len(answer),
+            "model": GEMINI_MODEL
+        }, {
+            "response": answer[:1500] + "..." if len(answer) > 1500 else answer
+        })
         
         # Step 4: SQL Validation (optional)
         validation_result = None
@@ -848,6 +1015,9 @@ def answer_question_simple_gemini(
                         logger.info(f"   Suggestion {i}: {suggestion}")
                     
                 logger.info(f"SQL validation completed in {validation_time:.3f}s")
+                
+                # Debug Logging: SQL validation details
+                debug_logger.log_sql_validation(answer, validation_result)
                 
             except Exception as e:
                 logger.error(f"SQL validation failed: {e}")
@@ -946,10 +1116,22 @@ def answer_question_simple_gemini(
             context_utilization = (prompt_tokens / 1000000) * 100
             logger.info(f"Gemini context utilization: {context_utilization:.1f}% of 1M token window")
         
+        # Debug Logging: Final results summary
+        debug_logger.log_step("Final Results", {
+            "success": True,
+            "answer_length": len(answer.strip()),
+            "processed_docs_count": len(processed_docs),
+            "total_tokens": total_tokens,
+            "validation_passed": validation_result.is_valid if validation_result else "Not validated",
+            "generation_time": f"{generation_time:.2f}s"
+        })
+        
         return answer.strip(), processed_docs, token_usage
         
     except Exception as e:
         logger.error(f"Error in answer_question_simple_gemini: {e}", exc_info=True)
+        # Debug Logging: Error case
+        debug_logger.log_error("Pipeline Error", str(e), {"exception_type": type(e).__name__})
         return None
 
 

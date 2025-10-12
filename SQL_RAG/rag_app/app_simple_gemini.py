@@ -27,6 +27,7 @@ import re
 import json
 import os
 import math
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
@@ -88,6 +89,13 @@ try:
     SQL_VALIDATION_AVAILABLE = True
 except ImportError:
     SQL_VALIDATION_AVAILABLE = False
+
+# Import BigQuery execution components
+try:
+    from core.bigquery_executor import BigQueryExecutor, QueryResult, format_bytes, format_execution_time
+    BIGQUERY_EXECUTION_AVAILABLE = True
+except ImportError:
+    BIGQUERY_EXECUTION_AVAILABLE = False
 
 # Configure logging (idempotent)
 if not logging.getLogger(__name__).handlers:
@@ -1616,7 +1624,7 @@ def create_chat_page(vector_store, csv_data):
     
     # Add clear conversation button
     if st.session_state.chat_messages:
-        if st.button("🗑️ Clear Conversation", use_container_width=True):
+        if st.button("🗑️ Clear Conversation", use_container_width=True, key="clear_conversation_button"):
             st.session_state.chat_messages = []
             st.session_state.token_usage = []
             st.rerun()
@@ -1784,6 +1792,332 @@ def create_chat_page(vector_store, csv_data):
             )
 
 
+def display_sql_execution_interface(answer: str):
+    """
+    Display SQL execution interface when SQL is detected in the answer
+    
+    Args:
+        answer: The generated answer text that may contain SQL
+    """
+    # Add debug option for troubleshooting
+    debug_mode = st.checkbox("🐛 Debug Mode", help="Show detailed execution logging", key="sql_execution_debug_checkbox")
+    # Store debug mode in session state for callback access
+    st.session_state.debug_mode = debug_mode
+    
+    if debug_mode:
+        st.write("**Debug Info:**")
+        st.write(f"- BigQuery Available: {BIGQUERY_EXECUTION_AVAILABLE}")
+        st.write(f"- Session State Keys: {list(st.session_state.keys())}")
+        if 'extracted_sql' in st.session_state:
+            st.write(f"- SQL in Session State: {bool(st.session_state.extracted_sql)}")
+        st.write(f"- SQL Executing: {st.session_state.get('sql_executing', False)}")
+        st.write(f"- SQL Execution Completed: {st.session_state.get('sql_execution_completed', False)}")
+        st.write(f"- Has Execution Result: {'sql_execution_result' in st.session_state}")
+        st.write(f"- Has Execution Error: {'sql_execution_error' in st.session_state}")
+        
+    if not BIGQUERY_EXECUTION_AVAILABLE:
+        st.warning("⚠️ BigQuery execution unavailable - check bigquery_executor.py and dependencies")
+        logger.warning("BigQuery execution not available")
+        return
+    
+    # Initialize BigQuery executor
+    if 'bigquery_executor' not in st.session_state:
+        try:
+            if debug_mode:
+                st.write("🔧 Initializing BigQuery executor...")
+            st.session_state.bigquery_executor = BigQueryExecutor(project_id="brainrot-453319")
+            logger.info("✅ BigQuery executor initialized successfully")
+            if debug_mode:
+                st.success("✅ BigQuery executor initialized")
+        except Exception as e:
+            error_msg = f"Failed to initialize BigQuery executor: {e}"
+            st.error(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
+            return
+    
+    executor = st.session_state.bigquery_executor
+    
+    # Check for existing SQL in session state FIRST (persistence priority)
+    extracted_sql = None
+    
+    # Protection: Don't overwrite SQL if execution is in progress
+    if st.session_state.get('sql_executing', False):
+        if debug_mode:
+            st.write("🔒 **SQL execution in progress** - using existing SQL")
+        extracted_sql = st.session_state.get('extracted_sql')
+    elif 'extracted_sql' in st.session_state and st.session_state.extracted_sql:
+        # Use existing SQL from session state
+        extracted_sql = st.session_state.extracted_sql
+        logger.info("📋 Using SQL from session state (persistent)")
+        if debug_mode:
+            st.write("📋 **Using SQL from session state** (avoiding re-extraction)")
+    else:
+        # Extract SQL from answer only if not in session state and not executing
+        if debug_mode:
+            st.write("🔍 **Extracting SQL from answer text**...")
+        extracted_sql = executor.extract_sql_from_text(answer)
+        
+        if extracted_sql:
+            # Store newly extracted SQL in session state for persistence
+            st.session_state.extracted_sql = extracted_sql
+            logger.info(f"💾 Extracted and stored new SQL in session state: {extracted_sql[:50]}...")
+            if debug_mode:
+                st.write(f"💾 **Extracted new SQL** ({len(extracted_sql)} chars)")
+        else:
+            logger.warning("❌ No SQL found in answer text")
+            if debug_mode:
+                st.write("❌ **No SQL found** in answer text")
+    
+    if extracted_sql:
+        if debug_mode:
+            st.write(f"✅ **SQL Available** - {len(extracted_sql)} characters")
+        
+        st.divider()
+        st.subheader("🚀 Execute SQL Query")
+        st.caption("Detected SQL query in the response - execute it against BigQuery thelook_ecommerce dataset")
+        
+        # Display the SQL with syntax highlighting
+        st.markdown("**📝 Generated SQL Query:**")
+        st.code(extracted_sql, language="sql")
+        
+        # Safety validation with logging
+        if debug_mode:
+            st.write("🔒 **Running safety validation**...")
+        
+        is_valid, validation_msg = executor.validate_sql_safety(extracted_sql)
+        
+        if is_valid:
+            st.success("✅ Query passed safety validation")
+            logger.info("✅ SQL query passed safety validation")
+            if debug_mode:
+                st.write("✅ **Safety validation passed**")
+        else:
+            error_msg = f"Safety validation failed: {validation_msg}"
+            st.error(f"🚫 {error_msg}")
+            logger.warning(f"🚫 {error_msg}")
+            if debug_mode:
+                st.write(f"🚫 **Safety validation failed**: {validation_msg}")
+            return
+        
+        # Execution form to prevent unwanted reruns
+        with st.form(key="sql_execution_form"):
+            st.markdown("**⚙️ Execution Settings:**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info(f"📊 **Project:** {executor.project_id}")
+                st.info(f"🗃️ **Dataset:** thelook_ecommerce")
+            
+            with col2:
+                st.info(f"🔒 **Max Rows:** {executor.max_rows:,}")
+                st.info(f"⏱️ **Timeout:** {executor.timeout_seconds}s")
+            
+            # Execute button with callback (proper Streamlit pattern)
+            st.form_submit_button(
+                "▶️ Execute Query", 
+                type="primary",
+                help="Execute the SQL query against BigQuery",
+                on_click=execute_sql_callback
+            )
+        
+        # Handle execution status and display results (after form)
+        handle_sql_execution_status(debug_mode)
+        
+        # Add option to clear SQL from session state
+        if st.button("🗑️ Clear SQL", help="Clear the stored SQL query from session state", key="clear_sql_button"):
+            if 'extracted_sql' in st.session_state:
+                del st.session_state.extracted_sql
+            # Clear execution-related state to allow new processing
+            for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            logger.info("🗑️ Cleared SQL and execution state from session state")
+            st.rerun()
+    else:
+        # No SQL found case
+        if debug_mode:
+            st.write("❌ **No SQL available** - cannot show execution interface")
+        
+        # Check if we had SQL before but lost it
+        if 'extracted_sql' in st.session_state and st.session_state.extracted_sql:
+            st.warning("⚠️ SQL was previously extracted but is no longer detected in the current answer. You can try regenerating your query.")
+            if st.button("🔄 Try to Re-extract SQL", key="reextract_sql_button"):
+                # Force re-extraction by clearing session state
+                del st.session_state.extracted_sql
+                # Clear execution-related state to allow new processing
+                for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed']:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                logger.info("🔄 Forced SQL re-extraction by clearing session state")
+                st.rerun()
+
+
+def handle_sql_execution_status(debug_mode: bool = False):
+    """
+    Handle SQL execution status display after form submission
+    This runs after the callback and displays appropriate status/results
+    """
+    # Check if execution is in progress
+    if st.session_state.get('sql_executing', False):
+        with st.spinner("🔄 Executing SQL query..."):
+            st.write("Query execution in progress...")
+        return
+    
+    # Check for execution errors
+    if 'sql_execution_error' in st.session_state and st.session_state.sql_execution_error:
+        st.error(f"❌ {st.session_state.sql_execution_error}")
+        if debug_mode:
+            st.write(f"**Error Details**: {st.session_state.sql_execution_error}")
+        return
+    
+    # Display results if available
+    if 'sql_execution_result' in st.session_state and st.session_state.sql_execution_result:
+        st.divider()
+        st.subheader("📊 Query Execution Results")
+        
+        result = st.session_state.sql_execution_result
+        if debug_mode:
+            st.write(f"**📊 Result Status**: Success={result.success}, Rows={result.total_rows}")
+        
+        display_sql_execution_results(result)
+
+def execute_sql_callback():
+    """
+    Callback function for SQL execution - runs BEFORE script rerun
+    This follows Streamlit's recommended callback pattern for forms
+    """
+    try:
+        # Get SQL and executor from session state
+        sql = st.session_state.get('extracted_sql')
+        executor = st.session_state.get('bigquery_executor')
+        debug_mode = st.session_state.get('debug_mode', False)
+        
+        if not sql or not executor:
+            st.session_state.sql_execution_error = "SQL or executor not available in session state"
+            logger.error("❌ SQL execution callback failed - missing SQL or executor")
+            return
+        
+        # Set execution flag to show spinner on rerun
+        st.session_state.sql_executing = True
+        st.session_state.sql_execution_error = None
+        
+        logger.info(f"🔄 [CALLBACK] Starting BigQuery execution for SQL: {sql[:100]}...")
+        
+        # Execute the query in callback (before rerun)
+        result = executor.execute_query(sql)
+        
+        # Store result in session state for display after rerun
+        st.session_state.sql_execution_result = result
+        st.session_state.sql_executing = False
+        st.session_state.sql_execution_completed = True  # Prevent query reprocessing
+        
+        logger.info(f"💾 [CALLBACK] Execution completed - Success: {result.success}")
+        
+        if debug_mode:
+            logger.info(f"🐛 [CALLBACK] Debug mode - storing execution details")
+            
+    except Exception as e:
+        error_msg = f"Callback execution error: {str(e)}"
+        st.session_state.sql_execution_error = error_msg
+        st.session_state.sql_executing = False
+        st.session_state.sql_execution_completed = True  # Prevent query reprocessing even on error
+        logger.error(f"❌ [CALLBACK] {error_msg}")
+
+# Note: execute_sql_query function removed - now using callback pattern
+# All SQL execution happens in execute_sql_callback() before script rerun
+
+
+def display_sql_execution_results(result: QueryResult):
+    """
+    Display SQL execution results with comprehensive metrics
+    
+    Args:
+        result: QueryResult object with execution results and metadata
+    """
+    if result.success:
+        st.success("🎉 Query executed successfully!")
+        
+        # Display execution metrics
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "📊 Rows Returned",
+                f"{result.total_rows:,}",
+                help="Number of rows in the result set"
+            )
+        
+        with col2:
+            st.metric(
+                "⏱️ Execution Time",
+                format_execution_time(result.execution_time),
+                help="Time taken to execute the query"
+            )
+        
+        with col3:
+            st.metric(
+                "💾 Data Processed",
+                format_bytes(result.bytes_processed),
+                help="Amount of data processed by BigQuery"
+            )
+        
+        with col4:
+            cache_status = "🎯 Cache Hit" if result.cache_hit else "🔄 Fresh Query"
+            st.metric(
+                "💰 Data Billed",
+                format_bytes(result.bytes_billed),
+                delta=cache_status,
+                help="Amount of data billed (cached queries are free)"
+            )
+        
+        # Display the actual data
+        if result.data is not None and not result.data.empty:
+            st.markdown("**📋 Query Results:**")
+            
+            # Display data with interactive features
+            st.dataframe(
+                result.data,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Export functionality
+            csv_data = result.data.to_csv(index=False)
+            st.download_button(
+                label="⬇️ Download CSV",
+                data=csv_data,
+                file_name=f"bigquery_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                help="Download the query results as a CSV file",
+                key="results_download_csv_button"
+            )
+            
+            # Show data info
+            with st.expander("ℹ️ Data Information", expanded=False):
+                st.markdown(f"**Shape:** {result.data.shape[0]:,} rows × {result.data.shape[1]} columns")
+                st.markdown(f"**Job ID:** `{result.job_id}`")
+                
+                # Show column info
+                if len(result.data.columns) > 0:
+                    st.markdown("**Columns:**")
+                    for col in result.data.columns:
+                        dtype = str(result.data[col].dtype)
+                        null_count = result.data[col].isnull().sum()
+                        st.text(f"  • {col}: {dtype} ({null_count:,} nulls)")
+        else:
+            st.info("✅ Query executed successfully but returned no data")
+    
+    else:
+        st.error(f"❌ Query execution failed: {result.error_message}")
+        
+        # Show execution metadata even for failed queries
+        if result.execution_time > 0:
+            st.caption(f"⏱️ Failed after {format_execution_time(result.execution_time)}")
+        
+        if result.job_id:
+            st.caption(f"📋 Job ID: `{result.job_id}`")
+
+
 def main():
     """Main Streamlit application"""
     
@@ -1859,7 +2193,8 @@ def main():
             gemini_mode = st.checkbox(
                 "🔥 Gemini Mode", 
                 value=False, 
-                help="Utilize Gemini's 1M context window with enhanced optimization"
+                help="Utilize Gemini's 1M context window with enhanced optimization",
+                key="gemini_mode_checkbox"
             )
             
             # Add hybrid search toggle
@@ -1867,7 +2202,8 @@ def main():
                 hybrid_search = st.checkbox(
                     "🔀 Hybrid Search", 
                     value=False, 
-                    help="Combine vector similarity with keyword search (BM25) for better SQL term matching"
+                    help="Combine vector similarity with keyword search (BM25) for better SQL term matching",
+                    key="hybrid_search_checkbox"
                 )
             else:
                 hybrid_search = False
@@ -1880,7 +2216,8 @@ def main():
                     query_rewriting = st.checkbox(
                         "🔄 Query Rewriting", 
                         value=False, 
-                        help="Enhance queries with SQL terminology using Google Gemini models (25-40% improvement)"
+                        help="Enhance queries with SQL terminology using Google Gemini models (25-40% improvement)",
+                        key="query_rewriting_checkbox"
                     )
                 else:
                     query_rewriting = False
@@ -1928,12 +2265,18 @@ def main():
             # SQL validation - always enabled when available
             if SQL_VALIDATION_AVAILABLE:
                 sql_validation = True
-                validation_level = ValidationLevel.SCHEMA_BASIC  # Set sensible default
-                st.success("✅ SQL Validation: Always Active (Schema Basic level - validates tables/columns exist)")
+                validation_level = ValidationLevel.SCHEMA_STRICT  # Set strict default for comprehensive validation
+                st.success("✅ SQL Validation: Always Active (Schema Strict level - validates tables/columns/types/joins)")
             else:
                 sql_validation = False
                 validation_level = None
                 st.warning("⚠️ SQL validation unavailable - check core/sql_validator.py")
+            
+            # BigQuery execution - always enabled when available
+            if BIGQUERY_EXECUTION_AVAILABLE:
+                st.success("✅ BigQuery Execution: Available (thelook_ecommerce dataset, project: brainrot-453319)")
+            else:
+                st.warning("⚠️ BigQuery execution unavailable - check bigquery_executor.py and google-cloud-bigquery dependency")
             
             if gemini_mode:
                 k = st.slider(
@@ -2020,7 +2363,8 @@ def main():
             show_full_queries = st.checkbox(
                 "📄 Show Full Query Cards",
                 value=False,
-                help="Show complete query information instead of just matching chunks"
+                help="Show complete query information instead of just matching chunks",
+                key="show_full_queries_checkbox"
             )
             
             st.markdown("""
@@ -2094,7 +2438,7 @@ def main():
                     # New Conversation Button
                     col1, col2 = st.columns(2)
                     with col1:
-                        if st.button("🆕 New Conversation", use_container_width=True):
+                        if st.button("🆕 New Conversation", use_container_width=True, key="new_conversation_button"):
                             # Clear current conversation
                             st.session_state.chat_messages = []
                             st.session_state.token_usage = []
@@ -2105,7 +2449,7 @@ def main():
                     with col2:
                         # Save Current Conversation Button
                         if st.session_state.get('chat_messages', []):
-                            if st.button("💾 Save Conversation", use_container_width=True):
+                            if st.button("💾 Save Conversation", use_container_width=True, key="save_conversation_button"):
                                 try:
                                     conv_id = st.session_state.get('current_conversation_id')
                                     saved_id, success = st.session_state.conversation_manager.save_conversation(
@@ -2317,7 +2661,15 @@ def main():
             placeholder="e.g., Which queries show customer spending analysis with multiple JOINs?"
         )
         
-        if st.button("🔍 Search", type="primary") and query.strip():
+        # Check if we should process the query (not if SQL execution just completed)
+        should_process_query = (st.button("🔍 Search", type="primary", key="main_search_button") and query.strip() and 
+                               not st.session_state.get('sql_execution_completed', False))
+        
+        if should_process_query:
+            # Clear any previous SQL execution completion flag
+            if 'sql_execution_completed' in st.session_state:
+                del st.session_state.sql_execution_completed
+                
             with st.spinner("Searching and generating answer..."):
                 try:
                     # Log the incoming query for debugging
@@ -2403,6 +2755,15 @@ def main():
                         # Display answer
                         st.subheader("📜 Answer")
                         st.write(answer)
+                        
+                        # SQL Execution Interface - appears when SQL is detected
+                        display_sql_execution_interface(answer)
+                        
+                        # Display persistent SQL execution results if they exist
+                        if 'sql_execution_result' in st.session_state:
+                            st.divider()
+                            st.subheader("📊 Query Execution Results")
+                            display_sql_execution_results(st.session_state.sql_execution_result)
                         
                         # Display context utilization (Gemini optimization)
                         if sources and gemini_mode:
@@ -2797,6 +3158,29 @@ def main():
                     st.error(f"❌ Error: {e}")
                     logger.error(f"Query error: {e}")
         
+        # Display persistent SQL execution results (outside query processing)
+        # This ensures results are shown even when query processing is skipped
+        if ('sql_execution_result' in st.session_state or 
+            'sql_execution_error' in st.session_state or
+            'extracted_sql' in st.session_state):
+            
+            st.divider()
+            st.subheader("💾 Persistent SQL Execution Interface")
+            
+            # Show SQL execution interface for any existing SQL
+            if 'extracted_sql' in st.session_state and st.session_state.extracted_sql:
+                display_sql_execution_interface(st.session_state.extracted_sql)
+            
+            # Show execution results if they exist
+            if 'sql_execution_result' in st.session_state and st.session_state.sql_execution_result:
+                st.divider()
+                st.subheader("📊 Previous Query Results")
+                display_sql_execution_results(st.session_state.sql_execution_result)
+            
+            # Show execution errors if they exist
+            if 'sql_execution_error' in st.session_state and st.session_state.sql_execution_error:
+                st.error(f"❌ Previous execution error: {st.session_state.sql_execution_error}")
+        
         # Instructions
         if not query:
             st.markdown(f"""
@@ -2821,7 +3205,9 @@ def main():
             
             6. **Ask questions** about your SQL queries and get comprehensive answers
             
-            7. **Adjust Top-K** in the sidebar (use 100+ for Gemini mode)
+            7. **Execute SQL queries** - when SQL is detected in responses, click "Execute Query" to run against BigQuery
+            
+            8. **Adjust Top-K** in the sidebar (use 100+ for Gemini mode)
             
             ### 🚀 Enhanced Features:
             
@@ -2842,6 +3228,13 @@ def main():
             - **Schema validation** verifies tables and columns exist
             - **Real-time feedback** on query correctness
             - **Intelligent suggestions** for fixing validation errors
+            
+            **BigQuery Execution:**
+            - **Automatic SQL detection** in generated responses
+            - **Secure execution** against thelook_ecommerce dataset
+            - **Interactive results** with sorting, filtering, and export
+            - **Performance metrics** showing execution time and data processed
+            - **Safety guards** prevent unauthorized operations and limit result size
             """)
     
     elif page == "💬 Chat":
