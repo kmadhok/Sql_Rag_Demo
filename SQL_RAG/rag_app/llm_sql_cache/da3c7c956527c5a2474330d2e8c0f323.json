@@ -1,0 +1,21 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.distribution_centers"
+    ],
+    "cte_tables": [
+      "reference_point"
+    ],
+    "table_aliases": [
+      {
+        "alias": "dc",
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 3.140634775161743,
+  "tokens_used": 324,
+  "cost_estimate": 2.43e-05
+}

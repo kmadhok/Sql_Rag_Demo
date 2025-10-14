@@ -1,0 +1,23 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.orders`"
+    ],
+    "cte_tables": [
+      "ordered_orders"
+    ],
+    "table_aliases": [
+      {
+        "alias": "o2",
+        "table": "ordered_orders"
+      }
+    ],
+    "subquery_tables": [
+      "ordered_orders"
+    ]
+  },
+  "column_analysis": null,
+  "analysis_time": 25.470711708068848,
+  "tokens_used": 385,
+  "cost_estimate": 2.8874999999999997e-05
+}

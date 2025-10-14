@@ -1,0 +1,35 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.events",
+      "bigquery-public-data.thelook_ecommerce.orders"
+    ],
+    "cte_tables": [
+      "browser_events",
+      "browser_orders"
+    ],
+    "table_aliases": [
+      {
+        "alias": "e",
+        "table": "bigquery-public-data.thelook_ecommerce.events"
+      },
+      {
+        "alias": "o",
+        "table": "bigquery-public-data.thelook_ecommerce.orders"
+      },
+      {
+        "alias": "be",
+        "table": "browser_events"
+      },
+      {
+        "alias": "bo",
+        "table": "browser_orders"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 7.152768135070801,
+  "tokens_used": 457,
+  "cost_estimate": 3.4275e-05
+}

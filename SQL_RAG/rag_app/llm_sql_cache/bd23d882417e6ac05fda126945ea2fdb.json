@@ -1,0 +1,36 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.events",
+      "bigquery-public-data.thelook_ecommerce.order_items",
+      "bigquery-public-data.thelook_ecommerce.products"
+    ],
+    "cte_tables": [
+      "users_with_events",
+      "category_purchases"
+    ],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      },
+      {
+        "alias": "p",
+        "table": "`bigquery-public-data.thelook_ecommerce.products`"
+      },
+      {
+        "alias": "ue",
+        "table": "users_with_events"
+      },
+      {
+        "alias": "cp",
+        "table": "category_purchases"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 6.182687997817993,
+  "tokens_used": 504,
+  "cost_estimate": 3.78e-05
+}

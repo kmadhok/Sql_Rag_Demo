@@ -1308,7 +1308,7 @@ Answer:"""
 def answer_question_chat_mode(
     question: str, 
     vector_store, 
-    k: int = 100,
+    k: int = 20,
     schema_manager=None,
     conversation_context: str = "",
     agent_type: Optional[str] = None,
@@ -1377,11 +1377,33 @@ def answer_question_chat_mode(
         
         if schema_manager:
             try:
-                # Derive relevant tables from docs + question
+                # Fast regex extractor to avoid expensive LLM calls per document
+                import re as _re
+                def _fast_extract_tables(text: str) -> List[str]:
+                    if not text or not isinstance(text, str):
+                        return []
+                    tables = set()
+                    text_lower = text.lower()
+                    patterns = [
+                        r'\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\b(?:inner\s+|left\s+|right\s+|full\s+|cross\s+)?join\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\bupdate\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\binsert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\bdelete\s+from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                    ]
+                    for pat in patterns:
+                        for match in _re.findall(pat, text_lower):
+                            norm = schema_manager._normalize_table_name(match)
+                            if norm:
+                                tables.add(norm)
+                    return list(tables)
+
+                # Derive relevant tables from a limited number of docs + question
+                doc_limit = int(os.getenv('CHAT_SCHEMA_DOC_LIMIT', '25'))
                 derived_tables = []
-                for d in docs:
-                    derived_tables += schema_manager.extract_tables_from_content(getattr(d, 'page_content', ''))
-                derived_tables += schema_manager.extract_tables_from_content(question)
+                for d in docs[:doc_limit]:
+                    derived_tables += _fast_extract_tables(getattr(d, 'page_content', ''))
+                derived_tables += _fast_extract_tables(question)
 
                 # Apply exclusions if provided
                 excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
@@ -1421,10 +1443,8 @@ def answer_question_chat_mode(
         # If we have an available schema manager, add BigQuery FQN mapping to schema section
         if schema_manager and relevant_schema:
             try:
-                tables_for_map = []
-                for d in docs:
-                    tables_for_map += schema_manager.extract_tables_from_content(getattr(d, 'page_content', ''))
-                tables_for_map += schema_manager.extract_tables_from_content(question)
+                # Reuse derived tables for FQN map to avoid duplicate extraction
+                tables_for_map = list(dict.fromkeys(derived_tables))
                 # Respect exclusions in FQN map
                 excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
                 tables_for_map = [t for t in tables_for_map if schema_manager._normalize_table_name(t) not in excluded_set]
