@@ -2789,8 +2789,19 @@ def main():
 
             # Check if we should process the query (not if SQL execution just completed)
             search_clicked = st.button("🔍 Search", type="primary", key="main_search_button")
-            should_process_query = (search_clicked and query.strip() and
-                                    not st.session_state.get('sql_execution_completed', False))
+            should_process_query = bool(search_clicked and query.strip())
+
+            # On new search, clear any previous SQL execution state so we don't block processing
+            if search_clicked:
+                for _k in [
+                    'sql_execution_completed',
+                    'sql_executing',
+                    'sql_execution_error',
+                    'sql_execution_result',
+                    'extracted_sql'
+                ]:
+                    if _k in st.session_state:
+                        del st.session_state[_k]
 
         with right_col:
             st.subheader("📚 Tables")
@@ -2839,7 +2850,21 @@ def main():
             if 'sql_execution_completed' in st.session_state:
                 del st.session_state.sql_execution_completed
                 
-            with st.spinner("Searching and generating answer..."):
+            # Step-by-step status indicator for search pipeline
+            from contextlib import nullcontext
+            try:
+                status_cm = st.status("🔎 Searching and generating answer...", expanded=True)
+            except Exception:
+                # Fallback if running an older Streamlit version
+                status_cm = nullcontext()
+
+            with status_cm as status:
+                if status:
+                    st.write("1) Analyzing query & settings...")
+                    st.write("2) Retrieving relevant documents...")
+                    st.write("3) Injecting relevant schema...")
+                    st.write("4) Generating answer with Gemini...")
+                    st.write("5) Validating SQL (if present)...")
                 try:
                     # Log the incoming query for debugging
                     logger.info(f"🔎 PROCESSING NEW QUERY")
@@ -2897,6 +2922,7 @@ def main():
                         logger.debug(f"[SQL VALIDATION DEBUG] SQL validation DISABLED by user setting")
                     
                     # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
+                    # Generate answer (includes retrieval, schema injection, validation)
                     result = answer_question_simple_gemini(
                         question=query,
                         vector_store=st.session_state.vector_store,
@@ -2916,6 +2942,28 @@ def main():
                     
                     if result:
                         answer, sources, token_usage = result
+                        # Update step-by-step status details based on token usage
+                        if status and token_usage:
+                            try:
+                                st.write(f"✅ Retrieved {token_usage.get('documents_retrieved', 0)} documents in {token_usage.get('retrieval_time', 0):.2f}s")
+                                sf = token_usage.get('schema_filtering') or {}
+                                if sf.get('enabled', False):
+                                    st.write(f"✅ Injected relevant schema for {sf.get('relevant_tables', 0)} table(s)" + (" (no schema found)" if not sf.get('schema_available') else ""))
+                                if token_usage.get('generation_time') is not None:
+                                    st.write(f"✅ Generated answer in {token_usage.get('generation_time', 0):.2f}s")
+                                sv = token_usage.get('sql_validation') or {}
+                                if sv.get('enabled', False):
+                                    vtime = sv.get('validation_time', 0)
+                                    errs = len(sv.get('errors', []) or [])
+                                    warns = len(sv.get('warnings', []) or [])
+                                    st.write(f"✅ Validated SQL in {vtime:.2f}s ({errs} error(s), {warns} warning(s))")
+                                # Mark overall status as complete
+                                try:
+                                    status.update(label="✅ Search and generation complete", state="complete", expanded=False)
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
                         
                         # Track token usage
                         if token_usage:

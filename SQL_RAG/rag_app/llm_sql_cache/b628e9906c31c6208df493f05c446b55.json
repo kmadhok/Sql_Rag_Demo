@@ -1,0 +1,42 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.inventory_items",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.inventory_items",
+        "column": "product_distribution_center_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "distribution_center_id",
+        "column": "dc.id"
+      },
+      {
+        "alias": "num_items",
+        "column": "COUNT(ii.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "ii.id"
+    ],
+    "computed_columns": [
+      "COUNT(ii.id)"
+    ]
+  },
+  "analysis_time": 9.826428890228271,
+  "tokens_used": 468,
+  "cost_estimate": 3.51e-05
+}

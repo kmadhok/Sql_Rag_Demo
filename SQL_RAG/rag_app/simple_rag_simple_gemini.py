@@ -1037,6 +1037,7 @@ def answer_question_simple_gemini(
             'total_tokens': total_tokens,
             'search_method': search_method,
             'retrieval_time': retrieval_time,
+            'generation_time': generation_time,
             'documents_retrieved': len(docs),
             'documents_processed': len(processed_docs),
             'agent_type': agent_type

@@ -1,0 +1,21 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers",
+        "column": "name"
+      }
+    ],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": []
+  },
+  "analysis_time": 1.9838299751281738,
+  "tokens_used": 292,
+  "cost_estimate": 2.19e-05
+}
