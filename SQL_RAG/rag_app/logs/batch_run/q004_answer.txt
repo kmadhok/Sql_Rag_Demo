@@ -1,0 +1,15 @@
+```sql
+-- Select the product ID and its corresponding order count
+SELECT
+    oi.product_id,
+    COUNT(oi.id) AS order_count -- Count the number of order items for each product
+FROM
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+WHERE
+    oi.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY) -- Filter orders created in the last 30 days
+GROUP BY
+    oi.product_id -- Group the results by product to count orders per product
+ORDER BY
+    order_count DESC -- Order the products by their order count in descending order
+LIMIT 10; -- Limit the results to the top 10 products
+```

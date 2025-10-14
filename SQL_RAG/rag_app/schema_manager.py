@@ -26,6 +26,14 @@ from collections import defaultdict
 
 import pandas as pd
 
+# Import LLM SQL analyzer for intelligent table extraction
+try:
+    from core.llm_sql_analyzer import extract_tables_with_llm
+    LLM_ANALYSIS_AVAILABLE = True
+except ImportError:
+    LLM_ANALYSIS_AVAILABLE = False
+    logger.warning("LLM SQL analysis not available - falling back to regex")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -177,6 +185,28 @@ class SchemaManager:
             return clean_id.split('.')[-1].strip().lower()
         
         return clean_id.strip().lower()
+    
+    def _looks_like_sql(self, content: str) -> bool:
+        """
+        Check if content looks like a SQL query for LLM analysis.
+        
+        Args:
+            content: Content to check
+            
+        Returns:
+            True if content appears to be SQL
+        """
+        if not content or len(content.strip()) < 10:
+            return False
+        
+        content_upper = content.upper()
+        sql_keywords = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'WITH', 'INSERT', 'UPDATE', 'DELETE']
+        
+        # Must contain at least one SQL keyword
+        has_sql_keywords = any(keyword in content_upper for keyword in sql_keywords)
+        
+        # Should not be primarily explanatory text
+        return has_sql_keywords and ('SELECT' in content_upper or 'WITH' in content_upper)
 
     # ------------------------------
     # Fully-qualified name helpers
@@ -197,17 +227,37 @@ class SchemaManager:
     
     def extract_tables_from_content(self, content: str) -> List[str]:
         """
-        Extract table names from SQL queries and metadata.
+        Extract actual database table names from SQL queries and metadata using LLM analysis.
         
         Args:
             content: SQL query text or document content
             
         Returns:
-            List of normalized table names found in the content
+            List of normalized actual table names found in the content (excludes CTEs)
         """
         if not content or not isinstance(content, str):
             return []
         
+        # Try LLM-based extraction first (more accurate, handles CTEs properly)
+        if LLM_ANALYSIS_AVAILABLE and self._looks_like_sql(content):
+            try:
+                logger.debug("🤖 Using LLM-based table extraction")
+                llm_tables = extract_tables_with_llm(content)
+                if llm_tables:
+                    # Normalize and filter the LLM results
+                    normalized_tables = []
+                    for table in llm_tables:
+                        normalized = self._normalize_table_name(table)
+                        if normalized:
+                            normalized_tables.append(normalized)
+                    
+                    logger.debug(f"🤖 LLM extracted {len(normalized_tables)} actual tables: {normalized_tables}")
+                    return normalized_tables
+            except Exception as e:
+                logger.warning(f"LLM table extraction failed, falling back to regex: {e}")
+        
+        # Fallback to regex-based extraction (original logic)
+        logger.debug("📝 Using regex-based table extraction")
         tables = set()
         content_lower = content.lower()
         
@@ -223,8 +273,7 @@ class SchemaManager:
             r'\binsert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
             # DELETE FROM statements
             r'\bdelete\s+from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
-            # WITH clauses (CTEs)
-            r'\bwith\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as'
+            # NOTE: Removed WITH clause pattern to avoid extracting CTEs as real tables
         ]
         
         # Extract table names using patterns

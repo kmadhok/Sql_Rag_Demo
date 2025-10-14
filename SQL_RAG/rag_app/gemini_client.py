@@ -148,6 +148,60 @@ class GeminiClient:
                     logger.error(f"All {self.max_retries + 1} attempts failed: {e}")
                     raise
     
+    def invoke_structured(self, 
+                         prompt: str, 
+                         response_format: str = "json",
+                         response_schema: Optional[Any] = None) -> str:
+        """
+        Generate structured content using the Gemini model with JSON schema
+        
+        Args:
+            prompt: Input prompt for the model
+            response_format: Response format ("json" for structured output)
+            response_schema: Pydantic model class for response validation
+            
+        Returns:
+            Generated JSON response as string
+            
+        Raises:
+            Exception: If the model fails to generate content after all retries
+        """
+        if not self._initialized:
+            raise RuntimeError("Gemini client not properly initialized")
+        
+        for attempt in range(self.max_retries + 1):
+            try:
+                # Import types for structured output
+                from google.genai import types
+                
+                # Build config for structured output
+                config = types.GenerateContentConfig()
+                
+                if response_format == "json" and response_schema:
+                    config.response_mime_type = "application/json"
+                    config.response_schema = response_schema
+                
+                # Generate content using Gemini with structured output
+                response = self.client.models.generate_content(
+                    model=self.model_name, 
+                    contents=prompt,
+                    config=config
+                )
+                
+                # Extract and return the text
+                if response and hasattr(response, 'text') and response.text:
+                    return response.text.strip()
+                else:
+                    raise ValueError("Empty response from Gemini model")
+                    
+            except Exception as e:
+                if attempt < self.max_retries:
+                    logger.warning(f"Structured output attempt {attempt + 1} failed: {e}. Retrying in {self.retry_delay}s...")
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error(f"All structured output attempts failed: {e}")
+                    raise
+    
     def test_connection(self) -> Tuple[bool, str]:
         """
         Test connection to Gemini service

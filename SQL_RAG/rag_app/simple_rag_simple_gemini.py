@@ -921,7 +921,9 @@ def answer_question_simple_gemini(
             if lookml_context:
                 schema_section += f"\n{lookml_context}\n"
         
-        conversation_section = f"\nPrevious conversation:\n{conversation_context}\n" if conversation_context.strip() else ""
+        # Safely include prior conversation if provided
+        _conv = conversation_context if isinstance(conversation_context, str) else ""
+        conversation_section = f"\nPrevious conversation:\n{_conv}\n" if _conv.strip() else ""
         
         # Use agent-specific prompt template
         prompt = get_agent_prompt_template(

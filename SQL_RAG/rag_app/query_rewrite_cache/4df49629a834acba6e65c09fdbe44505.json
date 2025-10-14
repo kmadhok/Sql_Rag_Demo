@@ -1,0 +1,20 @@
+{
+  "original_query": "Conversion rate: orders per user over the past 6 months.",
+  "rewritten_query": "Conversion rate: orders per user over the past 6 months.",
+  "confidence": 1.0,
+  "rewrite_method": "original_low_confidence",
+  "model_used": "gemini-2.5-flash",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [
+      "customer_analysis"
+    ],
+    "complexity": "moderate",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 6.797513961791992,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1760324000.981045,
+  "cache_key": "4df49629a834acba6e65c09fdbe44505"
+}

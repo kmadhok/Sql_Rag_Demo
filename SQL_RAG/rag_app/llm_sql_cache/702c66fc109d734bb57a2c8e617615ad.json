@@ -1,0 +1,36 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "MonthlyRevenue",
+        "column": "order_year"
+      },
+      {
+        "table": "MonthlyRevenue",
+        "column": "order_month"
+      },
+      {
+        "table": "MonthlyRevenue",
+        "column": "monthly_orders"
+      },
+      {
+        "table": "MonthlyRevenue",
+        "column": "monthly_revenue"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_month_year",
+        "column": "CAST(order_year AS STRING) || '-' || LPAD(CAST(order_month AS STRING), 2, '0')"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "CAST(order_year AS STRING) || '-' || LPAD(CAST(order_month AS STRING), 2, '0')"
+    ]
+  },
+  "analysis_time": 4.382906198501587,
+  "tokens_used": 374,
+  "cost_estimate": 2.8049999999999997e-05
+}

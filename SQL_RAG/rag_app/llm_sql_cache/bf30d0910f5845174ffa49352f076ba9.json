@@ -1,0 +1,57 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_year",
+        "column": "EXTRACT(YEAR FROM o.created_at)"
+      },
+      {
+        "alias": "order_month",
+        "column": "EXTRACT(MONTH FROM o.created_at)"
+      },
+      {
+        "alias": "monthly_revenue",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "monthly_orders",
+        "column": "COUNT(DISTINCT o.order_id)"
+      },
+      {
+        "alias": "order_month_year",
+        "column": "CAST(order_year AS STRING) || '-' || LPAD(CAST(order_month AS STRING), 2, '0')"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)",
+      "COUNT(DISTINCT o.order_id)"
+    ],
+    "computed_columns": [
+      "EXTRACT(YEAR FROM o.created_at)",
+      "EXTRACT(MONTH FROM o.created_at)",
+      "CAST(order_year AS STRING) || '-' || LPAD(CAST(order_month AS STRING), 2, '0')"
+    ]
+  },
+  "analysis_time": 18.836500883102417,
+  "tokens_used": 815,
+  "cost_estimate": 6.1125e-05
+}

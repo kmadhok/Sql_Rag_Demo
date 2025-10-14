@@ -101,3 +101,35 @@ The first run will build a FAISS index (stored as `rag_app/faiss_index.pkl`). Su
 
 * The local Phi3 model is instructed **not to hallucinate**; it will answer *"I don't know..."* if the context is insufficient.
 * The script keeps things simple—no external databases or web servers required. Feel free to adapt it into a web API, Streamlit app, etc. 
+
+---
+
+## Batch Runner (automate Query Search flow)
+
+You can run a list of questions through the same pipeline used by the Query Search page (retrieval → schema injection → Gemini generation → SQL validation → SQL extraction → BigQuery execution) and log all artifacts.
+
+Prerequisites:
+- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) for Gemini
+- BigQuery auth via ADC (locally: `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS`)
+- A FAISS index under `faiss_indices/` (see embedding generation above)
+
+Run:
+```bash
+python scripts/run_batch_questions.py \
+  --questions-file scripts/questions.example.txt \
+  --output-dir logs/batch_run \
+  --index-name index_transformed_sample_queries
+```
+
+Options:
+- `--no-execute` to skip BigQuery execution (still logs SQL)
+- `--basic-validation` to relax schema checks
+- Override BigQuery target via env: `BIGQUERY_PROJECT_ID`, `BIGQUERY_DATASET`
+
+Outputs in `--output-dir`:
+- `run.log` – high-level run log
+- `results.jsonl` – per-question JSON records (question, token usage, sources, SQL, execution summary)
+- `qNNN_answer.txt` – full LLM answer
+- `qNNN_query.sql` – extracted SQL (if any)
+- `qNNN_result.csv` – BigQuery result (if executed and successful)
+- `qNNN_debug.md` – detailed pipeline trace

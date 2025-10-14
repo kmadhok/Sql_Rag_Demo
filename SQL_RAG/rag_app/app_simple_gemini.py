@@ -1825,8 +1825,11 @@ def display_sql_execution_interface(answer: str):
         try:
             if debug_mode:
                 st.write("🔧 Initializing BigQuery executor...")
-            st.session_state.bigquery_executor = BigQueryExecutor(project_id="brainrot-453319")
-            logger.info("✅ BigQuery executor initialized successfully")
+            # Prefer env-configured project and dataset when provided
+            bq_project = os.getenv('BIGQUERY_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT') or "brainrot-453319"
+            bq_dataset = os.getenv('BIGQUERY_DATASET') or "bigquery-public-data.thelook_ecommerce"
+            st.session_state.bigquery_executor = BigQueryExecutor(project_id=bq_project, dataset_id=bq_dataset)
+            logger.info(f"✅ BigQuery executor initialized successfully (project={bq_project}, dataset={bq_dataset})")
             if debug_mode:
                 st.success("✅ BigQuery executor initialized")
         except Exception as e:
@@ -1906,11 +1909,29 @@ def display_sql_execution_interface(answer: str):
             col1, col2 = st.columns(2)
             with col1:
                 st.info(f"📊 **Project:** {executor.project_id}")
-                st.info(f"🗃️ **Dataset:** thelook_ecommerce")
+                st.info(f"🗃️ **Dataset:** {executor.dataset_id}")
             
             with col2:
                 st.info(f"🔒 **Max Rows:** {executor.max_rows:,}")
                 st.info(f"⏱️ **Timeout:** {executor.timeout_seconds}s")
+
+            # Additional execution controls
+            dry_run = st.checkbox(
+                "🧪 Dry Run (estimate only)",
+                value=st.session_state.get('bq_dry_run', False),
+                help="Estimate bytes processed without returning results"
+            )
+            st.session_state['bq_dry_run'] = dry_run
+
+            max_bytes_default = int(st.session_state.get('bq_max_bytes_billed', 100_000_000))
+            max_bytes_billed = st.number_input(
+                "💰 Max Bytes Billed",
+                min_value=10_000_000,
+                value=max_bytes_default,
+                step=10_000_000,
+                help="Safety cap on billed bytes"
+            )
+            st.session_state['bq_max_bytes_billed'] = int(max_bytes_billed)
             
             # Execute button with callback (proper Streamlit pattern)
             st.form_submit_button(
@@ -2004,7 +2025,11 @@ def execute_sql_callback():
         logger.info(f"🔄 [CALLBACK] Starting BigQuery execution for SQL: {sql[:100]}...")
         
         # Execute the query in callback (before rerun)
-        result = executor.execute_query(sql)
+        # Read execution preferences from session state
+        dry_run = bool(st.session_state.get('bq_dry_run', False))
+        max_bytes_billed = st.session_state.get('bq_max_bytes_billed', 100_000_000)
+
+        result = executor.execute_query(sql, dry_run=dry_run, max_bytes_billed=max_bytes_billed)
         
         # Store result in session state for display after rerun
         st.session_state.sql_execution_result = result
@@ -2036,6 +2061,8 @@ def display_sql_execution_results(result: QueryResult):
     """
     if result.success:
         st.success("🎉 Query executed successfully!")
+        if getattr(result, 'dry_run', False):
+            st.info("🧪 Dry run: query not executed. Showing estimated bytes only.")
         
         # Display execution metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -2070,8 +2097,8 @@ def display_sql_execution_results(result: QueryResult):
                 help="Amount of data billed (cached queries are free)"
             )
         
-        # Display the actual data
-        if result.data is not None and not result.data.empty:
+        # Display the actual data (not available for dry runs)
+        if (not getattr(result, 'dry_run', False)) and result.data is not None and not result.data.empty:
             st.markdown("**📋 Query Results:**")
             
             # Display data with interactive features
@@ -2274,7 +2301,29 @@ def main():
             
             # BigQuery execution - always enabled when available
             if BIGQUERY_EXECUTION_AVAILABLE:
-                st.success("✅ BigQuery Execution: Available (thelook_ecommerce dataset, project: brainrot-453319)")
+                st.success("✅ BigQuery Execution: Available")
+                # Allow user to override Project/Dataset used by the executor
+                st.subheader("🛠️ BigQuery Settings")
+                # Initialize defaults if not present
+                if 'bq_project' not in st.session_state:
+                    st.session_state.bq_project = os.getenv('BIGQUERY_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT') or "brainrot-453319"
+                if 'bq_dataset' not in st.session_state:
+                    st.session_state.bq_dataset = os.getenv('BIGQUERY_DATASET') or "bigquery-public-data.thelook_ecommerce"
+
+                new_project = st.text_input("Project ID", value=st.session_state.bq_project, help="Project for BigQuery jobs")
+                new_dataset = st.text_input("Dataset", value=st.session_state.bq_dataset, help="Default dataset context for UI")
+                bq_changed = (new_project != st.session_state.bq_project) or (new_dataset != st.session_state.bq_dataset)
+                st.session_state.bq_project = new_project
+                st.session_state.bq_dataset = new_dataset
+
+                # (Re)initialize executor if missing or settings changed
+                if ('bigquery_executor' not in st.session_state) or bq_changed:
+                    try:
+                        st.session_state.bigquery_executor = BigQueryExecutor(project_id=new_project, dataset_id=new_dataset)
+                        if bq_changed:
+                            st.info("🔄 Reinitialized BigQuery executor with new settings")
+                    except Exception as e:
+                        st.warning(f"Failed to initialize BigQuery executor: {e}")
             else:
                 st.warning("⚠️ BigQuery execution unavailable - check bigquery_executor.py and google-cloud-bigquery dependency")
             
@@ -2358,6 +2407,59 @@ def main():
                 
                 st.success("🚀 Hybrid search combines semantic understanding with exact SQL term matching")
             
+            # Sidebar Schema Browser
+            st.divider()
+            st.subheader("🧱 Schema Browser")
+            sm = st.session_state.get('schema_manager')
+            if sm:
+                search = st.text_input("Search tables", "", help="Filter by table name (substring)")
+                try:
+                    all_tables = sorted(list(sm.schema_lookup.keys()))
+                    filtered = [t for t in all_tables if search.lower() in t.lower()] if search else all_tables
+                except Exception:
+                    filtered = []
+
+                selected_table = st.selectbox("Select a table", filtered, index=0 if filtered else None, key="schema_browser_select") if filtered else None
+                if selected_table:
+                    fqn = sm.get_fqn(selected_table) or selected_table
+                    st.caption("Fully Qualified Name")
+                    st.code(f"`{fqn}`", language=None)
+
+                    # Show columns + datatypes
+                    df = sm.schema_df
+                    if df is not None:
+                        table_norm = sm._normalize_table_name(selected_table)
+                        try:
+                            table_df = df[df["table_id"] == table_norm][["column", "datatype"]].reset_index(drop=True)
+                            st.dataframe(table_df, use_container_width=True, hide_index=True)
+                        except Exception:
+                            cols = sm.get_table_columns(selected_table)
+                            st.write("Columns:", ", ".join(cols) if cols else "N/A")
+                    else:
+                        cols = sm.get_table_columns(selected_table)
+                        st.write("Columns:", ", ".join(cols) if cols else "N/A")
+
+                    # Quick actions
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        if st.button("Copy FQN", use_container_width=True, key="copy_fqn_btn"):
+                            st.session_state["copied_fqn"] = fqn
+                            st.success("Copied FQN (use Cmd/Ctrl+C on highlighted text)")
+                    with col_b:
+                        if st.button("Insert sample SELECT", use_container_width=True, key="insert_sample_btn"):
+                            sample_sql = f"SELECT * FROM `{fqn}`\nLIMIT 100"
+                            st.session_state["user_context"] = (st.session_state.get("user_context", "") + f"\n\nSample:\n```sql\n{sample_sql}\n```" ).strip()
+                            st.success("Inserted sample into Additional Context")
+                    with col_c:
+                        ex = st.session_state.get('excluded_tables', [])
+                        if st.button("Exclude", use_container_width=True, key="exclude_table_btn"):
+                            if selected_table not in ex:
+                                ex = ex + [selected_table]
+                                st.session_state['excluded_tables'] = ex
+                            st.success(f"Excluded {selected_table}")
+            else:
+                st.info("Load a schema CSV to browse tables (data_new/thelook_ecommerce_schema.csv)")
+
             # Source display options
             st.subheader("📋 Source Display")
             show_full_queries = st.checkbox(
@@ -2653,17 +2755,64 @@ def main():
         # Display session stats
         display_session_stats()
         
-        # Main query interface
+        # Main query interface with right-hand schema panel
         st.subheader("❓ Ask a Question")
-        
-        query = st.text_input(
-            "Enter your question:",
-            placeholder="e.g., Which queries show customer spending analysis with multiple JOINs?"
-        )
-        
-        # Check if we should process the query (not if SQL execution just completed)
-        should_process_query = (st.button("🔍 Search", type="primary", key="main_search_button") and query.strip() and 
-                               not st.session_state.get('sql_execution_completed', False))
+
+        left_col, right_col = st.columns([3, 1])
+
+        with left_col:
+            query = st.text_input(
+                "Enter your question:",
+                placeholder="e.g., Which queries show customer spending analysis with multiple JOINs?",
+                key="query_search_input"
+            )
+
+            # Check if we should process the query (not if SQL execution just completed)
+            search_clicked = st.button("🔍 Search", type="primary", key="main_search_button")
+            should_process_query = (search_clicked and query.strip() and
+                                    not st.session_state.get('sql_execution_completed', False))
+
+        with right_col:
+            st.subheader("📚 Tables")
+            sm_right = st.session_state.get('schema_manager')
+            if sm_right:
+                table_filter = st.text_input("Filter", "", key="right_schema_filter", help="Filter tables by name")
+                try:
+                    all_tables_right = sorted(list(sm_right.schema_lookup.keys()))
+                except Exception:
+                    all_tables_right = []
+
+                filtered_tables_right = [t for t in all_tables_right if table_filter.lower() in t.lower()] if table_filter else all_tables_right
+
+                # Scrollable container (falls back to plain container if height/border not supported)
+                try:
+                    sc = st.container(border=True, height=520)
+                except TypeError:
+                    sc = st.container()
+
+                with sc:
+                    max_show = 25
+                    for t in filtered_tables_right[:max_show]:
+                        fqn = sm_right.get_fqn(t) or t
+                        with st.expander(t, expanded=False):
+                            st.caption(f"FQN: `{fqn}`")
+                            df_right = sm_right.schema_df
+                            if df_right is not None:
+                                try:
+                                    norm = sm_right._normalize_table_name(t)
+                                    tbl_df = df_right[df_right['table_id'] == norm][['column', 'datatype']].reset_index(drop=True)
+                                    st.dataframe(tbl_df, use_container_width=True, hide_index=True)
+                                except Exception:
+                                    cols = sm_right.get_table_columns(t)
+                                    st.write(", ".join(cols) if cols else "No columns")
+                            else:
+                                cols = sm_right.get_table_columns(t)
+                                st.write(", ".join(cols) if cols else "No columns")
+
+                    if len(filtered_tables_right) > max_show:
+                        st.caption(f"Showing first {max_show} of {len(filtered_tables_right)} tables")
+            else:
+                st.info("Load a schema CSV to list tables (data_new/thelook_ecommerce_schema.csv)")
         
         if should_process_query:
             # Clear any previous SQL execution completion flag
@@ -2752,18 +2901,51 @@ def main():
                         if token_usage:
                             st.session_state.token_usage.append(token_usage)
                         
+                        # Relevant tables (chips with expanders) before the answer
+                        try:
+                            if token_usage and token_usage.get('sql_validation', {}).get('enabled'):
+                                tables_found_chip = token_usage['sql_validation'].get('tables_found', []) or []
+                                if tables_found_chip:
+                                    st.subheader("📋 Relevant Tables")
+                                    sm_chip = st.session_state.get('schema_manager')
+                                    max_chips = 8
+                                    for t in tables_found_chip[:max_chips]:
+                                        fqn = (sm_chip.get_fqn(t) if sm_chip else None) or t
+                                        with st.expander(t, expanded=False):
+                                            st.caption(f"FQN: `{fqn}`")
+                                            if sm_chip:
+                                                dfc = sm_chip.schema_df
+                                                if dfc is not None:
+                                                    try:
+                                                        norm = sm_chip._normalize_table_name(t)
+                                                        tbl_df = dfc[dfc['table_id'] == norm][['column', 'datatype']].reset_index(drop=True)
+                                                        st.dataframe(tbl_df, use_container_width=True, hide_index=True)
+                                                    except Exception:
+                                                        cols = sm_chip.get_table_columns(t)
+                                                        st.write(", ".join(cols) if cols else "No columns")
+                                                else:
+                                                    cols = sm_chip.get_table_columns(t)
+                                                    st.write(", ".join(cols) if cols else "No columns")
+                        except Exception:
+                            pass
+
                         # Display answer
                         st.subheader("📜 Answer")
                         st.write(answer)
                         
-                        # SQL Execution Interface - appears when SQL is detected
-                        display_sql_execution_interface(answer)
+                        # Extract SQL now (without rendering the execution UI here)
+                        # so the persistent execution section can show the interface once.
+                        try:
+                            executor = st.session_state.get('bigquery_executor')
+                            if executor and answer and not st.session_state.get('extracted_sql'):
+                                extracted_sql = executor.extract_sql_from_text(answer)
+                                if extracted_sql:
+                                    st.session_state.extracted_sql = extracted_sql
+                                    logger.info(f"💾 Extracted and stored new SQL in session state: {extracted_sql[:50]}...")
+                        except Exception as _e:
+                            logger.debug(f"SQL extraction skipped: {_e}")
                         
-                        # Display persistent SQL execution results if they exist
-                        if 'sql_execution_result' in st.session_state:
-                            st.divider()
-                            st.subheader("📊 Query Execution Results")
-                            display_sql_execution_results(st.session_state.sql_execution_result)
+                        # SQL Execution UI is rendered in the persistent section below
                         
                         # Display context utilization (Gemini optimization)
                         if sources and gemini_mode:
@@ -2931,6 +3113,21 @@ def main():
                             if tables_found:
                                 logger.info(f"📋 Tables Found ({len(tables_found)}): {', '.join(tables_found)}")
                                 logger.debug(f"[SQL VALIDATION DEBUG] Tables found ({len(tables_found)}): {', '.join(tables_found)}")
+                                # UI: Show relevant tables and FQNs (if available)
+                                try:
+                                    st.markdown("**📋 Relevant Tables Detected:**")
+                                    st.write(
+                                        ", ".join([f"`{t}`" for t in tables_found]) if tables_found else "None"
+                                    )
+                                    sm_ui = st.session_state.get('schema_manager')
+                                    if sm_ui:
+                                        fqn_map_ui = sm_ui.get_fqn_map(tables_found)
+                                        if fqn_map_ui:
+                                            st.caption("FQN Mapping (use in FROM/JOIN):")
+                                            fqn_lines = [f"- {t} → `{fqn}`" for t, fqn in fqn_map_ui.items()]
+                                            st.markdown("\n".join(fqn_lines))
+                                except Exception:
+                                    pass
                             
                             if columns_found:
                                 logger.info(f"📊 Columns Found ({len(columns_found)}): {', '.join(str(col) for col in columns_found)}")
@@ -3171,11 +3368,7 @@ def main():
             if 'extracted_sql' in st.session_state and st.session_state.extracted_sql:
                 display_sql_execution_interface(st.session_state.extracted_sql)
             
-            # Show execution results if they exist
-            if 'sql_execution_result' in st.session_state and st.session_state.sql_execution_result:
-                st.divider()
-                st.subheader("📊 Previous Query Results")
-                display_sql_execution_results(st.session_state.sql_execution_result)
+            # Results are displayed inside the execution interface via status handler
             
             # Show execution errors if they exist
             if 'sql_execution_error' in st.session_state and st.session_state.sql_execution_error:

@@ -64,7 +64,8 @@ enable_apis() {
     secretmanager.googleapis.com \
     logging.googleapis.com \
     monitoring.googleapis.com \
-    firestore.googleapis.com
+    firestore.googleapis.com \
+    bigquery.googleapis.com
   print_ok "APIs enabled successfully"
 }
 
@@ -149,6 +150,12 @@ grant_secret_access() {
     --role="roles/datastore.user" >/dev/null 2>&1 || true
   print_ok "Ensured roles/datastore.user for ${runtime_sa}"
 
+  # Grant BigQuery job permissions for executing read-only queries
+  gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+    --member="serviceAccount:${runtime_sa}" \
+    --role="roles/bigquery.jobUser" >/dev/null 2>&1 || true
+  print_ok "Ensured roles/bigquery.jobUser for ${runtime_sa}"
+
   echo "$runtime_sa"
 }
 
@@ -180,7 +187,7 @@ build_and_deploy() {
     --concurrency 80 \
     --timeout 300 \
     --service-account "$runtime_sa" \
-    --set-env-vars "PYTHONUNBUFFERED=1,STREAMLIT_SERVER_ENABLE_CORS=false,STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false,EMBEDDINGS_PROVIDER=openai" \
+    --set-env-vars "PYTHONUNBUFFERED=1,STREAMLIT_SERVER_ENABLE_CORS=false,STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false,EMBEDDINGS_PROVIDER=openai,BIGQUERY_PROJECT_ID=${PROJECT_ID},BIGQUERY_DATASET=bigquery-public-data.thelook_ecommerce" \
     --set-secrets "OPENAI_API_KEY=openai-api-key:latest,GEMINI_API_KEY=gemini-api-key:latest" \
     --labels "app=sql-rag,environment=production"
 

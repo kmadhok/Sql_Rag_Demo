@@ -1,0 +1,18 @@
+{
+  "original_query": "Average order value by product category.",
+  "rewritten_query": "Calculate the average order value (mean transaction sum, average revenue per order) for sales performance by product category (item classification, product type). This requires a multi-table join (e.g., INNER JOIN, LEFT JOIN) across Orders, Order_Items, Products, and Product_Categories tables to aggregate (`SUM()`) line item totals (quantity * unit price) per order, then compute the `AVG()` aggregate function on these order totals, grouped by product_category_id or product_category_name. Consider using a subquery or Common Table Expression (CTE) for intermediate order total calculation, and optional `WHERE` for filtering or `ORDER BY` for reporting.",
+  "confidence": 0.7999999999999999,
+  "rewrite_method": "gemini_enhanced",
+  "model_used": "gemini-2.5-flash",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [],
+    "complexity": "simple",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 6.218165874481201,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1760323908.84901,
+  "cache_key": "88d9c5ab3326b8b6a23e2074f0667d16"
+}

@@ -1,0 +1,20 @@
+{
+  "original_query": "Top 10 products by order count in the last 30 days.",
+  "rewritten_query": "SQL query to find the Top-N or Top 10 products by order count or sales volume. Show examples using `GROUP BY`, `COUNT()`, `ORDER BY DESC` with `LIMIT` or `TOP`. Include advanced ranking with window functions like `RANK()` or `DENSE_RANK()` over a partition, often using a Common Table Expression (CTE) or subquery. Query must filter results for a specific date range, like the last 30 days, using a `WHERE` clause with date functions (`DATE_SUB`, `CURRENT_DATE`, `GETDATE()`, `INTERVAL`, `BETWEEN`). Demonstrate `JOIN`s (e.g., `INNER JOIN`, `LEFT JOIN`) between tables like `products`, `orders`, and `order_details` to link product information with transactional data. Related concepts: Top-N analysis, ranking queries, summarizing sales data, business intelligence reports, aggregate functions, time-series analysis, joining fact and dimension tables.",
+  "confidence": 0.7999999999999999,
+  "rewrite_method": "gemini_enhanced",
+  "model_used": "gemini-2.5-pro",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [
+      "aggregations"
+    ],
+    "complexity": "complex",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 18.847567081451416,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1760323931.283534,
+  "cache_key": "908e36caf8c49cffc04e88dbb45d5eef"
+}

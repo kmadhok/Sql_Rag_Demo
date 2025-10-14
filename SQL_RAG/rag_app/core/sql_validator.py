@@ -19,6 +19,13 @@ from typing import Dict, List, Optional, Set, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
 
+# Import LLM SQL analyzer for intelligent column extraction
+try:
+    from core.llm_sql_analyzer import extract_columns_with_llm
+    LLM_ANALYSIS_AVAILABLE = True
+except ImportError:
+    LLM_ANALYSIS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 class ValidationLevel(Enum):
@@ -363,7 +370,7 @@ class SQLValidator:
     
     def _extract_sql_elements(self, sql_query: str) -> Tuple[Set[str], Set[Dict], List[Dict]]:
         """
-        Extract tables, columns, and joins from SQL query
+        Extract tables, columns, and joins from SQL query using LLM analysis
         
         Args:
             sql_query: SQL query to analyze
@@ -376,10 +383,42 @@ class SQLValidator:
         joins = []
         
         try:
-            parsed = sqlparse.parse(sql_query)[0]
+            # Try LLM-based extraction first (more accurate)
+            if LLM_ANALYSIS_AVAILABLE:
+                try:
+                    logger.debug("🤖 Using LLM-based SQL element extraction")
+                    
+                    # Extract tables (actual database tables, not CTEs)
+                    from core.llm_sql_analyzer import extract_tables_with_llm, extract_columns_with_llm
+                    
+                    llm_tables = extract_tables_with_llm(sql_query)
+                    if llm_tables:
+                        for table in llm_tables:
+                            clean_table = self._clean_identifier(table)
+                            if clean_table:
+                                tables.add(clean_table)
+                    
+                    # Extract columns with table context
+                    available_tables = list(tables) if tables else None
+                    llm_columns = extract_columns_with_llm(sql_query, available_tables)
+                    if llm_columns:
+                        for col_mapping in llm_columns:
+                            if isinstance(col_mapping, dict) and 'table' in col_mapping and 'column' in col_mapping:
+                                # Convert to frozenset format for compatibility
+                                columns.add(frozenset([('table', col_mapping['table']), ('column', col_mapping['column'])]))
+                    
+                    logger.debug(f"🤖 LLM extracted {len(tables)} tables, {len(columns)} columns")
+                    
+                    # If LLM extraction was successful, return results
+                    if tables or columns:
+                        return tables, columns, joins
+                        
+                except Exception as e:
+                    logger.warning(f"LLM SQL element extraction failed, falling back to regex: {e}")
             
-            # More targeted approach: only extract identifiers from specific contexts
-            # Don't just grab all identifiers as they might be column names
+            # Fallback to regex-based extraction
+            logger.debug("📝 Using regex-based SQL element extraction")
+            parsed = sqlparse.parse(sql_query)[0]
             
             # More sophisticated parsing for tables and columns
             sql_upper = sql_query.upper()
@@ -412,19 +451,10 @@ class SQLValidator:
                     if clean_table and not self._is_likely_column_name(clean_table, sql_query):
                         tables.add(clean_table)
             
-            # Also try to extract table names from WITH clauses, subqueries, etc.
-            # Extract table names after WITH keyword
-            with_matches = re.findall(r'WITH\s+(\w+)\s+AS', sql_upper)
-            for match in with_matches:
-                clean_table = self._clean_identifier(match)
-                if clean_table:
-                    tables.add(clean_table.lower())
-            
-            # Extract columns with table context
+            # Extract columns using regex (original complex method)
             columns = self._extract_columns_with_tables(sql_query, tables)
             
-            logger.debug(f"Extracted {len(tables)} tables from SQL: {list(tables)}")
-            logger.debug(f"Extracted {len(columns)} columns from SQL: {list(columns)}")
+            logger.debug(f"📝 Regex extracted {len(tables)} tables, {len(columns)} columns")
             
         except Exception as e:
             logger.error(f"Error extracting SQL elements: {e}")

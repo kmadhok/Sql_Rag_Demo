@@ -1,0 +1,14 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "MonthlyRevenue"
+    ],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 2.149789810180664,
+  "tokens_used": 223,
+  "cost_estimate": 1.6725e-05
+}

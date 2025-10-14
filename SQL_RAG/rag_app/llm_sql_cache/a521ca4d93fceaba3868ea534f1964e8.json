@@ -1,0 +1,30 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_category"
+      },
+      {
+        "table": "order_total_revenue",
+        "column": "total_revenue_per_order"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "average_order_value",
+        "column": "AVG(order_total_revenue.total_revenue_per_order)"
+      }
+    ],
+    "aggregate_columns": [
+      "order_total_revenue.total_revenue_per_order"
+    ],
+    "computed_columns": [
+      "AVG(order_total_revenue.total_revenue_per_order)"
+    ]
+  },
+  "analysis_time": 12.585474014282227,
+  "tokens_used": 465,
+  "cost_estimate": 3.4875e-05
+}

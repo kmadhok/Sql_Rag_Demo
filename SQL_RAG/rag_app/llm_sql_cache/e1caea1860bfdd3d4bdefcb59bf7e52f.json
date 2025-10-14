@@ -1,0 +1,31 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.users",
+      "bigquery-public-data.thelook_ecommerce.events",
+      "bigquery-public-data.thelook_ecommerce.order_items"
+    ],
+    "cte_tables": [
+      "age_group"
+    ],
+    "table_aliases": [
+      {
+        "alias": "e",
+        "table": "bigquery-public-data.thelook_ecommerce.events"
+      },
+      {
+        "alias": "ag",
+        "table": "age_group"
+      },
+      {
+        "alias": "oi",
+        "table": "bigquery-public-data.thelook_ecommerce.order_items"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 7.290802955627441,
+  "tokens_used": 481,
+  "cost_estimate": 3.6074999999999996e-05
+}

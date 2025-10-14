@@ -33,6 +33,7 @@ class QueryResult:
     total_rows: int = 0
     job_id: Optional[str] = None
     cache_hit: bool = False
+    dry_run: bool = False
 
 class BigQueryExecutor:
     """
@@ -283,7 +284,7 @@ class BigQueryExecutor:
         
         return None
     
-    def execute_query(self, sql: str) -> QueryResult:
+    def execute_query(self, sql: str, *, dry_run: bool = False, max_bytes_billed: Optional[int] = None) -> QueryResult:
         """
         Execute SQL query with safety validation and comprehensive error handling
         
@@ -308,10 +309,10 @@ class BigQueryExecutor:
             
             # Configure query job
             job_config = bigquery.QueryJobConfig(
-                maximum_bytes_billed=100_000_000,  # 100MB limit for safety
+                maximum_bytes_billed=(max_bytes_billed if isinstance(max_bytes_billed, int) and max_bytes_billed > 0 else 100_000_000),
                 use_query_cache=True,
                 query_parameters=[],
-                dry_run=False
+                dry_run=dry_run
             )
             
             logger.info(f"🚀 Executing BigQuery SQL: {sql[:100]}...")
@@ -319,18 +320,20 @@ class BigQueryExecutor:
             # Start query job
             query_job = self.client.query(sql, job_config=job_config)
             
-            # Wait for completion with timeout
-            try:
-                query_job.result(timeout=self.timeout_seconds)
-            except Exception as e:
-                if "timeout" in str(e).lower():
-                    return QueryResult(
-                        success=False,
-                        error_message=f"Query timeout after {self.timeout_seconds} seconds",
-                        execution_time=time.time() - start_time,
-                        job_id=query_job.job_id
-                    )
-                raise
+            # Wait for completion with timeout unless dry run
+            if not dry_run:
+                try:
+                    query_job.result(timeout=self.timeout_seconds)
+                except Exception as e:
+                    if "timeout" in str(e).lower():
+                        return QueryResult(
+                            success=False,
+                            error_message=f"Query timeout after {self.timeout_seconds} seconds",
+                            execution_time=time.time() - start_time,
+                            job_id=query_job.job_id,
+                            dry_run=dry_run
+                        )
+                    raise
             
             # Check for errors
             if query_job.errors:
@@ -339,9 +342,27 @@ class BigQueryExecutor:
                     success=False,
                     error_message=f"BigQuery errors: {'; '.join(error_messages)}",
                     execution_time=time.time() - start_time,
-                    job_id=query_job.job_id
+                    job_id=query_job.job_id,
+                    dry_run=dry_run
                 )
-            
+
+            # If dry run, no data will be returned; just collect stats
+            if dry_run:
+                execution_time = time.time() - start_time
+                job_stats = query_job._properties.get('statistics', {})
+                query_stats = job_stats.get('query', {})
+                return QueryResult(
+                    success=True,
+                    data=None,
+                    execution_time=execution_time,
+                    bytes_processed=int(query_stats.get('totalBytesProcessed', 0)),
+                    bytes_billed=0,
+                    total_rows=0,
+                    job_id=query_job.job_id,
+                    cache_hit=False,
+                    dry_run=True
+                )
+
             # Get results as DataFrame
             df = query_job.to_dataframe()
             
@@ -366,7 +387,8 @@ class BigQueryExecutor:
                 bytes_billed=int(query_stats.get('totalBytesBilled', 0)),
                 total_rows=len(df),
                 job_id=query_job.job_id,
-                cache_hit=query_stats.get('cacheHit', False)
+                cache_hit=query_stats.get('cacheHit', False),
+                dry_run=False
             )
             
         except GoogleCloudError as e:

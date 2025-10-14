@@ -1,0 +1,8 @@
+# Example questions for the batch runner. One per line.
+# Lines starting with '#' are ignored.
+
+Top 10 users by lifetime revenue (user_id, revenue).
+Monthly orders and revenue for the last 90 days.
+Average order value by product category.
+Top 10 products by order count in the last 30 days.
+Conversion rate: orders per user over the past 6 months.

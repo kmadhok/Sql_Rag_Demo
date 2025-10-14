@@ -1,0 +1,18 @@
+{
+  "original_query": "Monthly orders and revenue for the last 90 days.",
+  "rewritten_query": "SQL query for monthly orders count and total revenue, sales amount aggregation, for the last 90 days, recent quarter, rolling 3 months. Using `SELECT`, `FROM` orders table, `transactions` table, `sales_data`, `line_items` for `order_id`, `transaction_id`, `order_date`, `created_at`, `transaction_date`, `amount`, `price`, `quantity`, `total_amount`, `revenue_amount`, `sales_amount`. `WHERE` clause for date range filtering, `CURRENT_DATE`, `NOW()`, `INTERVAL`, `DATEDIFF`, `DATE_SUB`, `BETWEEN` dates. `GROUP BY` month, `DATE_TRUNC('month', order_date)`, `EXTRACT(MONTH FROM created_at)`. `SUM(price * quantity)`, `SUM(amount)`, `COUNT(DISTINCT order_id)`, `COUNT(transaction_id)` for financial reporting, sales analytics, time series analysis, monthly summary, performance metrics. Potential `JOIN` (inner join, left join) with products, customers, client analysis, user tables for sales analysis and reporting.",
+  "confidence": 0.7999999999999999,
+  "rewrite_method": "gemini_enhanced",
+  "model_used": "gemini-2.5-flash",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [],
+    "complexity": "simple",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 5.550682783126831,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1760323901.816813,
+  "cache_key": "ff5738a086b9c62e7e4023f77337928e"
+}

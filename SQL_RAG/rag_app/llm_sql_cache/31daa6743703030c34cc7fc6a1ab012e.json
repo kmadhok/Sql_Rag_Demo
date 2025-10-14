@@ -1,0 +1,29 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "orders",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_year",
+        "column": "EXTRACT(YEAR FROM o.created_at)"
+      },
+      {
+        "alias": "order_month",
+        "column": "EXTRACT(MONTH FROM o.created_at)"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "EXTRACT(YEAR FROM o.created_at)",
+      "EXTRACT(MONTH FROM o.created_at)"
+    ]
+  },
+  "analysis_time": 5.235923767089844,
+  "tokens_used": 340,
+  "cost_estimate": 2.55e-05
+}

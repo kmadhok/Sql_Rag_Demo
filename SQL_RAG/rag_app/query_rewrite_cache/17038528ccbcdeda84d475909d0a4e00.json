@@ -1,0 +1,20 @@
+{
+  "original_query": "Top 10 users by lifetime revenue (user_id, revenue).",
+  "rewritten_query": "Top 10 users by lifetime revenue (user_id, revenue).",
+  "confidence": 1.0,
+  "rewrite_method": "original_low_confidence",
+  "model_used": "gemini-2.5-flash",
+  "intent_analysis": {
+    "has_sql_terms": false,
+    "focus_areas": [
+      "customer_analysis"
+    ],
+    "complexity": "moderate",
+    "suggested_expansions": []
+  },
+  "rewrite_time": 6.7117760181427,
+  "llm_error": null,
+  "cache_hit": false,
+  "cached_at": 1760323887.834759,
+  "cache_key": "17038528ccbcdeda84d475909d0a4e00"
+}

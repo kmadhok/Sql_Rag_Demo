@@ -1,0 +1,41 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(COUNT(DISTINCT o.order_id) AS BIGNUMERIC) / COUNT(DISTINCT u.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT o.order_id)",
+      "COUNT(DISTINCT u.id)"
+    ],
+    "computed_columns": [
+      "CAST(COUNT(DISTINCT o.order_id) AS BIGNUMERIC) / COUNT(DISTINCT u.id)",
+      "CAST(COUNT(DISTINCT o.order_id) AS BIGNUMERIC)",
+      "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 6 MONTH)"
+    ]
+  },
+  "analysis_time": 11.365241050720215,
+  "tokens_used": 639,
+  "cost_estimate": 4.7925e-05
+}
