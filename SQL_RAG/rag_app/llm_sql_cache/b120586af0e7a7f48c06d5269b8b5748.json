@@ -1,0 +1,23 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.users"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "rc",
+        "table": "RankedCities"
+      },
+      {
+        "alias": "u",
+        "table": "`bigquery-public-data.thelook_ecommerce.users`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 9.626596927642822,
+  "tokens_used": 264,
+  "cost_estimate": 1.98e-05
+}

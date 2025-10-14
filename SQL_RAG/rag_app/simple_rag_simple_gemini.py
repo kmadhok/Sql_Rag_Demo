@@ -879,9 +879,13 @@ def answer_question_simple_gemini(
         # If we have fully-qualified table names, append instruction block to schema
         if schema_manager and relevant_schema:
             try:
-                # Recompute relevant tables from question + docs for mapping
-                _tables_for_map = schema_manager.extract_tables_from_documents(processed_docs)
-                _tables_for_map += schema_manager.extract_tables_from_content(question)
+                # Reuse previously derived/filtered tables to avoid duplicate extraction
+                if 'filtered_tables' in locals() and filtered_tables:
+                    _tables_for_map = list(dict.fromkeys(filtered_tables))
+                elif 'relevant_tables' in locals() and relevant_tables:
+                    _tables_for_map = list(dict.fromkeys(relevant_tables))
+                else:
+                    _tables_for_map = []
                 # Respect exclusions
                 excluded_set = {schema_manager._normalize_table_name(t) for t in (excluded_tables or [])}
                 _tables_for_map = [t for t in _tables_for_map if schema_manager._normalize_table_name(t) not in excluded_set]

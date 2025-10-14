@@ -1,0 +1,37 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "UserProductCounts",
+        "column": "user_id"
+      },
+      {
+        "table": "UserProductCounts",
+        "column": "product_name"
+      },
+      {
+        "table": "UserProductCounts",
+        "column": "purchase_count"
+      },
+      {
+        "table": "RankedUserProducts",
+        "column": "user_id"
+      },
+      {
+        "table": "RankedUserProducts",
+        "column": "product_name"
+      },
+      {
+        "table": "RankedUserProducts",
+        "column": "user_rank"
+      }
+    ],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": []
+  },
+  "analysis_time": 5.288097858428955,
+  "tokens_used": 340,
+  "cost_estimate": 2.55e-05
+}

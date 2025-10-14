@@ -1,0 +1,40 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "RankedCities",
+        "column": "city"
+      },
+      {
+        "table": "RankedCities",
+        "column": "total_products_purchased"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "age"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "city"
+      },
+      {
+        "table": "RankedCities",
+        "column": "rn"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "average_user_age",
+        "column": "AVG(`bigquery-public-data.thelook_ecommerce.users`.age)"
+      }
+    ],
+    "aggregate_columns": [
+      "AVG(`bigquery-public-data.thelook_ecommerce.users`.age)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 6.070873975753784,
+  "tokens_used": 406,
+  "cost_estimate": 3.0449999999999998e-05
+}

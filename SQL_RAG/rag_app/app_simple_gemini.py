@@ -1819,10 +1819,14 @@ def display_sql_execution_interface(answer: str):
     Args:
         answer: The generated answer text that may contain SQL
     """
-    # Add debug option for troubleshooting
-    debug_mode = st.checkbox("🐛 Debug Mode", help="Show detailed execution logging", key="sql_execution_debug_checkbox")
-    # Store debug mode in session state for callback access
-    st.session_state.debug_mode = debug_mode
+    advanced = st.session_state.get('advanced_mode', False)
+    # Debug option (advanced only)
+    if advanced:
+        debug_mode = st.checkbox("🐛 Debug Mode", help="Show detailed execution logging", key="sql_execution_debug_checkbox")
+        st.session_state.debug_mode = debug_mode
+    else:
+        debug_mode = False
+        st.session_state.debug_mode = False
     
     if debug_mode:
         st.write("**Debug Info:**")
@@ -1922,49 +1926,58 @@ def display_sql_execution_interface(answer: str):
                 st.write(f"🚫 **Safety validation failed**: {validation_msg}")
             return
         
-        # Execution form to prevent unwanted reruns
+        # Execution form to prevent unwanted reruns (submit button only in form)
         with st.form(key="sql_execution_form"):
             st.markdown("**⚙️ Execution Settings:**")
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.info(f"📊 **Project:** {executor.project_id}")
-                st.info(f"🗃️ **Dataset:** {executor.dataset_id}")
-            
-            with col2:
-                st.info(f"🔒 **Max Rows:** {executor.max_rows:,}")
-                st.info(f"⏱️ **Timeout:** {executor.timeout_seconds}s")
+            if advanced:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.info(f"📊 **Project:** {executor.project_id}")
+                    st.info(f"🗃️ **Dataset:** {executor.dataset_id}")
+                with col2:
+                    st.info(f"🔒 **Max Rows:** {executor.max_rows:,}")
+                    st.info(f"⏱️ **Timeout:** {executor.timeout_seconds}s")
+                with st.expander("Execution Controls", expanded=False):
+                    dry_run = st.checkbox(
+                        "🧪 Dry Run (estimate only)",
+                        value=st.session_state.get('bq_dry_run', False),
+                        help="Estimate bytes processed without returning results"
+                    )
+                    st.session_state['bq_dry_run'] = dry_run
+                    max_bytes_default = int(st.session_state.get('bq_max_bytes_billed', 100_000_000))
+                    max_bytes_billed = st.number_input(
+                        "💰 Max Bytes Billed",
+                        min_value=10_000_000,
+                        value=max_bytes_default,
+                        step=10_000_000,
+                        help="Safety cap on billed bytes"
+                    )
+                    st.session_state['bq_max_bytes_billed'] = int(max_bytes_billed)
+                # Submit button (required inside form)
+                st.form_submit_button(
+                    "▶️ Execute Query",
+                    type="primary",
+                    help="Execute the SQL query against BigQuery",
+                    on_click=execute_sql_callback
+                )
+            else:
+                # Simple defaults
+                st.session_state['bq_dry_run'] = False
+                if 'bq_max_bytes_billed' not in st.session_state:
+                    st.session_state['bq_max_bytes_billed'] = 100_000_000
+                
+                # Execute button with callback (proper Streamlit pattern)
+                st.form_submit_button(
+                    "▶️ Execute Query", 
+                    type="primary",
+                    help="Execute the SQL query against BigQuery",
+                    on_click=execute_sql_callback
+                )
 
-            # Additional execution controls
-            dry_run = st.checkbox(
-                "🧪 Dry Run (estimate only)",
-                value=st.session_state.get('bq_dry_run', False),
-                help="Estimate bytes processed without returning results"
-            )
-            st.session_state['bq_dry_run'] = dry_run
-
-            max_bytes_default = int(st.session_state.get('bq_max_bytes_billed', 100_000_000))
-            max_bytes_billed = st.number_input(
-                "💰 Max Bytes Billed",
-                min_value=10_000_000,
-                value=max_bytes_default,
-                step=10_000_000,
-                help="Safety cap on billed bytes"
-            )
-            st.session_state['bq_max_bytes_billed'] = int(max_bytes_billed)
-            
-            # Execute button with callback (proper Streamlit pattern)
-            st.form_submit_button(
-                "▶️ Execute Query", 
-                type="primary",
-                help="Execute the SQL query against BigQuery",
-                on_click=execute_sql_callback
-            )
-        
-        # Handle execution status and display results (after form)
+        # Handle execution status and display results (outside form)
         handle_sql_execution_status(debug_mode)
-        
-        # Add option to clear SQL from session state
+
+        # Add option to clear SQL from session state (outside form)
         if st.button("🗑️ Clear SQL", help="Clear the stored SQL query from session state", key="clear_sql_button"):
             if 'extracted_sql' in st.session_state:
                 del st.session_state.extracted_sql
@@ -2215,6 +2228,15 @@ def main():
         
         st.divider()
         st.header("⚙️ Configuration")
+        # Advanced mode toggle: simple by default
+        default_adv = (os.getenv('UI_ADVANCED_DEFAULT', '0').lower() in ('1', 'true', 'yes'))
+        advanced_mode = st.checkbox(
+            "Advanced Mode",
+            value=st.session_state.get('advanced_mode', default_adv),
+            help="Show detailed controls (schema browser, BigQuery settings, metrics)",
+            key="advanced_mode_toggle"
+        )
+        st.session_state.advanced_mode = advanced_mode
 
         # Show configuration based on selected page
         if page == "🔍 Query Search":
@@ -2233,55 +2255,65 @@ def main():
                 index=0 if DEFAULT_VECTOR_STORE in available_indices else 0
             )
             
-            # Search parameters with Gemini optimization
-            st.subheader("🔍 Search Settings")
+            # Search parameters
+            if advanced_mode:
+                st.subheader("🔍 Search Settings")
             
-            # Add Gemini mode toggle
-            gemini_mode = st.checkbox(
-                "🔥 Gemini Mode", 
-                value=False, 
-                help="Utilize Gemini's 1M context window with enhanced optimization",
-                key="gemini_mode_checkbox"
-            )
-            
-            # Add hybrid search toggle
-            if HYBRID_SEARCH_AVAILABLE:
-                hybrid_search = st.checkbox(
-                    "🔀 Hybrid Search", 
+            # Add Gemini mode toggle (advanced only)
+            if advanced_mode:
+                gemini_mode = st.checkbox(
+                    "🔥 Gemini Mode", 
                     value=False, 
-                    help="Combine vector similarity with keyword search (BM25) for better SQL term matching",
-                    key="hybrid_search_checkbox"
+                    help="Utilize Gemini's 1M context window with enhanced optimization",
+                    key="gemini_mode_checkbox"
                 )
             else:
-                hybrid_search = False
-                st.warning("⚠️ Hybrid search unavailable - install rank-bm25")
+                gemini_mode = False
             
-            # Add query rewriting toggle
-            try:
-                from simple_rag_simple_gemini import QUERY_REWRITING_AVAILABLE
-                if QUERY_REWRITING_AVAILABLE:
-                    query_rewriting = st.checkbox(
-                        "🔄 Query Rewriting", 
+            # Add hybrid search toggle
+            if advanced_mode:
+                if HYBRID_SEARCH_AVAILABLE:
+                    hybrid_search = st.checkbox(
+                        "🔀 Hybrid Search", 
                         value=False, 
-                        help="Enhance queries with SQL terminology using Google Gemini models (25-40% improvement)",
-                        key="query_rewriting_checkbox"
+                        help="Combine vector similarity with keyword search (BM25) for better SQL term matching",
+                        key="hybrid_search_checkbox"
                     )
                 else:
+                    hybrid_search = False
+                    st.warning("⚠️ Hybrid search unavailable - install rank-bm25")
+            else:
+                hybrid_search = False
+            
+            # Add query rewriting toggle
+            if advanced_mode:
+                try:
+                    from simple_rag_simple_gemini import QUERY_REWRITING_AVAILABLE
+                    if QUERY_REWRITING_AVAILABLE:
+                        query_rewriting = st.checkbox(
+                            "🔄 Query Rewriting", 
+                            value=False, 
+                            help="Enhance queries with SQL terminology using Google Gemini models (25-40% improvement)",
+                            key="query_rewriting_checkbox"
+                        )
+                    else:
+                        query_rewriting = False
+                        st.warning("⚠️ Query rewriting unavailable - check query_rewriter.py")
+                except ImportError:
                     query_rewriting = False
-                    st.warning("⚠️ Query rewriting unavailable - check query_rewriter.py")
-            except ImportError:
+                    st.warning("⚠️ Query rewriting module not found")
+            else:
                 query_rewriting = False
-                st.warning("⚠️ Query rewriting module not found")
             
             # Schema injection and SQL validation - always enabled when available
             if SCHEMA_MANAGER_AVAILABLE:
                 schema_injection = True
-                st.success("✅ Smart Schema Injection: Always Active (reduces 39K+ schema rows to ~100-500 relevant ones)")
+                if advanced_mode:
+                    st.success("✅ Smart Schema Injection: Always Active (reduces 39K+ schema rows to ~100-500 relevant ones)")
                 
-                # User-provided context and table exclusions (still optional)
-                if st.session_state.schema_manager:
+                # User context & table filters (advanced only)
+                if advanced_mode and st.session_state.schema_manager:
                     st.subheader("🧩 User Context & Filters")
-                    # Additional freeform context appended to the prompt
                     user_context = st.text_area(
                         "Additional Context (optional)",
                         value=st.session_state.get('user_context', ""),
@@ -2291,7 +2323,6 @@ def main():
                     )
                     st.session_state.user_context = user_context
 
-                    # Exclude tables multiselect
                     try:
                         table_options = sorted(list(st.session_state.schema_manager.schema_lookup.keys()))
                     except Exception:
@@ -2313,16 +2344,16 @@ def main():
             if SQL_VALIDATION_AVAILABLE:
                 sql_validation = True
                 validation_level = ValidationLevel.SCHEMA_STRICT  # Set strict default for comprehensive validation
-                st.success("✅ SQL Validation: Always Active (Schema Strict level - validates tables/columns/types/joins)")
+                if advanced_mode:
+                    st.success("✅ SQL Validation: Always Active (Schema Strict level - validates tables/columns/types/joins)")
             else:
                 sql_validation = False
                 validation_level = None
                 st.warning("⚠️ SQL validation unavailable - check core/sql_validator.py")
             
             # BigQuery execution - always enabled when available
-            if BIGQUERY_EXECUTION_AVAILABLE:
+            if BIGQUERY_EXECUTION_AVAILABLE and advanced_mode:
                 st.success("✅ BigQuery Execution: Available")
-                # Allow user to override Project/Dataset used by the executor
                 st.subheader("🛠️ BigQuery Settings")
                 # Initialize defaults if not present
                 if 'bq_project' not in st.session_state:
@@ -2344,10 +2375,10 @@ def main():
                             st.info("🔄 Reinitialized BigQuery executor with new settings")
                     except Exception as e:
                         st.warning(f"Failed to initialize BigQuery executor: {e}")
-            else:
+            elif not BIGQUERY_EXECUTION_AVAILABLE:
                 st.warning("⚠️ BigQuery execution unavailable - check bigquery_executor.py and google-cloud-bigquery dependency")
             
-            if gemini_mode:
+            if advanced_mode and gemini_mode:
                 k = st.slider(
                     "Top-K Results", 
                     min_value=10, 
@@ -2357,19 +2388,14 @@ def main():
                 )
                 st.success("🚀 Gemini Mode: Using large context window with smart optimization")
             else:
-                k = st.slider(
-                    "Top-K Results", 
-                    1, 
-                    20, 
-                    4, 
-                    help="Conservative mode for smaller models"
-                )
+                # Simple default (no slider)
+                k = 4
             
             # Advanced hybrid search controls
             search_weights = None
             auto_adjust_weights = True
             
-            if hybrid_search:
+            if advanced_mode and hybrid_search:
                 st.subheader("⚙️ Hybrid Search Settings")
                 
                 # Auto-adjust weights toggle
@@ -2427,11 +2453,12 @@ def main():
                 
                 st.success("🚀 Hybrid search combines semantic understanding with exact SQL term matching")
             
-            # Sidebar Schema Browser
-            st.divider()
-            st.subheader("🧱 Schema Browser")
+            # Sidebar Schema Browser (advanced only)
+            if advanced_mode:
+                st.divider()
+                st.subheader("🧱 Schema Browser")
             sm = st.session_state.get('schema_manager')
-            if sm:
+            if advanced_mode and sm:
                 search = st.text_input("Search tables", "", help="Filter by table name (substring)")
                 try:
                     all_tables = sorted(list(sm.schema_lookup.keys()))
@@ -2477,7 +2504,7 @@ def main():
                                 ex = ex + [selected_table]
                                 st.session_state['excluded_tables'] = ex
                             st.success(f"Excluded {selected_table}")
-            else:
+            elif advanced_mode:
                 st.info("Load a schema CSV to browse tables (data_new/thelook_ecommerce_schema.csv)")
 
             # Source display options
@@ -2804,8 +2831,11 @@ def main():
                         del st.session_state[_k]
 
         with right_col:
-            st.subheader("📚 Tables")
-            sm_right = st.session_state.get('schema_manager')
+            if st.session_state.get('advanced_mode', False):
+                st.subheader("📚 Tables")
+                sm_right = st.session_state.get('schema_manager')
+            else:
+                sm_right = None
             if sm_right:
                 table_filter = st.text_input("Filter", "", key="right_schema_filter", help="Filter tables by name")
                 try:
@@ -2842,7 +2872,7 @@ def main():
 
                     if len(filtered_tables_right) > max_show:
                         st.caption(f"Showing first {max_show} of {len(filtered_tables_right)} tables")
-            else:
+            elif st.session_state.get('advanced_mode', False):
                 st.info("Load a schema CSV to list tables (data_new/thelook_ecommerce_schema.csv)")
         
         if should_process_query:
@@ -2852,14 +2882,17 @@ def main():
                 
             # Step-by-step status indicator for search pipeline
             from contextlib import nullcontext
-            try:
-                status_cm = st.status("🔎 Searching and generating answer...", expanded=True)
-            except Exception:
-                # Fallback if running an older Streamlit version
+            advanced_mode = st.session_state.get('advanced_mode', False)
+            if advanced_mode:
+                try:
+                    status_cm = st.status("🔎 Searching and generating answer...", expanded=True)
+                except Exception:
+                    status_cm = nullcontext()
+            else:
                 status_cm = nullcontext()
 
-            with status_cm as status:
-                if status:
+            with (status_cm if advanced_mode else st.spinner("Working...")) as status:
+                if advanced_mode and status:
                     st.write("1) Analyzing query & settings...")
                     st.write("2) Retrieving relevant documents...")
                     st.write("3) Injecting relevant schema...")
@@ -2943,7 +2976,7 @@ def main():
                     if result:
                         answer, sources, token_usage = result
                         # Update step-by-step status details based on token usage
-                        if status and token_usage:
+                        if advanced_mode and status and token_usage:
                             try:
                                 st.write(f"✅ Retrieved {token_usage.get('documents_retrieved', 0)} documents in {token_usage.get('retrieval_time', 0):.2f}s")
                                 sf = token_usage.get('schema_filtering') or {}
@@ -2971,7 +3004,7 @@ def main():
                         
                         # Relevant tables (chips with expanders) before the answer
                         try:
-                            if token_usage and token_usage.get('sql_validation', {}).get('enabled'):
+                            if st.session_state.get('advanced_mode', False) and token_usage and token_usage.get('sql_validation', {}).get('enabled'):
                                 tables_found_chip = token_usage['sql_validation'].get('tables_found', []) or []
                                 if tables_found_chip:
                                     st.subheader("📋 Relevant Tables")
@@ -3004,9 +3037,30 @@ def main():
                         # Extract SQL now (without rendering the execution UI here)
                         # so the persistent execution section can show the interface once.
                         try:
-                            executor = st.session_state.get('bigquery_executor')
-                            if executor and answer and not st.session_state.get('extracted_sql'):
-                                extracted_sql = executor.extract_sql_from_text(answer)
+                            if answer and not st.session_state.get('extracted_sql'):
+                                # Prefer executor-based extraction when available
+                                extracted_sql = None
+                                executor = st.session_state.get('bigquery_executor')
+                                if executor:
+                                    try:
+                                        extracted_sql = executor.extract_sql_from_text(answer)
+                                    except Exception:
+                                        extracted_sql = None
+                                # Fallback: regex extract code-fenced SQL
+                                if not extracted_sql:
+                                    import re as _re
+                                    patterns = [
+                                        r"```sql\s*\n(.*?)\n\s*```",
+                                        r"```\s*\n(.*?)\n\s*```",
+                                    ]
+                                    for pat in patterns:
+                                        m = _re.search(pat, answer, _re.DOTALL | _re.IGNORECASE)
+                                        if m:
+                                            candidate = m.group(1).strip()
+                                            up = candidate.upper()
+                                            if (up.startswith(('SELECT', 'WITH')) and ('FROM' in up or ' AS ' in up)):
+                                                extracted_sql = candidate
+                                                break
                                 if extracted_sql:
                                     st.session_state.extracted_sql = extracted_sql
                                     logger.info(f"💾 Extracted and stored new SQL in session state: {extracted_sql[:50]}...")

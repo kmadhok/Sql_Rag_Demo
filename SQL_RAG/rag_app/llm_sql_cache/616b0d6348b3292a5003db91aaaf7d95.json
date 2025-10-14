@@ -1,0 +1,47 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "id"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`",
+        "column": "user_id"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`",
+        "column": "sale_price"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "user_id",
+        "column": "u.id"
+      },
+      {
+        "alias": "total_spent",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "spend_rank_desc",
+        "column": "RANK() OVER (ORDER BY total_spent DESC)"
+      },
+      {
+        "alias": "spend_rank_asc",
+        "column": "RANK() OVER (ORDER BY total_spent ASC)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": [
+      "RANK() OVER (ORDER BY total_spent DESC)",
+      "RANK() OVER (ORDER BY total_spent ASC)"
+    ]
+  },
+  "analysis_time": 14.409748077392578,
+  "tokens_used": 518,
+  "cost_estimate": 3.885e-05
+}

@@ -1,0 +1,42 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "user_id"
+      },
+      {
+        "table": "products",
+        "column": "name"
+      },
+      {
+        "table": "order_items",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "purchase_count",
+        "column": "COUNT(oi.id)"
+      },
+      {
+        "alias": "rn",
+        "column": "ROW_NUMBER() OVER (PARTITION BY oi.user_id ORDER BY COUNT(oi.id) DESC)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)"
+    ],
+    "computed_columns": [
+      "ROW_NUMBER() OVER (PARTITION BY oi.user_id ORDER BY COUNT(oi.id) DESC)"
+    ]
+  },
+  "analysis_time": 11.54344916343689,
+  "tokens_used": 373,
+  "cost_estimate": 2.7975e-05
+}

@@ -1,0 +1,56 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "purchase_count",
+        "column": "COUNT(oi.id)"
+      },
+      {
+        "alias": "rn",
+        "column": "ROW_NUMBER() OVER (PARTITION BY oi.user_id ORDER BY COUNT(oi.id) DESC)"
+      },
+      {
+        "alias": "user_rank",
+        "column": "ROW_NUMBER() OVER (ORDER BY COUNT(purchase_count) DESC)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)",
+      "COUNT(purchase_count)"
+    ],
+    "computed_columns": [
+      "ROW_NUMBER() OVER (PARTITION BY oi.user_id ORDER BY COUNT(oi.id) DESC)",
+      "ROW_NUMBER() OVER (ORDER BY COUNT(purchase_count) DESC)"
+    ]
+  },
+  "analysis_time": 20.182239055633545,
+  "tokens_used": 740,
+  "cost_estimate": 5.5499999999999994e-05
+}

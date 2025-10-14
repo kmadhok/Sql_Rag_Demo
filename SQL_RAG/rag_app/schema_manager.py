@@ -322,7 +322,16 @@ class SchemaManager:
         """
         all_tables = set()
         
-        for doc in documents:
+        # Limit how many documents we scan to avoid excessive LLM calls
+        doc_limit_env = os.getenv('SCHEMA_DOC_LIMIT')
+        try:
+            doc_limit = int(doc_limit_env) if doc_limit_env else 20
+        except Exception:
+            doc_limit = 20
+        
+        for idx, doc in enumerate(documents):
+            if idx >= doc_limit:
+                break
             # Extract from document content
             content = getattr(doc, 'page_content', str(doc))
             tables_from_content = self.extract_tables_from_content(content)

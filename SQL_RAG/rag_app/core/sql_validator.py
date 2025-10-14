@@ -319,8 +319,23 @@ class SQLValidator:
             result: ValidationResult to update
         """
         try:
+            # Extract CTE names up-front to avoid treating them as real tables
+            def _extract_cte_names(text: str) -> Set[str]:
+                names: Set[str] = set()
+                if not text:
+                    return names
+                try:
+                    import re
+                    names.update(re.findall(r"\bWITH\s+([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(", text, flags=re.IGNORECASE))
+                    names.update(re.findall(r",\s*([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(", text, flags=re.IGNORECASE))
+                except Exception:
+                    pass
+                return set(n.strip() for n in names if n)
+
             # Extract tables and columns from SQL
             tables, columns, joins = self._extract_sql_elements(sql_query)
+            cte_names = _extract_cte_names(sql_query)
+            cte_names_norm = {t.lower() for t in cte_names}
             
             result.tables_found.update(tables)
             result.columns_found.update(columns)
@@ -328,6 +343,9 @@ class SQLValidator:
             
             # Validate tables exist in schema
             for table_name in tables:
+                # Skip validation for CTEs (normalize for safety)
+                if cte_names and table_name and table_name.lower() in cte_names_norm:
+                    continue  # Skip validation for CTEs
                 if not self._validate_table_exists(table_name):
                     result.errors.append(f"Table '{table_name}' not found in schema")
                     # Suggest similar table names
@@ -348,6 +366,9 @@ class SQLValidator:
                 if 'table' in column_dict and 'column' in column_dict:
                     table_name = column_dict['table']
                     column_name = column_dict['column']
+                    if cte_names and table_name and table_name.lower() in cte_names_norm:
+                        # Skip columns that belong to CTEs
+                        continue
                     
                     if not self._validate_column_exists(table_name, column_name):
                         result.errors.append(f"Column '{column_name}' not found in table '{table_name}'")
@@ -382,32 +403,53 @@ class SQLValidator:
         columns = set()
         joins = []
         
+        # Helper: extract CTE names (WITH cte AS (...), cte2 AS (...))
+        def _extract_cte_names(text: str) -> Set[str]:
+            names: Set[str] = set()
+            if not text:
+                return names
+            try:
+                # Basic patterns for CTE names
+                import re
+                # First CTE following WITH
+                names.update(re.findall(r"\bWITH\s+([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(", text, flags=re.IGNORECASE))
+                # Subsequent CTEs separated by commas
+                names.update(re.findall(r",\s*([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(", text, flags=re.IGNORECASE))
+            except Exception:
+                pass
+            return set(n.strip() for n in names if n)
+        
         try:
             # Try LLM-based extraction first (more accurate)
             if LLM_ANALYSIS_AVAILABLE:
                 try:
-                    logger.debug("🤖 Using LLM-based SQL element extraction")
+                    logger.debug("🤖 Using LLM-based SQL element extraction (comprehensive)")
+                    from core.llm_sql_analyzer import get_analyzer
+                    analyzer = get_analyzer()
+                    comp = analyzer.analyze_sql_comprehensive(sql_query)
                     
-                    # Extract tables (actual database tables, not CTEs)
-                    from core.llm_sql_analyzer import extract_tables_with_llm, extract_columns_with_llm
-                    
-                    llm_tables = extract_tables_with_llm(sql_query)
-                    if llm_tables:
-                        for table in llm_tables:
-                            clean_table = self._clean_identifier(table)
+                    if comp and comp.table_analysis:
+                        for t in comp.table_analysis.actual_tables:
+                            clean_table = self._clean_identifier(t)
                             if clean_table:
                                 tables.add(clean_table)
+                    if comp and comp.column_analysis:
+                        for m in comp.column_analysis.columns:
+                            if isinstance(m, dict) and 'table' in m and 'column' in m:
+                                columns.add(frozenset([('table', m['table']), ('column', m['column'])]))
+                    logger.debug(f"🤖 LLM extracted {len(tables)} tables, {len(columns)} columns (comprehensive)")
                     
-                    # Extract columns with table context
-                    available_tables = list(tables) if tables else None
-                    llm_columns = extract_columns_with_llm(sql_query, available_tables)
-                    if llm_columns:
-                        for col_mapping in llm_columns:
-                            if isinstance(col_mapping, dict) and 'table' in col_mapping and 'column' in col_mapping:
-                                # Convert to frozenset format for compatibility
-                                columns.add(frozenset([('table', col_mapping['table']), ('column', col_mapping['column'])]))
-                    
-                    logger.debug(f"🤖 LLM extracted {len(tables)} tables, {len(columns)} columns")
+                    # Remove CTEs from tables and columns if present
+                    cte_names = _extract_cte_names(sql_query)
+                    if cte_names:
+                        tables = {t for t in tables if t not in cte_names}
+                        # Filter out column mappings whose table is a CTE name
+                        filtered_columns = set()
+                        for c in list(columns):
+                            cd = dict(c) if isinstance(c, frozenset) else (c if isinstance(c, dict) else None)
+                            if cd and cd.get('table') and cd['table'] not in cte_names:
+                                filtered_columns.add(c)
+                        columns = filtered_columns
                     
                     # If LLM extraction was successful, return results
                     if tables or columns:
@@ -453,6 +495,18 @@ class SQLValidator:
             
             # Extract columns using regex (original complex method)
             columns = self._extract_columns_with_tables(sql_query, tables)
+
+            # Remove any CTE names from tables set
+            cte_names = _extract_cte_names(sql_query)
+            if cte_names:
+                tables = {t for t in tables if t not in cte_names}
+                # Filter out column mappings whose table is a CTE name
+                filtered_columns = set()
+                for c in list(columns):
+                    cd = dict(c) if isinstance(c, frozenset) else (c if isinstance(c, dict) else None)
+                    if cd and cd.get('table') and cd['table'] not in cte_names:
+                        filtered_columns.add(c)
+                columns = filtered_columns
             
             logger.debug(f"📝 Regex extracted {len(tables)} tables, {len(columns)} columns")
             

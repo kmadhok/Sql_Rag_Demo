@@ -1,0 +1,35 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.order_items",
+      "bigquery-public-data.thelook_ecommerce.products"
+    ],
+    "cte_tables": [
+      "UserProductCounts",
+      "RankedUserProducts"
+    ],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "bigquery-public-data.thelook_ecommerce.order_items"
+      },
+      {
+        "alias": "p",
+        "table": "bigquery-public-data.thelook_ecommerce.products"
+      },
+      {
+        "alias": "r",
+        "table": "RankedUserProducts"
+      },
+      {
+        "alias": "up",
+        "table": "UserProductCounts"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 6.997232913970947,
+  "tokens_used": 518,
+  "cost_estimate": 3.885e-05
+}

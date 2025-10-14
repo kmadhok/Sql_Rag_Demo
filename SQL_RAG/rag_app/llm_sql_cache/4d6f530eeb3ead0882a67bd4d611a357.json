@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "RankedUserProducts",
+      "UserProductCounts"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "r",
+        "table": "RankedUserProducts"
+      },
+      {
+        "alias": "up",
+        "table": "UserProductCounts"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 7.533966779708862,
+  "tokens_used": 248,
+  "cost_estimate": 1.86e-05
+}

@@ -1,0 +1,35 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.orders"
+    ],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_products_bought",
+        "column": "COUNT(order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(order_id)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 6.8505542278289795,
+  "tokens_used": 501,
+  "cost_estimate": 3.7575e-05
+}

@@ -1,0 +1,28 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "",
+        "column": "user_id"
+      },
+      {
+        "table": "",
+        "column": "total_spent"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "rank_desc",
+        "column": "RANK() OVER (ORDER BY total_spent DESC)"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "RANK() OVER (ORDER BY total_spent DESC)"
+    ]
+  },
+  "analysis_time": 4.631989002227783,
+  "tokens_used": 281,
+  "cost_estimate": 2.1075e-05
+}

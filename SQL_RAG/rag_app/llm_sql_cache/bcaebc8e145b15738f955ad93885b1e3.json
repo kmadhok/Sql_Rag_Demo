@@ -1,0 +1,33 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "",
+        "column": "city"
+      },
+      {
+        "table": "",
+        "column": "total_products_purchased"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "rn",
+        "column": "ROW_NUMBER() OVER (ORDER BY total_products_purchased DESC)"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "ROW_NUMBER() OVER (ORDER BY total_products_purchased DESC)"
+    ]
+  },
+  "analysis_time": 7.334547996520996,
+  "tokens_used": 449,
+  "cost_estimate": 3.3675e-05
+}
