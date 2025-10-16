@@ -1,0 +1,36 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "product_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "category",
+        "column": "'Unknown Category'"
+      },
+      {
+        "alias": "product_category_info",
+        "column": "product_category_info"
+      },
+      {
+        "alias": "product_category",
+        "column": "product_category"
+      }
+    ],
+    "aggregate_columns": [
+      "product_category"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.920551061630249,
+  "tokens_used": 1805,
+  "cost_estimate": 0.000135375
+}

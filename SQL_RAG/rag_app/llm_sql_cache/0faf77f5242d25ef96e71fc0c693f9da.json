@@ -1,0 +1,41 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "order_items",
+        "column": "id"
+      },
+      {
+        "table": "order_items",
+        "column": "created_at"
+      },
+      {
+        "table": "order_items",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_count",
+        "column": "COUNT(oi.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)"
+    ],
+    "computed_columns": [
+      "oi.product_id",
+      "oi.id",
+      "oi.created_at",
+      "order_count"
+    ]
+  },
+  "analysis_time": 0.922022819519043,
+  "tokens_used": 447,
+  "cost_estimate": 3.3525e-05
+}

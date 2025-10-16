@@ -1,0 +1,28 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "user_id"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "lifetime_revenue",
+        "column": "SUM(oi.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.8457727432250977,
+  "tokens_used": 295,
+  "cost_estimate": 2.2125e-05
+}

@@ -1,0 +1,68 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.orders`",
+      "`bigquery-public-data.thelook_ecommerce.order_items`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "`bigquery-public-data.thelook_ecommerce.orders`"
+      },
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_month",
+        "column": "FORMAT_TIMESTAMP('%Y-%m', o.created_at)"
+      },
+      {
+        "alias": "monthly_orders",
+        "column": "COUNT(DISTINCT o.order_id)"
+      },
+      {
+        "alias": "monthly_revenue",
+        "column": "SUM(oi.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT o.order_id)",
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": [
+      "FORMAT_TIMESTAMP('%Y-%m', o.created_at)"
+    ]
+  },
+  "analysis_time": 2.2719643115997314,
+  "tokens_used": 1312,
+  "cost_estimate": 9.839999999999999e-05
+}

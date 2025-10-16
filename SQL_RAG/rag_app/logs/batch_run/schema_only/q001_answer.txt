@@ -1,0 +1,13 @@
+```sql
+-- Select the user_id and the calculated lifetime revenue
+SELECT
+    oi.user_id,
+    SUM(oi.sale_price) AS lifetime_revenue
+FROM
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+GROUP BY
+    oi.user_id
+ORDER BY
+    lifetime_revenue DESC
+LIMIT 10;
+```

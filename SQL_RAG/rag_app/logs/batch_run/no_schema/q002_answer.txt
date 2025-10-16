@@ -1,0 +1,21 @@
+```sql
+-- This query calculates the total number of orders and total revenue per month for the last 90 days.
+SELECT
+    FORMAT_DATE('%Y-%m', order_date) AS order_month, -- Formats the order date to 'YYYY-MM' for monthly grouping.
+    COUNT(DISTINCT o.order_id) AS monthly_orders, -- Counts distinct orders to get the total number of orders per month.
+    SUM(oi.sale_price) AS monthly_revenue -- Sums the sale prices of all order items to calculate monthly revenue.
+FROM
+    `bigquery-public-data.thelook_ecommerce.orders` AS o
+JOIN
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+    ON o.order_id = oi.order_id
+WHERE
+    -- Filters orders to include only those placed within the last 90 days.
+    -- We cast o.created_at to DATE to ensure consistent comparison with CURRENT_DATE().
+    -- This avoids mixing TIMESTAMP and DATETIME types.
+    DATE(o.created_at) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+GROUP BY
+    order_month -- Groups the results by the extracted month.
+ORDER BY
+    order_month; -- Orders the results chronologically by month.
+```

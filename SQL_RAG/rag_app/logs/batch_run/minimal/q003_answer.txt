@@ -1,0 +1,34 @@
+```sql
+-- This query calculates the average order value for each product category.
+-- It leverages the 'orders', 'order_items', and 'products' tables.
+SELECT
+    p.category,
+    -- Calculate the average of the total revenue per order within each category.
+    -- We first calculate the total revenue for each order, then average those totals by category.
+    AVG(order_revenue.total_revenue) AS average_order_value
+FROM
+    `bigquery-public-data.thelook_ecommerce.products` AS p
+JOIN
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+    ON p.product_id = oi.product_id
+JOIN
+    (
+        -- Subquery to calculate the total revenue for each individual order.
+        -- This pattern is inspired by Example 1, which also calculates total revenue per order.
+        SELECT
+            o.order_id,
+            SUM(oi_sub.sale_price) AS total_revenue
+        FROM
+            `bigquery-public-data.thelook_ecommerce.orders` AS o
+        JOIN
+            `bigquery-public-data.thelook_ecommerce.order_items` AS oi_sub
+            ON oi_sub.order_id = o.order_id
+        GROUP BY
+            o.order_id
+    ) AS order_revenue
+    ON oi.order_id = order_revenue.order_id
+GROUP BY
+    p.category
+ORDER BY
+    average_order_value DESC;
+```

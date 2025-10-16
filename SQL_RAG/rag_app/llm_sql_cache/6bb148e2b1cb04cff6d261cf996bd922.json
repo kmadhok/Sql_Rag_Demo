@@ -1,0 +1,40 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "OrderCategoryMapping",
+        "column": "product_category"
+      },
+      {
+        "table": "OrderTotals",
+        "column": "total_order_revenue"
+      },
+      {
+        "table": "OrderTotals",
+        "column": "order_id"
+      },
+      {
+        "table": "OrderCategoryMapping",
+        "column": "order_id"
+      },
+      {
+        "table": "OrderCategoryMapping",
+        "column": "product_category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "average_order_value",
+        "column": "AVG(ot.total_order_revenue)"
+      }
+    ],
+    "aggregate_columns": [
+      "AVG(ot.total_order_revenue)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.9270691871643066,
+  "tokens_used": 413,
+  "cost_estimate": 3.0975e-05
+}

@@ -1,0 +1,14 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": [
+      "order_revenue_with_category"
+    ]
+  },
+  "column_analysis": null,
+  "analysis_time": 0.6080231666564941,
+  "tokens_used": 243,
+  "cost_estimate": 1.8225e-05
+}

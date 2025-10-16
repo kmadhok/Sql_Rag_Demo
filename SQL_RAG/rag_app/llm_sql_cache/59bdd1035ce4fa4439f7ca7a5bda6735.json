@@ -1,0 +1,38 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "o",
+        "column": "user_id"
+      },
+      {
+        "table": "o",
+        "column": "order_id"
+      },
+      {
+        "table": "o",
+        "column": "created_at"
+      },
+      {
+        "table": "o",
+        "column": "user_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "orders_in_period",
+        "column": "COUNT(o.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(o.order_id)"
+    ],
+    "computed_columns": [
+      "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 6 MONTH)"
+    ]
+  },
+  "analysis_time": 0.9207310676574707,
+  "tokens_used": 380,
+  "cost_estimate": 2.85e-05
+}

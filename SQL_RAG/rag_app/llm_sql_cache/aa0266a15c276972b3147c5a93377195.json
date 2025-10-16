@@ -1,0 +1,47 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "MonthlyOrders",
+      "TotalUsers"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "mo",
+        "table": "MonthlyOrders"
+      },
+      {
+        "alias": "tu",
+        "table": "TotalUsers"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "MonthlyOrders",
+        "column": "orders_in_period"
+      },
+      {
+        "table": "TotalUsers",
+        "column": "total_unique_users"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(mo.orders_in_period)"
+    ],
+    "computed_columns": [
+      "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+    ]
+  },
+  "analysis_time": 1.605076551437378,
+  "tokens_used": 556,
+  "cost_estimate": 4.17e-05
+}

@@ -1,0 +1,47 @@
+To calculate the average order value by product category, we need to join the `order_items` table with itself (or a separate product table if one existed and contained category information) to aggregate sales by category. Since the schema doesn't explicitly provide a product category column in either `order_items` or `orders`, and the prompt doesn't provide a `products` table with categories, I will assume that we can infer a "category" from the `product_id` for demonstration purposes. In a real-world scenario, you would join with a `products` table that has a `category` column.
+
+For this example, I will simulate a product category based on a modulo operation on `product_id`.
+
+```sql
+-- Calculate the average order value by product category.
+-- This query assumes a product category can be derived from product_id.
+-- In a real-world scenario, you would join with a 'products' table that contains category information.
+SELECT
+    -- Simulate product category based on product_id.
+    -- In a real scenario, replace this with a category column from a joined products table.
+    CASE
+        WHEN oi.product_id % 5 = 0 THEN 'Category A'
+        WHEN oi.product_id % 5 = 1 THEN 'Category B'
+        WHEN oi.product_id % 5 = 2 THEN 'Category C'
+        WHEN oi.product_id % 5 = 3 THEN 'Category D'
+        ELSE 'Category E'
+    END AS product_category,
+    -- Calculate the average sale price per order item within each category.
+    -- This represents the average value of an item sold within that category.
+    -- To get "average order value by category", we first need to calculate
+    -- the total value of each order that contains items from a specific category,
+    -- and then average those order values.
+    AVG(order_totals.total_order_value) AS average_order_value_for_category
+FROM
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+JOIN
+    (
+        -- Subquery to calculate the total value for each order.
+        -- This is similar to Example 1, which calculates total revenue per order.
+        SELECT
+            o.order_id,
+            SUM(oi_inner.sale_price) AS total_order_value
+        FROM
+            `bigquery-public-data.thelook_ecommerce.orders` AS o
+        JOIN
+            `bigquery-public-data.thelook_ecommerce.order_items` AS oi_inner
+            ON oi_inner.order_id = o.order_id
+        GROUP BY
+            o.order_id
+    ) AS order_totals
+    ON oi.order_id = order_totals.order_id
+GROUP BY
+    product_category
+ORDER BY
+    average_order_value_for_category DESC;
+```

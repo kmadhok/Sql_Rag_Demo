@@ -1,0 +1,47 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(COUNT(DISTINCT o.order_id) AS FLOAT64) / COUNT(DISTINCT u.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT o.order_id)",
+      "COUNT(DISTINCT u.id)"
+    ],
+    "computed_columns": [
+      "CAST(COUNT(DISTINCT o.order_id) AS FLOAT64) / COUNT(DISTINCT u.id)"
+    ]
+  },
+  "analysis_time": 1.0242888927459717,
+  "tokens_used": 642,
+  "cost_estimate": 4.815e-05
+}

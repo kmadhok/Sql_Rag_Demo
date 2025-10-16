@@ -1,0 +1,35 @@
+```sql
+-- This query calculates the monthly orders and revenue for the last 90 days.
+-- It aggregates data from the 'orders' and 'order_items' tables.
+
+SELECT
+    -- Extract the year and month from the order's creation timestamp for grouping.
+    -- FORMAT_TIMESTAMP('%Y-%m', o.created_at, 'UTC') provides a 'YYYY-MM' string representation.
+    FORMAT_TIMESTAMP('%Y-%m', o.created_at, 'UTC') AS order_month,
+    -- Count the number of distinct orders within each month.
+    COUNT(DISTINCT o.order_id) AS monthly_orders,
+    -- Sum the sale prices of all items within each month to get the total monthly revenue.
+    SUM(oi.sale_price) AS monthly_revenue
+FROM
+    -- Fully-qualified name for the orders table.
+    `bigquery-public-data.thelook_ecommerce.orders` AS o
+JOIN
+    -- Fully-qualified name for the order_items table.
+    -- A JOIN is used here because we need to sum sale_price from order_items.
+    -- In Example 1, a LEFT JOIN was used to include users even if they had no orders,
+    -- but for revenue and order counts, an INNER JOIN is appropriate if we only
+    -- want to consider orders with associated items and revenue.
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+    ON o.order_id = oi.order_id
+WHERE
+    -- Filter orders to include only those created within the last 90 days.
+    -- o.created_at is a TIMESTAMP, so we use TIMESTAMP_SUB to compare with CURRENT_TIMESTAMP().
+    -- This ensures we are comparing TIMESTAMP with TIMESTAMP, avoiding type mismatches.
+    o.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+GROUP BY
+    -- Group the results by the extracted month to aggregate counts and sums per month.
+    order_month
+ORDER BY
+    -- Order the results chronologically by month for readability.
+    order_month;
+```

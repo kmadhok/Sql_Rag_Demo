@@ -1,0 +1,27 @@
+```sql
+-- Select the top 10 products by order count in the last 30 days.
+SELECT
+    p.id AS product_id,
+    p.name AS product_name,
+    COUNT(oi.order_id) AS order_count
+FROM
+    `bigquery-public-data.thelook_ecommerce.products` AS p
+JOIN
+    `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+ON
+    p.id = oi.product_id
+JOIN
+    `bigquery-public-data.thelook_ecommerce.orders` AS o
+ON
+    oi.order_id = o.order_id
+WHERE
+    -- Filter orders placed within the last 30 days.
+    -- Using TIMESTAMP_SUB for the 'created_at' TIMESTAMP column.
+    o.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
+GROUP BY
+    p.id,
+    p.name
+ORDER BY
+    order_count DESC
+LIMIT 10;
+```

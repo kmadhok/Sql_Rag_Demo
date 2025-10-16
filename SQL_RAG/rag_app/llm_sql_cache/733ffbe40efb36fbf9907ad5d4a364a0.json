@@ -1,0 +1,44 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "product_id"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_category",
+        "column": "COALESCE(p.category, 'Unknown Category')"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "COALESCE(p.category, 'Unknown Category')"
+    ]
+  },
+  "analysis_time": 0.9907488822937012,
+  "tokens_used": 553,
+  "cost_estimate": 4.1475e-05
+}

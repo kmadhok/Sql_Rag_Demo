@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "orders",
+      "order_items"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "orders"
+      },
+      {
+        "alias": "oi",
+        "table": "order_items"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.7741351127624512,
+  "tokens_used": 937,
+  "cost_estimate": 7.0275e-05
+}

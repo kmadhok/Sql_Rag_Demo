@@ -1,0 +1,30 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "MonthlyOrders",
+        "column": "orders_in_period"
+      },
+      {
+        "table": "TotalUsers",
+        "column": "total_unique_users"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(mo.orders_in_period)"
+    ],
+    "computed_columns": [
+      "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+    ]
+  },
+  "analysis_time": 0.9921138286590576,
+  "tokens_used": 329,
+  "cost_estimate": 2.4674999999999997e-05
+}

@@ -1,0 +1,61 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.order_items`",
+      "`bigquery-public-data.thelook_ecommerce.products`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      },
+      {
+        "alias": "p",
+        "table": "`bigquery-public-data.thelook_ecommerce.products`"
+      }
+    ],
+    "subquery_tables": [
+      "`bigquery-public-data.thelook_ecommerce.order_items`"
+    ]
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "products",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": [
+      "product_category"
+    ]
+  },
+  "analysis_time": 2.117035388946533,
+  "tokens_used": 1216,
+  "cost_estimate": 9.12e-05
+}

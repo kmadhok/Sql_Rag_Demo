@@ -1,0 +1,24 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_unique_users",
+        "column": "COUNT(DISTINCT id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT id)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.7159440517425537,
+  "tokens_used": 292,
+  "cost_estimate": 2.19e-05
+}

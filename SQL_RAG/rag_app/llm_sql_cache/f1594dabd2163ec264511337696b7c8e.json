@@ -1,0 +1,26 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.orders",
+      "bigquery-public-data.thelook_ecommerce.order_items"
+    ],
+    "cte_tables": [
+      "OrderCategoryMapping"
+    ],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "bigquery-public-data.thelook_ecommerce.orders"
+      },
+      {
+        "alias": "oi",
+        "table": "bigquery-public-data.thelook_ecommerce.order_items"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.7918438911437988,
+  "tokens_used": 349,
+  "cost_estimate": 2.6175000000000003e-05
+}

@@ -1,0 +1,23 @@
+```sql
+-- Calculate the conversion rate (orders per user) for the past 6 months.
+SELECT
+    CAST(COUNT(DISTINCT o.order_id) AS BIGNUMERIC) / COUNT(DISTINCT u.id) AS conversion_rate
+FROM
+    `your_project.your_dataset.users` AS u
+LEFT JOIN
+    `your_project.your_dataset.orders` AS o
+ON
+    u.id = o.user_id
+WHERE
+    -- Filter orders to include only those placed within the last 6 months.
+    -- Using TIMESTAMP_SUB for TIMESTAMP columns to align with BigQuery best practices.
+    o.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 6 MONTH)
+    -- Also, ensure users are considered if they were active or existed in the last 6 months.
+    -- This approach assumes users might exist but not have orders in the period.
+    -- If only considering users *with* orders in the period, adjust the JOIN and WHERE clause.
+    -- For this specific request "orders per user", we're looking at users who *could* have ordered.
+    -- We are implicitly defining "users" as all users in the `users` table, and then seeing how many of them
+    -- have orders in the specified period.
+    -- If the definition of "user" needs to be more restricted (e.g., users who signed up in the last 6 months),
+    -- then additional filtering on `users.created_at` would be necessary.
+```

@@ -160,6 +160,14 @@ def copy_debug_log(output_dir: Path, index: int):
             logging.warning(f"Failed to copy debug log: {e}")
 
 
+VARIANTS = [
+    "current",       # schema injection + sql validation
+    "no_schema",     # no schema injection, yes validation (manual post-validate)
+    "schema_only",   # schema injection only, no validation
+    "minimal",       # no schema injection, no validation
+]
+
+
 def run_batch(
     questions_file: Path,
     output_dir: Path,
@@ -168,6 +176,7 @@ def run_batch(
     k: int = 4,
     agent_type: str = "create",
     validation_strict: bool = True,
+    variants: Optional[List[str]] = None,
 ):
     # Setup
     log_path = setup_logging(output_dir)
@@ -214,107 +223,184 @@ def run_batch(
         logging.error("No questions to process")
         return
 
-    # Prepare JSONL results
-    results_jsonl = output_dir / "results.jsonl"
-    jsonl_f = results_jsonl.open("a", encoding="utf-8")
+    # Select variants
+    run_variants = variants or ["current"]
+    for v in run_variants:
+        if v not in VARIANTS:
+            logging.warning(f"Unknown variant '{v}'. Skipping.")
+    run_variants = [v for v in run_variants if v in VARIANTS]
+    if not run_variants:
+        logging.error("No valid variants selected. Use --variants current no_schema schema_only minimal or --variants all")
+        return
 
     # Process each question
     for i, q in enumerate(questions, start=1):
         logging.info("=" * 80)
         logging.info(f"Q{i}: {q}")
-        record: Dict[str, Any] = {
-            "index": i,
-            "question": q,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-        }
-
-        try:
-            # Generate answer via RAG pipeline (mirrors app_simple_gemini)
-            result = answer_question_simple_gemini(
-                question=q,
-                vector_store=vector_store,
-                k=k,
-                gemini_mode=True,
-                hybrid_search=True,
-                query_rewriting=True,
-                schema_manager=schema_manager,
-                lookml_safe_join_map=lookml_map,
-                conversation_context=None,
-                agent_type=agent_type,
-                sql_validation=True,
-                validation_level=(ValidationLevel.SCHEMA_STRICT if validation_strict else ValidationLevel.SCHEMA_BASIC),
-            )
-
-            if not result:
-                logging.error("Pipeline returned no result (see qNNN_debug.md for details)")
-                copy_debug_log(output_dir, i)
-                continue
-
-            ans, sources, token_usage = result
-
-            record["token_usage"] = token_usage or {}
-            record["sources"] = [getattr(d, "metadata", {}) for d in (sources or [])]
-
-            # Save raw answer
-            save_artifact(ans or "", output_dir / f"q{i:03d}_answer.txt")
-            logging.info(f"Answer length: {len(ans or '')}")
-
-            # Copy detailed pipeline debug log for this question
-            copy_debug_log(output_dir, i)
-
-            # Extract SQL
-            extracted_sql = extract_sql_from_answer_text(ans or "") if ans else None
-            if extracted_sql:
-                save_artifact(extracted_sql, output_dir / f"q{i:03d}_query.sql")
-                record["sql"] = extracted_sql
-                logging.info("Extracted SQL found and saved")
-            else:
-                logging.info("No SQL extracted from answer")
-                record["sql"] = None
-
-            # Execute SQL if requested and available
-            if execute_bq and executor and extracted_sql:
-                logging.info("Executing extracted SQL on BigQuery...")
-                result = executor.execute_query(extracted_sql)
-                record["execution"] = {
-                    "success": result.success,
-                    "error_message": result.error_message,
-                    "execution_time": result.execution_time,
-                    "bytes_processed": result.bytes_processed,
-                    "bytes_billed": result.bytes_billed,
-                    "total_rows": result.total_rows,
-                    "job_id": result.job_id,
-                    "cache_hit": result.cache_hit,
+        for variant in run_variants:
+            v_out = output_dir / variant
+            v_out.mkdir(parents=True, exist_ok=True)
+            results_jsonl = v_out / "results.jsonl"
+            with results_jsonl.open("a", encoding="utf-8") as jsonl_f:
+                record: Dict[str, Any] = {
+                    "index": i,
+                    "question": q,
+                    "variant": variant,
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
                 }
-                if result.success and result.data is not None:
-                    out_csv = output_dir / f"q{i:03d}_result.csv"
+                try:
+                    t0 = datetime.utcnow().timestamp()
+                    # Configure schema injection and validation per variant
+                    if variant == "current":
+                        use_schema_injection = True
+                        do_validation_inside = True
+                        manual_validation = False
+                    elif variant == "no_schema":
+                        use_schema_injection = False
+                        do_validation_inside = False
+                        manual_validation = True  # validate after generation using SchemaManager
+                    elif variant == "schema_only":
+                        use_schema_injection = True
+                        do_validation_inside = False
+                        manual_validation = False
+                    elif variant == "minimal":
+                        use_schema_injection = False
+                        do_validation_inside = False
+                        manual_validation = False
+                    else:
+                        use_schema_injection = True
+                        do_validation_inside = True
+                        manual_validation = False
+
+                    # Run generation with configured schema injection and in-function validation
+                    result = answer_question_simple_gemini(
+                        question=q,
+                        vector_store=vector_store,
+                        k=k,
+                        gemini_mode=True,
+                        hybrid_search=True,
+                        query_rewriting=True,
+                        schema_manager=(schema_manager if use_schema_injection else None),
+                        lookml_safe_join_map=lookml_map,
+                        conversation_context=None,
+                        agent_type=agent_type,
+                        sql_validation=do_validation_inside,
+                        validation_level=(ValidationLevel.SCHEMA_STRICT if validation_strict else ValidationLevel.SCHEMA_BASIC),
+                    )
+
+                    if not result:
+                        logging.error(f"[{variant}] Pipeline returned no result (see debug) ")
+                        copy_debug_log(v_out, i)
+                        record["error"] = "no_result"
+                        jsonl_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        jsonl_f.flush()
+                        continue
+
+                    ans, sources, token_usage = result
+                    t1 = datetime.utcnow().timestamp()
+                    # Timings
+                    timings: Dict[str, Any] = {}
+                    timings["pipeline_seconds"] = round(t1 - t0, 3)
+                    if token_usage:
+                        if "retrieval_time" in token_usage:
+                            timings["retrieval_seconds"] = round(float(token_usage.get("retrieval_time", 0.0)), 3)
+                        if "generation_time" in token_usage:
+                            timings["generation_seconds"] = round(float(token_usage.get("generation_time", 0.0)), 3)
+                        sv = token_usage.get("sql_validation") or {}
+                        if sv.get("enabled") and "validation_time" in sv:
+                            try:
+                                timings["validation_seconds"] = round(float(sv.get("validation_time", 0.0)), 3)
+                            except Exception:
+                                pass
+                    record["timings"] = timings
+                    record["token_usage"] = token_usage or {}
+                    record["sources"] = [getattr(d, "metadata", {}) for d in (sources or [])]
+
+                    # Save raw answer
+                    save_artifact(ans or "", v_out / f"q{i:03d}_answer.txt")
+                    logging.info(f"[{variant}] Answer length: {len(ans or '')}")
+
+                    # Copy detailed pipeline debug log for this question
+                    # Save with variant suffix
+                    debug_src = Path("debug_logs.md")
+                    if debug_src.exists():
+                        try:
+                            dest = v_out / f"q{i:03d}_debug.md"
+                            import shutil
+                            shutil.copy(debug_src, dest)
+                        except Exception:
+                            pass
+
+                    # Extract SQL
+                    extracted_sql = extract_sql_from_answer_text(ans or "") if ans else None
+                    if extracted_sql:
+                        save_artifact(extracted_sql, v_out / f"q{i:03d}_query.sql")
+                        record["sql"] = extracted_sql
+                        logging.info(f"[{variant}] Extracted SQL found and saved")
+                    else:
+                        logging.info(f"[{variant}] No SQL extracted from answer")
+                        record["sql"] = None
+
+                    # Manual validation path for no_schema variant
+                    if manual_validation and extracted_sql:
+                        try:
+                            from core.sql_validator import validate_sql_query, ValidationLevel as VLevel
+                            vres = validate_sql_query(
+                                extracted_sql,
+                                schema_manager=schema_manager,
+                                validation_level=(VLevel.SCHEMA_STRICT if validation_strict else VLevel.SCHEMA_BASIC),
+                            )
+                            record["validation"] = {
+                                "is_valid": vres.is_valid,
+                                "errors": vres.errors,
+                                "warnings": vres.warnings,
+                                "tables_found": list(vres.tables_found),
+                                "columns_found": list(vres.columns_found),
+                            }
+                            logging.info(f"[{variant}] Manual validation: valid={vres.is_valid}, errors={len(vres.errors)}")
+                        except Exception as e:
+                            logging.warning(f"[{variant}] Manual validation failed: {e}")
+
+                    # Execute SQL if requested and available
+                    if execute_bq and executor and extracted_sql:
+                        logging.info(f"[{variant}] Executing extracted SQL on BigQuery...")
+                        xres = executor.execute_query(extracted_sql)
+                        record["execution"] = {
+                            "success": xres.success,
+                            "error_message": xres.error_message,
+                            "execution_time": xres.execution_time,
+                            "bytes_processed": xres.bytes_processed,
+                            "bytes_billed": xres.bytes_billed,
+                            "total_rows": xres.total_rows,
+                            "job_id": xres.job_id,
+                            "cache_hit": xres.cache_hit,
+                        }
+                        if xres.success and xres.data is not None:
+                            out_csv = v_out / f"q{i:03d}_result.csv"
+                            try:
+                                xres.data.to_csv(out_csv, index=False)
+                                logging.info(f"[{variant}] Saved result CSV: {out_csv} ({len(xres.data)} rows)")
+                            except Exception as e:
+                                logging.warning(f"[{variant}] Failed to write result CSV: {e}")
+                        elif not xres.success:
+                            logging.warning(f"[{variant}] BigQuery execution failed: {xres.error_message}")
+                    else:
+                        if not execute_bq:
+                            logging.info(f"[{variant}] Execution disabled (--no-execute)")
+                        elif not executor:
+                            logging.info(f"[{variant}] BigQuery executor unavailable")
+                        elif not extracted_sql:
+                            logging.info(f"[{variant}] No SQL to execute")
+
+                except Exception as e:
+                    logging.exception(f"[{variant}] Failed to process question {i}: {e}")
+                    record["error"] = str(e)
+                finally:
                     try:
-                        result.data.to_csv(out_csv, index=False)
-                        logging.info(f"Saved result CSV: {out_csv} ({len(result.data)} rows)")
-                    except Exception as e:
-                        logging.warning(f"Failed to write result CSV: {e}")
-                elif not result.success:
-                    logging.warning(f"BigQuery execution failed: {result.error_message}")
-            else:
-                if not execute_bq:
-                    logging.info("Execution disabled (--no-execute)")
-                elif not executor:
-                    logging.info("BigQuery executor unavailable")
-                elif not extracted_sql:
-                    logging.info("No SQL to execute")
-
-        except Exception as e:
-            logging.exception(f"Failed to process question {i}: {e}")
-            record["error"] = str(e)
-
-        # Persist JSONL record (one per question)
-        try:
-            jsonl_f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            jsonl_f.flush()
-        except Exception:
-            pass
-
-    jsonl_f.close()
+                        jsonl_f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                        jsonl_f.flush()
+                    except Exception:
+                        pass
     logging.info("Batch run completed.")
 
 
@@ -326,12 +412,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--k", type=int, default=4, help="Number of documents to retrieve")
     parser.add_argument("--agent-type", choices=["create", "explain", "default"], default="create", help="Agent mode for prompting")
     parser.add_argument("--no-execute", action="store_true", help="Do not execute BigQuery SQL")
+    parser.add_argument(
+        "--variants",
+        nargs="+",
+        default=["current"],
+        help="Pipeline variants to run per question: current no_schema schema_only minimal, or 'all'"
+    )
     parser.add_argument("--basic-validation", action="store_true", help="Use basic schema validation instead of strict")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
+    # Expand 'all' into the full set
+    variants = args.variants
+    if any(v.lower() == "all" for v in variants):
+        variants = VARIANTS
+
     run_batch(
         questions_file=args.questions_file,
         output_dir=args.output_dir,
@@ -340,4 +437,5 @@ if __name__ == "__main__":
         k=args.k,
         agent_type="create" if args.agent_type == "default" else args.agent_type,
         validation_strict=not args.basic_validation,
+        variants=variants,
     )

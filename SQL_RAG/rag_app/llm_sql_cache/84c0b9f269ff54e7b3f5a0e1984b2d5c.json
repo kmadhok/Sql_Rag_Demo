@@ -1,0 +1,56 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.users`",
+      "`bigquery-public-data.thelook_ecommerce.orders`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "u",
+        "table": "`bigquery-public-data.thelook_ecommerce.users`"
+      },
+      {
+        "alias": "o",
+        "table": "`bigquery-public-data.thelook_ecommerce.orders`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(COUNT(DISTINCT o.order_id) AS FLOAT64) / COUNT(DISTINCT u.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT o.order_id)",
+      "COUNT(DISTINCT u.id)"
+    ],
+    "computed_columns": [
+      "CAST(COUNT(DISTINCT o.order_id) AS FLOAT64) / COUNT(DISTINCT u.id)"
+    ]
+  },
+  "analysis_time": 1.7483770847320557,
+  "tokens_used": 1072,
+  "cost_estimate": 8.04e-05
+}

@@ -1,0 +1,30 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": [
+      "order_total_revenue"
+    ]
+  },
+  "column_analysis": {
+    "columns": [],
+    "column_aliases": [
+      {
+        "alias": "average_order_value",
+        "column": "AVG(order_total_revenue.total_revenue)"
+      },
+      {
+        "alias": "product_category",
+        "column": "'Unknown Category'"
+      }
+    ],
+    "aggregate_columns": [
+      "AVG(order_total_revenue.total_revenue)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 1.4249391555786133,
+  "tokens_used": 667,
+  "cost_estimate": 5.0024999999999996e-05
+}

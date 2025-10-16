@@ -1,0 +1,42 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "products",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": [
+      "product_category"
+    ]
+  },
+  "analysis_time": 1.02738618850708,
+  "tokens_used": 642,
+  "cost_estimate": 4.815e-05
+}

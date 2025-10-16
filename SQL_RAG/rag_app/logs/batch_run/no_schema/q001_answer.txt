@@ -1,0 +1,31 @@
+```sql
+-- This query identifies the top 10 users by their total lifetime revenue.
+-- It aggregates the sale price from all order items for each user.
+SELECT
+    user_id,
+    SUM(sale_price) AS lifetime_revenue
+FROM
+    `{{project_id}}.{{dataset_id}}.order_items` -- Use fully-qualified table name
+GROUP BY
+    user_id
+ORDER BY
+    lifetime_revenue DESC
+LIMIT 10;
+```
+
+**Explanation:**
+
+1.  **`SELECT user_id, SUM(sale_price) AS lifetime_revenue`**: This selects the `user_id` and calculates the sum of `sale_price` for each user. `lifetime_revenue` is an alias for the aggregated revenue.
+2.  **`FROM \`{{project_id}}.{{dataset_id}}.order_items\``**: This specifies the `order_items` table as the data source. It's crucial to use the fully-qualified table name including your `project_id` and `dataset_id`. The `order_items` table is assumed to contain revenue-generating transactions with a `user_id` and `sale_price` column.
+3.  **`GROUP BY user_id`**: This groups the rows by `user_id` so that the `SUM(sale_price)` function calculates the total revenue for each individual user.
+4.  **`ORDER BY lifetime_revenue DESC`**: This sorts the results in descending order of `lifetime_revenue`, placing the users with the highest revenue at the top.
+5.  **`LIMIT 10`**: This restricts the output to the top 10 users based on the sorted revenue.
+
+**Schema Considerations and Best Practices:**
+
+*   **Fully-Qualified Table Names**: The query uses `\`{{project_id}}.{{dataset_id}}.order_items\`` which is the correct BigQuery syntax for referencing tables and ensures there are no naming conflicts.
+*   **Data Type**: We assume `sale_price` is a numeric type (e.g., `FLOAT64`, `NUMERIC`, `BIGNUMERIC`) suitable for aggregation. If it were a `STRING`, it would require casting: `SUM(CAST(sale_price AS NUMERIC))`.
+*   **No TIMESTAMP/DATETIME Conflicts**: This query only deals with revenue aggregation and does not involve date or timestamp comparisons, thus avoiding potential type conflicts.
+*   **Clarity and Readability**: Comments are included to explain the purpose of each part of the query.
+
+This approach directly addresses the requirement by focusing on the `order_items` table, which is the most logical place to find revenue data associated with users. The `GROUP BY` and `SUM` functions are standard SQL techniques for aggregation, and `ORDER BY` with `LIMIT` effectively retrieves the top performers.

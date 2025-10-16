@@ -1,0 +1,23 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [],
+    "column_aliases": [
+      {
+        "alias": "average_order_value",
+        "column": "AVG(order_total_revenue.total_revenue)"
+      },
+      {
+        "alias": "product_category",
+        "column": "'Unknown Category'"
+      }
+    ],
+    "aggregate_columns": [
+      "AVG(order_total_revenue.total_revenue)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.8152310848236084,
+  "tokens_used": 382,
+  "cost_estimate": 2.865e-05
+}

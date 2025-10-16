@@ -1,0 +1,72 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.orders`",
+      "`bigquery-public-data.thelook_ecommerce.users`"
+    ],
+    "cte_tables": [
+      "MonthlyOrders",
+      "TotalUsers"
+    ],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "`bigquery-public-data.thelook_ecommerce.orders`"
+      },
+      {
+        "alias": "mo",
+        "table": "MonthlyOrders"
+      },
+      {
+        "alias": "tu",
+        "table": "TotalUsers"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "orders_in_period",
+        "column": "COUNT(o.order_id)"
+      },
+      {
+        "alias": "total_unique_users",
+        "column": "COUNT(DISTINCT id)"
+      },
+      {
+        "alias": "conversion_rate",
+        "column": "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(o.order_id)",
+      "COUNT(DISTINCT id)",
+      "SUM(mo.orders_in_period)"
+    ],
+    "computed_columns": [
+      "CAST(SUM(mo.orders_in_period) AS FLOAT64) / tu.total_unique_users"
+    ]
+  },
+  "analysis_time": 1.9394440650939941,
+  "tokens_used": 1060,
+  "cost_estimate": 7.950000000000001e-05
+}

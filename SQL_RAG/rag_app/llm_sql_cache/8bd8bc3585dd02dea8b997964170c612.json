@@ -1,0 +1,55 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "orders",
+        "column": "created_at"
+      },
+      {
+        "table": "orders",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "orders",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "orders",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_month",
+        "column": "FORMAT_DATE('%Y-%m', orders.created_at)"
+      },
+      {
+        "alias": "monthly_orders",
+        "column": "COUNT(DISTINCT orders.order_id)"
+      },
+      {
+        "alias": "monthly_revenue",
+        "column": "SUM(order_items.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT orders.order_id)",
+      "SUM(order_items.sale_price)"
+    ],
+    "computed_columns": [
+      "FORMAT_DATE('%Y-%m', orders.created_at)"
+    ]
+  },
+  "analysis_time": 1.0803470611572266,
+  "tokens_used": 724,
+  "cost_estimate": 5.43e-05
+}
