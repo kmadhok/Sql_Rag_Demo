@@ -954,6 +954,66 @@ def load_cached_graph_files() -> List[str]:
                 graph_files.append(str(graph_file))
     return graph_files
 
+def create_data_page(schema_manager: Optional[SchemaManager]):
+    """Render a simple data schema page from the CSV-backed SchemaManager."""
+    st.title("📊 Dataset Schema")
+    
+    if not schema_manager:
+        st.error("❌ Schema not available. Ensure data_new/thelook_ecommerce_schema.csv exists.")
+        st.stop()
+    
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Tables", schema_manager.table_count)
+    with col2:
+        st.metric("Columns", schema_manager.column_count)
+    with col3:
+        st.caption(f"Source: {SCHEMA_CSV_PATH.name}")
+    
+    st.divider()
+    st.subheader("🔎 Browse Tables")
+    
+    # Search + list of tables
+    search = st.text_input("Search tables", "", help="Filter tables by name (substring)")
+    try:
+        all_tables = sorted(list(schema_manager.schema_lookup.keys()))
+    except Exception:
+        all_tables = []
+    filtered = [t for t in all_tables if (search.lower() in t.lower())] if search else all_tables
+    
+    if not filtered:
+        st.info("No tables matched your search.")
+        return
+    
+    # Table expanders with columns and datatypes
+    df_schema = schema_manager.schema_df
+    max_show = len(filtered)
+    for t in filtered[:max_show]:
+        fqn = schema_manager.get_fqn(t) or t
+        with st.expander(t, expanded=False):
+            st.caption(f"FQN: `{fqn}`")
+            if df_schema is not None:
+                try:
+                    norm = schema_manager._normalize_table_name(t)
+                    table_df = df_schema[df_schema['table_id'] == norm][['column', 'datatype']].reset_index(drop=True)
+                    st.dataframe(table_df, use_container_width=True, hide_index=True)
+                except Exception:
+                    cols = schema_manager.get_table_columns(t)
+                    st.write(", ".join(cols) if cols else "No columns")
+            else:
+                cols = schema_manager.get_table_columns(t)
+                st.write(", ".join(cols) if cols else "No columns")
+    
+    st.divider()
+    # Download schema CSV
+    try:
+        with open(SCHEMA_CSV_PATH, 'rb') as f:
+            csv_bytes = f.read()
+        st.download_button("⬇️ Download Schema CSV", data=csv_bytes, file_name=SCHEMA_CSV_PATH.name, mime="text/csv")
+    except Exception:
+        pass
+
 def find_original_queries_for_sources(sources: List[Document], csv_data: pd.DataFrame) -> List[pd.Series]:
     """
     Map vector store sources back to original CSV query rows
@@ -2227,7 +2287,7 @@ def main():
         # Page selection
         page = st.radio(
             "Select Page:",
-            ["🔍 Query Search", "📚 Query Catalog", "💬 Chat"],
+            ["🔍 Query Search", "📊 Data", "📚 Query Catalog", "💬 Chat"],
             key="page_selection"
         )
         
@@ -2455,12 +2515,22 @@ def main():
                 st.session_state.excluded_tables = excluded_tables
             else:
                 st.caption("Schema manager not loaded; context filters unavailable.")
-        else:
+        elif page == "📚 Query Catalog":
             # Query Catalog page - show data info
             st.subheader("📊 Data Info")
             df = st.session_state.csv_data
             st.metric("Total Queries", len(df))
             st.caption(f"Source: {CSV_PATH.name}")
+        elif page == "📊 Data":
+            # Schema page - simple summary
+            st.subheader("🗃️ Schema Summary")
+            sm = st.session_state.get('schema_manager')
+            if sm:
+                st.metric("Tables", sm.table_count)
+                st.metric("Columns", sm.column_count)
+                st.caption(f"Schema file: {SCHEMA_CSV_PATH.name}")
+            else:
+                st.warning("Schema not loaded. Ensure the schema CSV exists.")
     
     # Route to appropriate page
     if page == "🔍 Query Search":
@@ -3353,7 +3423,7 @@ def main():
         # Create chat page
         create_chat_page(st.session_state.vector_store, st.session_state.csv_data)
     
-    else:
+    elif page == "📚 Query Catalog":
         # Query Catalog page - MANDATORY cache requirement
         # Check for analytics cache before proceeding
         if not CATALOG_ANALYTICS_DIR.exists():
@@ -3389,6 +3459,10 @@ python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv" -
         
         # All checks passed - proceed with catalog page
         create_query_catalog_page(st.session_state.csv_data)
+
+    elif page == "📊 Data":
+        # Render data schema browser
+        create_data_page(st.session_state.get('schema_manager'))
 
 if __name__ == "__main__":
     main()
