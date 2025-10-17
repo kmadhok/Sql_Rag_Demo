@@ -33,7 +33,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Configuration
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = os.getenv("LLM_REWRITE_MODEL", os.getenv("LLM_PARSE_MODEL", "gemini-2.5-flash-lite"))
 GEMINI_PRO_MODEL = "gemini-2.5-pro" 
 GEMINI_LITE_MODEL = "gemini-2.5-flash-lite"
 CACHE_DIR = Path(__file__).parent / "query_rewrite_cache"

@@ -153,8 +153,9 @@ class DebugLogger:
 # Global debug logger instance
 debug_logger = DebugLogger()
 
-# Configuration
-GEMINI_MODEL = "gemini-2.5-flash-lite"
+# Configuration (use env-driven defaults via LLM registry for generation)
+import os
+GEMINI_MODEL = os.getenv("LLM_GEN_MODEL", "gemini-2.5-pro")
 MAX_RETRIES = 3
 RETRY_DELAY = 2.0
 
@@ -953,8 +954,17 @@ def answer_question_simple_gemini(
             "full_prompt": prompt[:2000] + "..." if len(prompt) > 2000 else prompt
         })
         
-        # Initialize LLM and generate response
-        llm = GeminiClient(model=GEMINI_MODEL)
+        # Initialize LLM and generate response (use registry generation model)
+        try:
+            from llm_registry import get_llm_registry
+            _llm_reg = get_llm_registry()
+            llm = _llm_reg.get_generator()
+            # Keep GEMINI_MODEL in logs consistent with actual model used
+            GEMINI_MODEL_LOG = _llm_reg.gen_model
+        except Exception:
+            # Fallback to env value if registry import fails
+            llm = GeminiClient(model=GEMINI_MODEL)
+            GEMINI_MODEL_LOG = GEMINI_MODEL
         
         generation_start = time.time()
         answer = llm.invoke(prompt)
@@ -964,7 +974,7 @@ def answer_question_simple_gemini(
         debug_logger.log_step("LLM Response", {
             "generation_time": f"{generation_time:.2f}s",
             "response_length": len(answer),
-            "model": GEMINI_MODEL
+            "model": GEMINI_MODEL_LOG
         }, {
             "response": answer[:1500] + "..." if len(answer) > 1500 else answer
         })

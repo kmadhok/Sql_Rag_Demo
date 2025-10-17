@@ -1475,7 +1475,12 @@ def answer_question_chat_mode(
         )
         
         # Initialize LLM and generate response
-        llm = GeminiClient(model="gemini-2.5-flash")  # Use fast model for chat
+        # Use registry-defined chat model (default: gemini-2.5-flash-lite)
+        try:
+            from llm_registry import get_llm_registry
+            llm = get_llm_registry().get_chat()
+        except Exception:
+            llm = GeminiClient(model=os.getenv("LLM_CHAT_MODEL", "gemini-2.5-flash-lite"))
         
         generation_start = time.time()
         answer = llm.invoke(prompt)
@@ -2226,323 +2231,33 @@ def main():
             key="page_selection"
         )
         
-        st.divider()
-        st.header("⚙️ Configuration")
-        # Advanced mode toggle: simple by default
-        default_adv = (os.getenv('UI_ADVANCED_DEFAULT', '0').lower() in ('1', 'true', 'yes'))
-        advanced_mode = st.checkbox(
-            "Advanced Mode",
-            value=st.session_state.get('advanced_mode', default_adv),
-            help="Show detailed controls (schema browser, BigQuery settings, metrics)",
-            key="advanced_mode_toggle"
-        )
-        st.session_state.advanced_mode = advanced_mode
+        # Keep Query Search sidebar minimal; show configuration only for other pages
+        if page != "🔍 Query Search":
+            st.divider()
+            st.header("⚙️ Configuration")
+            # Advanced mode toggle: simple by default
+            default_adv = (os.getenv('UI_ADVANCED_DEFAULT', '0').lower() in ('1', 'true', 'yes'))
+            advanced_mode = st.checkbox(
+                "Advanced Mode",
+                value=st.session_state.get('advanced_mode', default_adv),
+                help="Show detailed controls (schema browser, BigQuery settings, metrics)",
+                key="advanced_mode_toggle"
+            )
+            st.session_state.advanced_mode = advanced_mode
+        else:
+            # Force advanced mode off for a streamlined Query Search page
+            st.session_state.advanced_mode = False
 
         # Show configuration based on selected page
         if page == "🔍 Query Search":
-            # Vector store selection (only needed for search)
+            # Minimal: silently choose a vector store (no extra UI)
             available_indices = get_available_indices()
-            
             if not available_indices:
                 st.error("❌ No vector stores found!")
                 st.info("Run standalone_embedding_generator.py first")
                 st.stop()
-            
-            # Let user select which vector store to use
-            selected_index = st.selectbox(
-                "📂 Select Vector Store:",
-                available_indices,
-                index=0 if DEFAULT_VECTOR_STORE in available_indices else 0
-            )
-            
-            # Search parameters
-            if advanced_mode:
-                st.subheader("🔍 Search Settings")
-            
-            # Add Gemini mode toggle (advanced only)
-            if advanced_mode:
-                gemini_mode = st.checkbox(
-                    "🔥 Gemini Mode", 
-                    value=False, 
-                    help="Utilize Gemini's 1M context window with enhanced optimization",
-                    key="gemini_mode_checkbox"
-                )
-            else:
-                gemini_mode = False
-            
-            # Add hybrid search toggle
-            if advanced_mode:
-                if HYBRID_SEARCH_AVAILABLE:
-                    hybrid_search = st.checkbox(
-                        "🔀 Hybrid Search", 
-                        value=False, 
-                        help="Combine vector similarity with keyword search (BM25) for better SQL term matching",
-                        key="hybrid_search_checkbox"
-                    )
-                else:
-                    hybrid_search = False
-                    st.warning("⚠️ Hybrid search unavailable - install rank-bm25")
-            else:
-                hybrid_search = False
-            
-            # Add query rewriting toggle
-            if advanced_mode:
-                try:
-                    from simple_rag_simple_gemini import QUERY_REWRITING_AVAILABLE
-                    if QUERY_REWRITING_AVAILABLE:
-                        query_rewriting = st.checkbox(
-                            "🔄 Query Rewriting", 
-                            value=False, 
-                            help="Enhance queries with SQL terminology using Google Gemini models (25-40% improvement)",
-                            key="query_rewriting_checkbox"
-                        )
-                    else:
-                        query_rewriting = False
-                        st.warning("⚠️ Query rewriting unavailable - check query_rewriter.py")
-                except ImportError:
-                    query_rewriting = False
-                    st.warning("⚠️ Query rewriting module not found")
-            else:
-                query_rewriting = False
-            
-            # Schema injection and SQL validation - always enabled when available
-            if SCHEMA_MANAGER_AVAILABLE:
-                schema_injection = True
-                if advanced_mode:
-                    st.success("✅ Smart Schema Injection: Always Active (reduces 39K+ schema rows to ~100-500 relevant ones)")
-                
-                # User context & table filters (advanced only)
-                if advanced_mode and st.session_state.schema_manager:
-                    st.subheader("🧩 User Context & Filters")
-                    user_context = st.text_area(
-                        "Additional Context (optional)",
-                        value=st.session_state.get('user_context', ""),
-                        help="Add business rules, constraints, or clarifications for the model",
-                        height=120,
-                        key="user_context_input"
-                    )
-                    st.session_state.user_context = user_context
 
-                    try:
-                        table_options = sorted(list(st.session_state.schema_manager.schema_lookup.keys()))
-                    except Exception:
-                        table_options = []
-
-                    excluded_tables = st.multiselect(
-                        "Exclude Tables (optional)",
-                        options=table_options,
-                        default=st.session_state.get('excluded_tables', []),
-                        help="Selected tables will be excluded from schema injection and discouraged in generated SQL",
-                        key="excluded_tables_select"
-                    )
-                    st.session_state.excluded_tables = excluded_tables
-            else:
-                schema_injection = False
-                st.warning("⚠️ Schema injection unavailable - check schema_manager.py and schema.csv")
-            
-            # SQL validation - always enabled when available
-            if SQL_VALIDATION_AVAILABLE:
-                sql_validation = True
-                validation_level = ValidationLevel.SCHEMA_STRICT  # Set strict default for comprehensive validation
-                if advanced_mode:
-                    st.success("✅ SQL Validation: Always Active (Schema Strict level - validates tables/columns/types/joins)")
-            else:
-                sql_validation = False
-                validation_level = None
-                st.warning("⚠️ SQL validation unavailable - check core/sql_validator.py")
-            
-            # BigQuery execution - always enabled when available
-            if BIGQUERY_EXECUTION_AVAILABLE and advanced_mode:
-                st.success("✅ BigQuery Execution: Available")
-                st.subheader("🛠️ BigQuery Settings")
-                # Initialize defaults if not present
-                if 'bq_project' not in st.session_state:
-                    st.session_state.bq_project = os.getenv('BIGQUERY_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT') or "brainrot-453319"
-                if 'bq_dataset' not in st.session_state:
-                    st.session_state.bq_dataset = os.getenv('BIGQUERY_DATASET') or "bigquery-public-data.thelook_ecommerce"
-
-                new_project = st.text_input("Project ID", value=st.session_state.bq_project, help="Project for BigQuery jobs")
-                new_dataset = st.text_input("Dataset", value=st.session_state.bq_dataset, help="Default dataset context for UI")
-                bq_changed = (new_project != st.session_state.bq_project) or (new_dataset != st.session_state.bq_dataset)
-                st.session_state.bq_project = new_project
-                st.session_state.bq_dataset = new_dataset
-
-                # (Re)initialize executor if missing or settings changed
-                if ('bigquery_executor' not in st.session_state) or bq_changed:
-                    try:
-                        st.session_state.bigquery_executor = BigQueryExecutor(project_id=new_project, dataset_id=new_dataset)
-                        if bq_changed:
-                            st.info("🔄 Reinitialized BigQuery executor with new settings")
-                    except Exception as e:
-                        st.warning(f"Failed to initialize BigQuery executor: {e}")
-            elif not BIGQUERY_EXECUTION_AVAILABLE:
-                st.warning("⚠️ BigQuery execution unavailable - check bigquery_executor.py and google-cloud-bigquery dependency")
-            
-            if advanced_mode and gemini_mode:
-                k = st.slider(
-                    "Top-K Results", 
-                    min_value=10, 
-                    max_value=200, 
-                    value=100,
-                    help="Gemini can handle 100+ chunks efficiently with smart deduplication"
-                )
-                st.success("🚀 Gemini Mode: Using large context window with smart optimization")
-            else:
-                # Simple default (no slider)
-                k = 4
-            
-            # Advanced hybrid search controls
-            search_weights = None
-            auto_adjust_weights = True
-            
-            if advanced_mode and hybrid_search:
-                st.subheader("⚙️ Hybrid Search Settings")
-                
-                # Auto-adjust weights toggle
-                auto_adjust_weights = st.checkbox(
-                    "🤖 Auto-Adjust Weights", 
-                    value=True,
-                    help="Automatically adjust vector/keyword weights based on query analysis"
-                )
-                
-                # Optional: keyword-only fallback to avoid embedding calls (fast, no network)
-                keyword_only = st.checkbox(
-                    "🧰 Keyword-only (BM25) — no embeddings",
-                    value=False,
-                    help="Use only keyword/BM25 search. Useful if embeddings are slow or unavailable."
-                )
-                
-                if keyword_only:
-                    auto_adjust_weights = False
-                    search_weights = SearchWeights(vector_weight=0.0, keyword_weight=1.0)
-                    st.caption("Vector search disabled. Using BM25 only.")
-                
-                if not auto_adjust_weights:
-                    # Manual weight controls
-                    st.caption("Manual Weight Configuration:")
-                    
-                    # Use columns for better layout
-                    weight_col1, weight_col2 = st.columns(2)
-                    
-                    if not keyword_only:
-                        with weight_col1:
-                            vector_weight = st.slider(
-                                "Vector Weight", 
-                                0.0, 1.0, 0.7, 0.1,
-                                help="Weight for semantic similarity search"
-                            )
-                        
-                        with weight_col2:
-                            keyword_weight = st.slider(
-                                "Keyword Weight", 
-                                0.0, 1.0, 0.3, 0.1,
-                                help="Weight for exact keyword matching (BM25)"
-                            )
-                        
-                        # Normalize weights
-                        total_weight = vector_weight + keyword_weight
-                        if total_weight > 0:
-                            vector_weight /= total_weight
-                            keyword_weight /= total_weight
-                            search_weights = SearchWeights(vector_weight=vector_weight, keyword_weight=keyword_weight)
-                            
-                            # Display normalized weights
-                            st.caption(f"Normalized: Vector {vector_weight:.2f}, Keyword {keyword_weight:.2f}")
-                else:
-                    st.info("🔍 Weights will be automatically optimized based on your query")
-                
-                st.success("🚀 Hybrid search combines semantic understanding with exact SQL term matching")
-            
-            # Sidebar Schema Browser (advanced only)
-            if advanced_mode:
-                st.divider()
-                st.subheader("🧱 Schema Browser")
-            sm = st.session_state.get('schema_manager')
-            if advanced_mode and sm:
-                search = st.text_input("Search tables", "", help="Filter by table name (substring)")
-                try:
-                    all_tables = sorted(list(sm.schema_lookup.keys()))
-                    filtered = [t for t in all_tables if search.lower() in t.lower()] if search else all_tables
-                except Exception:
-                    filtered = []
-
-                selected_table = st.selectbox("Select a table", filtered, index=0 if filtered else None, key="schema_browser_select") if filtered else None
-                if selected_table:
-                    fqn = sm.get_fqn(selected_table) or selected_table
-                    st.caption("Fully Qualified Name")
-                    st.code(f"`{fqn}`", language=None)
-
-                    # Show columns + datatypes
-                    df = sm.schema_df
-                    if df is not None:
-                        table_norm = sm._normalize_table_name(selected_table)
-                        try:
-                            table_df = df[df["table_id"] == table_norm][["column", "datatype"]].reset_index(drop=True)
-                            st.dataframe(table_df, use_container_width=True, hide_index=True)
-                        except Exception:
-                            cols = sm.get_table_columns(selected_table)
-                            st.write("Columns:", ", ".join(cols) if cols else "N/A")
-                    else:
-                        cols = sm.get_table_columns(selected_table)
-                        st.write("Columns:", ", ".join(cols) if cols else "N/A")
-
-                    # Quick actions
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        if st.button("Copy FQN", use_container_width=True, key="copy_fqn_btn"):
-                            st.session_state["copied_fqn"] = fqn
-                            st.success("Copied FQN (use Cmd/Ctrl+C on highlighted text)")
-                    with col_b:
-                        if st.button("Insert sample SELECT", use_container_width=True, key="insert_sample_btn"):
-                            sample_sql = f"SELECT * FROM `{fqn}`\nLIMIT 100"
-                            st.session_state["user_context"] = (st.session_state.get("user_context", "") + f"\n\nSample:\n```sql\n{sample_sql}\n```" ).strip()
-                            st.success("Inserted sample into Additional Context")
-                    with col_c:
-                        ex = st.session_state.get('excluded_tables', [])
-                        if st.button("Exclude", use_container_width=True, key="exclude_table_btn"):
-                            if selected_table not in ex:
-                                ex = ex + [selected_table]
-                                st.session_state['excluded_tables'] = ex
-                            st.success(f"Excluded {selected_table}")
-            elif advanced_mode:
-                st.info("Load a schema CSV to browse tables (data_new/thelook_ecommerce_schema.csv)")
-
-            # Source display options
-            st.subheader("📋 Source Display")
-            show_full_queries = st.checkbox(
-                "📄 Show Full Query Cards",
-                value=False,
-                help="Show complete query information instead of just matching chunks",
-                key="show_full_queries_checkbox"
-            )
-            
-            st.markdown("""
-            _Tip: Gemini Mode provides 18.5x better context utilization. Hybrid Search improves SQL term matching by 20-40%. Query Rewriting enhances retrieval precision by 25-40%. SQL Validation ensures generated queries are syntactically correct and reference valid schema elements._
-            """)
-            
-            # Display vector store info
-            index_path = FAISS_INDICES_DIR / selected_index
-            if index_path.exists():
-                status_file = FAISS_INDICES_DIR / f"status_{selected_index[6:]}.json"  # Remove "index_" prefix
-                if status_file.exists():
-                    try:
-                        import json
-                        with open(status_file) as f:
-                            status = json.load(f)
-                        
-                        st.subheader("📊 Vector Store Info")
-                        st.metric("Total Documents", f"{status.get('total_documents', 'Unknown'):,}")
-                        st.caption(f"Created: {status.get('created_at', 'Unknown')}")
-                        
-                        # GPU info
-                        gpu_info = status.get('gpu_acceleration', {})
-                        if gpu_info.get('gpu_accelerated_processing'):
-                            st.success("🚀 GPU-accelerated")
-                        else:
-                            st.info("💻 CPU processed")
-                            
-                    except Exception as e:
-                        st.warning("Could not load status info")
+            selected_index = DEFAULT_VECTOR_STORE if DEFAULT_VECTOR_STORE in available_indices else available_indices[0]
         
         elif page == "💬 Chat":
             # Chat page configuration: conversation management + user context and table exclusions
@@ -2799,6 +2514,55 @@ def main():
                     st.error("Failed to load vector store")
                     return
         
+        # Simple Query Search UI: Ask → Show SQL → Execute
+        st.subheader("❓ Ask a Question")
+        simple_query = st.text_input(
+            "Enter your question:",
+            placeholder="e.g., Write SQL to join users and orders and compute monthly spend",
+            key="simple_query_input"
+        )
+
+        generate_clicked = st.button("Generate SQL", type="primary", key="simple_generate_sql_button")
+
+        # Clear prior execution/session state on new generation
+        if generate_clicked:
+            for _k in [
+                'sql_execution_completed',
+                'sql_executing',
+                'sql_execution_error',
+                'sql_execution_result',
+                'extracted_sql'
+            ]:
+                if _k in st.session_state:
+                    del st.session_state[_k]
+
+        if generate_clicked and simple_query.strip():
+            with st.spinner("Generating SQL with Gemini..."):
+                try:
+                    result = answer_question_simple_gemini(
+                        question=simple_query.strip(),
+                        vector_store=st.session_state.vector_store,
+                        k=20,
+                        schema_manager=st.session_state.get('schema_manager'),
+                        lookml_safe_join_map=st.session_state.get('lookml_safe_join_map'),
+                        sql_validation=False
+                    )
+                    if result:
+                        answer_text, _sources, _usage = result
+                        # Show only the SQL + execution interface
+                        display_sql_execution_interface(answer_text)
+                    else:
+                        st.error("❌ Failed to generate SQL. Please try again.")
+                except Exception as e:
+                    st.error(f"❌ Error generating SQL: {e}")
+
+        # If SQL already exists from a prior run, show execution UI persistently
+        if (not generate_clicked) and st.session_state.get('extracted_sql'):
+            display_sql_execution_interface(st.session_state.extracted_sql)
+
+        # Exit early to keep the page streamlined
+        return
+
         # Display session stats
         display_session_stats()
         

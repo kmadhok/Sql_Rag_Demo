@@ -58,67 +58,46 @@ Rationale: `flash-lite` reduces latency and cost without sacrificing much on str
 
 ---
 
-## Modularity Plan: Separate Models per Role
+## Modularity Plan: Separate Models per Role (Implemented)
 
-Goal: Allow different LLMs/models/providers per role (Parsing vs Generation), without invasive changes.
+We now support selecting different Gemini models per pipeline step using environment variables and a small registry.
 
-### Proposed Config Surface
+### Config Surface (env vars)
 
-- Env vars (or app config):
-  - `LLM_PARSE_MODEL` — model for parsing/structured extraction (e.g., `gemini-2.5-flash-lite`)
-  - `LLM_GEN_MODEL` — model for SQL generation (e.g., `gemini-2.5-flash-lite` or `-flash`)
-  - Optional future: `LLM_REWRITE_MODEL` for query rewriting
+- `LLM_PARSE_MODEL`   — model for parsing/structured extraction (default: `gemini-2.5-flash-lite`)
+- `LLM_GEN_MODEL`     — model for SQL generation (default: `gemini-2.5-pro`)
+- `LLM_REWRITE_MODEL` — model for query rewriting (default: falls back to `LLM_PARSE_MODEL` or `gemini-2.5-flash-lite`)
+- `LLM_CHAT_MODEL`    — model for chat responses (default: `gemini-2.5-flash-lite`)
 
-### Minimal Code Changes (Illustrative)
+Example (.env):
 
-1) `core/llm_sql_analyzer.py`
-
-```python
-import os
-DEFAULT_PARSE_MODEL = os.getenv("LLM_PARSE_MODEL", "gemini-2.5-flash-lite")
-...
-class LLMSQLAnalyzer:
-    def __init__(self, model: str = DEFAULT_PARSE_MODEL, ...):
-        ...
+```
+LLM_GEN_MODEL=gemini-2.5-pro
+LLM_PARSE_MODEL=gemini-2.5-flash-lite
+LLM_REWRITE_MODEL=gemini-2.5-flash-lite
+LLM_CHAT_MODEL=gemini-2.5-flash-lite
 ```
 
-2) `simple_rag_simple_gemini.py`
+### LLM Registry
+
+`llm_registry.py` exposes a simple interface:
 
 ```python
-import os
-GEMINI_MODEL = os.getenv("LLM_GEN_MODEL", "gemini-2.5-flash-lite")
+from llm_registry import get_llm_registry
+reg = get_llm_registry()
+reg.get_generator()  # SQL generation client (LLM_GEN_MODEL)
+reg.get_parser()     # Parsing client (LLM_PARSE_MODEL)
+reg.get_chat()       # Chat client (LLM_CHAT_MODEL)
 ```
 
-3) `app_simple_gemini.py` (Chat)
+### Call Sites Updated
 
-```python
-import os
-CHAT_GEN_MODEL = os.getenv("LLM_GEN_MODEL", "gemini-2.5-flash")
-# Then pass CHAT_GEN_MODEL into GeminiClient(model=CHAT_GEN_MODEL)
-```
+- `core/llm_sql_analyzer.py` now defaults to `LLM_PARSE_MODEL`.
+- `query_rewriter.py` defaults to `LLM_REWRITE_MODEL` (or `LLM_PARSE_MODEL`).
+- `simple_rag_simple_gemini.py` uses the registry for SQL generation.
+- `app_simple_gemini.py` (chat) uses the registry for chat generation.
 
-### Optional: LLM Registry (Provider‑agnostic)
-
-Create a small registry that maps roles to clients without hardcoding models in call sites:
-
-```python
-# llm_registry.py
-import os
-from gemini_client import GeminiClient
-
-class LLMRegistry:
-    def __init__(self):
-        self.parse_model = os.getenv("LLM_PARSE_MODEL", "gemini-2.5-flash-lite")
-        self.gen_model   = os.getenv("LLM_GEN_MODEL",   "gemini-2.5-flash-lite")
-
-    def get_parser(self):
-        return GeminiClient(model=self.parse_model)
-
-    def get_generator(self):
-        return GeminiClient(model=self.gen_model)
-```
-
-Consumers receive the appropriate client by role. This makes it easy to swap providers (e.g., OpenAI, Anthropic) with a thin shim implementing the same interface.
+This lets you run “Gemini 2.5 Pro” for SQL generation and “Gemini 2.5 Flash‑Lite” for everything else by setting the env vars above.
 
 ---
 

@@ -91,7 +91,7 @@ class LLMSQLAnalyzer:
     """
     
     def __init__(self, 
-                 model: str = "gemini-2.5-flash-lite",
+                 model: str = os.getenv("LLM_PARSE_MODEL", "gemini-2.5-flash-lite"),
                  cache_strategy: CacheStrategy = CacheStrategy.BOTH,
                  cache_dir: str = "llm_sql_cache",
                  cost_per_1m_tokens: float = 0.075):
