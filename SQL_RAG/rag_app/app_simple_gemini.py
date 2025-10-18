@@ -124,7 +124,7 @@ MAX_PAGES_TO_SHOW = 10  # Maximum pages to show in dropdown for large datasets
 # Streamlit page config
 st.set_page_config(
     page_title="Ask Data Questions in Plain English | SQL RAG",
-    page_icon="🔥",
+    page_icon="⚡",
     layout="wide"
 )
 
@@ -2262,7 +2262,7 @@ def create_introduction_page():
     """Render the introduction/welcome page explaining the project and pipeline"""
 
     # Hero Section
-    st.title("🔥 SQL RAG with Google Gemini")
+    st.title("⚡ SQL RAG with Google Gemini")
     st.markdown("""
     ### Your Data, Your Questions—No SQL Required
 
@@ -2649,11 +2649,210 @@ def create_introduction_page():
     st.caption("Built with Streamlit • Powered by Google Gemini 2.5 • Embeddings by OpenAI")
 
 
+def apply_modern_styling():
+    """Apply Duna-inspired modern CSS styling with warm, professional aesthetic"""
+    st.markdown("""
+    <style>
+    /* Import Inter font for modern typography */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    /* Base typography improvements */
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    h1, h2, h3 {
+        font-weight: 800;
+        letter-spacing: -0.02em;
+    }
+
+    p {
+        line-height: 1.7;
+    }
+
+    /* Main title - gradient effect */
+    .main-title {
+        font-size: 3.5rem;
+        font-weight: 800;
+        line-height: 1.1;
+        letter-spacing: -0.03em;
+        margin-bottom: 1.5rem;
+        background: linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    /* Subtitle styling */
+    .subtitle {
+        font-size: 1.25rem;
+        line-height: 1.6;
+        color: #6B7280;
+        margin-bottom: 3rem;
+        max-width: 600px;
+    }
+
+    /* Modern buttons with gradient */
+    .stButton > button {
+        background: linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%);
+        border: none;
+        border-radius: 12px;
+        padding: 0.75rem 2rem;
+        font-weight: 600;
+        font-size: 1rem;
+        color: white;
+        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.25);
+        transition: all 0.3s ease;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 24px rgba(139, 92, 246, 0.35);
+    }
+
+    /* Primary button specific styling */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%);
+    }
+
+    /* Metric cards - clean minimal */
+    [data-testid="metric-container"] {
+        background: #FAFAFA;
+        border-radius: 12px;
+        padding: 1.5rem;
+        border-left: 4px solid #8B5CF6;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Progress bars - warm gradient */
+    .stProgress > div > div > div {
+        background: linear-gradient(90deg, #8B5CF6 0%, #EC4899 100%);
+        border-radius: 4px;
+    }
+
+    /* Code blocks - warm accent */
+    .stCodeBlock {
+        border-left: 3px solid #8B5CF6;
+        background: #FAFAFA;
+        border-radius: 8px;
+    }
+
+    /* Expanders - clean minimal */
+    .streamlit-expanderHeader {
+        background: #FAFAFA;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+    }
+
+    .streamlit-expanderHeader:hover {
+        background: #F3F4F6;
+    }
+
+    /* Input fields - modern clean */
+    .stTextInput > div > div > input {
+        border-radius: 8px;
+        border: 2px solid #E5E7EB;
+        transition: all 0.2s ease;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .stTextInput > div > div > input:focus {
+        border-color: #8B5CF6;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+
+    /* Text area styling */
+    .stTextArea > div > div > textarea {
+        border-radius: 8px;
+        border: 2px solid #E5E7EB;
+        transition: all 0.2s ease;
+        font-family: 'Inter', sans-serif;
+    }
+
+    .stTextArea > div > div > textarea:focus {
+        border-color: #8B5CF6;
+        box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+    }
+
+    /* Success messages */
+    .stSuccess {
+        background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+        border-radius: 8px;
+        border: none;
+    }
+
+    /* Info messages */
+    .stInfo {
+        background: linear-gradient(135deg, #8B5CF6 0%, #7C3AED 100%);
+        border-radius: 8px;
+        border: none;
+    }
+
+    /* Warning messages */
+    .stWarning {
+        background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+        border-radius: 8px;
+        border: none;
+    }
+
+    /* Error messages */
+    .stError {
+        background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+        border-radius: 8px;
+        border: none;
+    }
+
+    /* Sidebar styling */
+    [data-testid="stSidebar"] {
+        background: #FAFAFA;
+    }
+
+    /* Radio buttons */
+    .stRadio > div {
+        gap: 0.5rem;
+    }
+
+    /* Selectbox styling */
+    .stSelectbox > div > div {
+        border-radius: 8px;
+    }
+
+    /* Dataframe styling */
+    .dataframe {
+        border-radius: 8px;
+        border: 1px solid #E5E7EB;
+    }
+
+    /* Chat message styling */
+    [data-testid="stChatMessage"] {
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+    }
+
+    /* Generous section spacing - Duna style */
+    .section-spacing {
+        padding: 4rem 0;
+    }
+
+    /* Feature cards hover effect */
+    .element-container:hover {
+        transition: transform 0.2s ease;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 def main():
     """Main Streamlit application"""
 
+    # Apply modern Duna-inspired styling
+    apply_modern_styling()
+
     # Header
-    st.title("🔥 Ask Data Questions Without SQL")
+    st.title("⚡ Ask Data Questions Without SQL")
     st.caption("Get instant answers from your data in plain English—no SQL required. For SQL experts: build queries 10x faster with AI-powered assistance.")
     
     # Load CSV data first (needed for both pages)
@@ -2693,12 +2892,12 @@ def main():
         # Page selection
         page = st.radio(
             "Select Page:",
-            ["🏠 Introduction", "🔍 Query Search", "📊 Data", "📚 Query Catalog", "💬 Chat"],
+            ["◆ Introduction", "→ Query Search", "◉ Data", "● Catalog", "◐ Chat"],
             key="page_selection"
         )
         
         # Keep Query Search and Introduction pages minimal; show configuration only for other pages
-        if page not in ["🔍 Query Search", "🏠 Introduction"]:
+        if page not in ["→ Query Search", "◆ Introduction"]:
             st.divider()
             st.header("⚙️ Configuration")
             # Advanced mode toggle: simple by default
@@ -2715,7 +2914,7 @@ def main():
             st.session_state.advanced_mode = False
 
         # Show configuration based on selected page
-        if page == "🔍 Query Search":
+        if page == "→ Query Search":
             # Minimal: silently choose a vector store (no extra UI)
             available_indices = get_available_indices()
             if not available_indices:
@@ -2724,8 +2923,8 @@ def main():
                 st.stop()
 
             selected_index = DEFAULT_VECTOR_STORE if DEFAULT_VECTOR_STORE in available_indices else available_indices[0]
-        
-        elif page == "💬 Chat":
+
+        elif page == "◐ Chat":
             # Chat page configuration: conversation management + user context and table exclusions
             
             # Conversation Management Section
@@ -2921,13 +3120,13 @@ def main():
                 st.session_state.excluded_tables = excluded_tables
             else:
                 st.caption("Schema manager not loaded; context filters unavailable.")
-        elif page == "📚 Query Catalog":
+        elif page == "● Catalog":
             # Query Catalog page - show data info
-            st.subheader("📊 Data Info")
+            st.subheader("◉ Data Info")
             df = st.session_state.csv_data
             st.metric("Total Queries", len(df))
             st.caption(f"Source: {CSV_PATH.name}")
-        elif page == "📊 Data":
+        elif page == "◉ Data":
             # Schema page - simple summary
             st.subheader("🗃️ Schema Summary")
             sm = st.session_state.get('schema_manager')
@@ -2939,11 +3138,11 @@ def main():
                 st.warning("Schema not loaded. Ensure the schema CSV exists.")
     
     # Route to appropriate page
-    if page == "🏠 Introduction":
+    if page == "◆ Introduction":
         # Introduction page - no prerequisites required
         create_introduction_page()
 
-    elif page == "🔍 Query Search":
+    elif page == "→ Query Search":
         # Load vector store for search page
         if not available_indices:
             st.error("❌ No vector stores found for search!")
@@ -3786,8 +3985,8 @@ def main():
             - Export results as CSV for further analysis
             - Real-time performance metrics and execution stats
             """)
-    
-    elif page == "💬 Chat":
+
+    elif page == "◐ Chat":
         # Chat page - requires vector store
         available_indices = get_available_indices()
         if not available_indices:
@@ -3823,8 +4022,8 @@ def main():
         
         # Create chat page
         create_chat_page(st.session_state.vector_store, st.session_state.csv_data)
-    
-    elif page == "📚 Query Catalog":
+
+    elif page == "● Catalog":
         # Query Catalog page - MANDATORY cache requirement
         # Check for analytics cache before proceeding
         if not CATALOG_ANALYTICS_DIR.exists():
@@ -3861,7 +4060,7 @@ python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv" -
         # All checks passed - proceed with catalog page
         create_query_catalog_page(st.session_state.csv_data)
 
-    elif page == "📊 Data":
+    elif page == "◉ Data":
         # Render data schema browser
         create_data_page(st.session_state.get('schema_manager'))
 

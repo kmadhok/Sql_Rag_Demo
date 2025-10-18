@@ -1,12 +1,13 @@
 # Streamlit Configuration for SQL RAG Chat App
+# Duna-inspired warm hybrid theme for modern, professional aesthetic
 
 [theme]
 base = "light"
 font = "sans-serif"
-primaryColor = "#0066cc"
-backgroundColor = "#ffffff" 
-secondaryBackgroundColor = "#f0f2f6"
-textColor = "#262730"
+primaryColor = "#8B5CF6"              # Purple - analytics + warmth
+backgroundColor = "#FDFCFC"            # Soft warm white
+secondaryBackgroundColor = "#F8F7F6"  # Warm gray
+textColor = "#27241D"                 # Warm charcoal
 
 [server]
 enableCORS = true
