@@ -1,0 +1,3 @@
+left_table,right_table,left_col,right_col,type_compat,name_sim,value_jaccard,left_uniqueness,right_uniqueness,cardinality_score,key_pattern_score,embed_sim,confidence,notes
+orders,users,user_id,id,True,0.5944,0.0,0.93,1.0,1.0,1.0,0.0,0.5986,"left_is_fk_pattern,right_is_pk_id,key_filtered"
+orders,users,order_id,id,True,0.55,0.0,1.0,1.0,0.6,1.0,0.0,0.4675,"left_is_fk_pattern,right_is_pk_id,key_filtered"

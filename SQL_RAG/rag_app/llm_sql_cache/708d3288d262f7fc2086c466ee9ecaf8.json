@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "TotalOrdersLast6Months",
+      "TotalUsers"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "orders",
+        "table": "TotalOrdersLast6Months"
+      },
+      {
+        "alias": "users",
+        "table": "TotalUsers"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.91426682472229,
+  "tokens_used": 243,
+  "cost_estimate": 1.8225e-05
+}

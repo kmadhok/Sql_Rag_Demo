@@ -1,0 +1,14 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.order_items`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.7399101257324219,
+  "tokens_used": 338,
+  "cost_estimate": 2.5349999999999996e-05
+}

@@ -1,0 +1,77 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "created_at"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "product_category",
+        "column": "p.category"
+      },
+      {
+        "alias": "order_count",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT oi.order_id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "p.category AS product_category",
+      "COUNT(DISTINCT oi.order_id) AS order_count"
+    ]
+  },
+  "analysis_time": 1.5314440727233887,
+  "tokens_used": 725,
+  "cost_estimate": 5.4374999999999994e-05
+}

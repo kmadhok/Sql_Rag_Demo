@@ -1,0 +1,34 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "order_items",
+        "column": "user_id"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "order_items",
+        "column": "status"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "lifetime_revenue",
+        "column": "ROUND(SUM(sale_price), 2)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(sale_price)"
+    ],
+    "computed_columns": [
+      "ROUND(SUM(sale_price), 2)"
+    ]
+  },
+  "analysis_time": 1.023900032043457,
+  "tokens_used": 577,
+  "cost_estimate": 4.3275e-05
+}

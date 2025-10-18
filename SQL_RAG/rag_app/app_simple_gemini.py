@@ -64,6 +64,11 @@ try:
 except ImportError:
     CONVERSATION_MANAGER_AVAILABLE = False
 
+# Configure logging (idempotent)
+if not logging.getLogger(__name__).handlers:
+    logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import necessary components for chat-specific RAG function
 from gemini_client import GeminiClient
 
@@ -97,10 +102,10 @@ try:
 except ImportError:
     BIGQUERY_EXECUTION_AVAILABLE = False
 
-# Configure logging (idempotent)
-if not logging.getLogger(__name__).handlers:
-    logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# # Configure logging (idempotent)
+# if not logging.getLogger(__name__).handlers:
+#     logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
 
 # Configuration
 FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
@@ -118,7 +123,7 @@ MAX_PAGES_TO_SHOW = 10  # Maximum pages to show in dropdown for large datasets
 
 # Streamlit page config
 st.set_page_config(
-    page_title="Simple SQL RAG with Gemini", 
+    page_title="Ask Data Questions in Plain English | SQL RAG",
     page_icon="🔥",
     layout="wide"
 )
@@ -1690,21 +1695,31 @@ def create_chat_page(vector_store, csv_data):
                 render_chat_message(msg, is_user=False)
     else:
         # Simple welcome message using native components
-        st.markdown("### 👋 Welcome to SQL RAG Chat!")
-        st.markdown("Ask questions about your SQL queries using natural language.")
-        
+        st.markdown("### 👋 Welcome! Ask Your Data Questions Here")
+        st.markdown("""
+        **No SQL required!** Just type your question in plain English:
+        - "What were our top selling products last month?"
+        - "Show me customer spending by region"
+        - "Which users made repeat purchases?"
+
+        **SQL experts:** Get 10x faster query generation:
+        - Describe complex joins → Get production-ready SQL
+        - Use `@explain` to learn new patterns
+        - Use `@create` for instant code generation
+        """)
+
         st.info("**💡 Chat Keywords:**")
-        
+
         col1, col2 = st.columns(2)
         with col1:
-            st.success("**Default:** 💬 Concise 2-3 sentence responses")
-            st.info("**@explain** 🔍 Detailed explanations for learning")
+            st.success("**Default:** 💬 Quick, concise answers")
+            st.info("**@explain** 🔍 Learn how SQL queries work")
         with col2:
-            st.warning("**@create** ⚡ SQL code generation with examples")
+            st.warning("**@create** ⚡ Generate production SQL")
             if st.session_state.lookml_safe_join_map:
-                st.info("**@schema** 🗂️ Direct LookML schema exploration")  
-            st.error("**@longanswer** 📖 Comprehensive detailed analysis")
-        
+                st.info("**@schema** 🗂️ Explore table relationships")
+            st.error("**@longanswer** 📖 Deep dive analysis")
+
         st.markdown("---")
     
     # Add clear conversation button
@@ -2243,12 +2258,403 @@ def display_sql_execution_results(result: QueryResult):
             st.caption(f"📋 Job ID: `{result.job_id}`")
 
 
+def create_introduction_page():
+    """Render the introduction/welcome page explaining the project and pipeline"""
+
+    # Hero Section
+    st.title("🔥 SQL RAG with Google Gemini")
+    st.markdown("""
+    ### Your Data, Your Questions—No SQL Required
+
+    **For Product Managers & Business Users:**
+    Ask questions about your data in plain English. Get instant, accurate answers without writing a single line of SQL.
+
+    **For Data Analysts & SQL Experts:**
+    Build complex queries 10x faster. Get AI-powered suggestions, automatic validation, and instant execution—spend less time coding, more time analyzing.
+    """)
+
+    # Quick Stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🤖 LLM", "Gemini 2.5", "Flash & Pro")
+    with col2:
+        st.metric("📊 Context", "1M tokens", "Optimized")
+    with col3:
+        st.metric("🔍 Search", "Hybrid", "Vector + BM25")
+    with col4:
+        st.metric("✅ Safety", "Validated", "Read-only")
+
+    st.divider()
+
+    # Project Overview
+    st.header("💡 What Can You Do?")
+    st.markdown("""
+    **🎯 Product Managers & Business Users:**
+    - ✨ **Ask questions naturally**: "What were our top 5 products last month?" → Get instant results
+    - 🚀 **No SQL required**: Skip the learning curve, get data insights immediately
+    - ⚡ **Self-service analytics**: Stop waiting on data teams, get answers in seconds
+    - 📊 **Explore your data**: Browse tables, understand relationships, discover insights
+
+    **⚡ Data Analysts & SQL Experts:**
+    - 🏃 **10x faster development**: Generate complex joins and aggregations in seconds
+    - ✅ **Production-ready SQL**: Automatic validation ensures your queries work the first time
+    - 🔍 **Learn from examples**: Browse 100+ curated SQL patterns with smart search
+    - 🤖 **AI pair programmer**: Get suggestions, optimizations, and schema assistance as you work
+    """)
+
+    st.divider()
+
+    # Pipeline Flow
+    st.header("🔄 Pipeline Architecture")
+    st.markdown("""
+    The system follows a sophisticated 5-step pipeline optimized for accuracy and performance:
+    """)
+
+    # Pipeline visualization using columns
+    st.markdown("#### End-to-End Flow")
+
+    pipeline_col1, pipeline_col2, pipeline_col3, pipeline_col4, pipeline_col5 = st.columns(5)
+
+    with pipeline_col1:
+        st.markdown("""
+        **1️⃣ Embedding Generation**
+
+        📝 OpenAI `text-embedding-3-small`
+
+        ⚡ High-quality vector representations
+        """)
+
+    with pipeline_col2:
+        st.markdown("""
+        **2️⃣ Vector Store**
+
+        🗄️ FAISS indexing
+
+        💾 Fast similarity search
+        """)
+
+    with pipeline_col3:
+        st.markdown("""
+        **3️⃣ Retrieval**
+
+        🔍 Hybrid search (Vector + BM25)
+
+        🎯 Configurable weights
+        """)
+
+    with pipeline_col4:
+        st.markdown("""
+        **4️⃣ Generation**
+
+        🤖 Gemini 2.5 Pro/Flash
+
+        📊 1M context optimization
+        """)
+
+    with pipeline_col5:
+        st.markdown("""
+        **5️⃣ Execution**
+
+        ✅ SQL safety validation
+
+        ☁️ BigQuery execution
+        """)
+
+    # Detailed pipeline explanation
+    with st.expander("📚 Learn More About the Pipeline", expanded=False):
+        st.markdown("""
+        ### Detailed Pipeline Steps
+
+        **Step 1: Embedding Generation**
+        - Uses OpenAI's `text-embedding-3-small` model (default) or local Ollama embeddings
+        - Converts SQL queries and metadata into dense vector representations
+        - Generates FAISS indices stored in `faiss_indices/` directory
+
+        **Step 2: Vector Store**
+        - FAISS (Facebook AI Similarity Search) provides fast nearest-neighbor search
+        - Supports millions of vectors with sub-millisecond query times
+        - Persistent storage with automatic loading on application start
+
+        **Step 3: Hybrid Retrieval**
+        - **Vector Search**: Semantic similarity using embeddings
+        - **Keyword Search**: BM25 algorithm for exact term matching
+        - **Fusion**: Configurable weights (default: 70% vector, 30% keyword)
+        - **Query Rewriting**: Optional LLM-based query enhancement
+
+        **Step 4: Smart Generation**
+        - **Schema Injection**: Automatically includes relevant table schemas
+        - **Context Optimization**: Smart deduplication using Jaccard similarity
+        - **Multi-Model Support**: Gemini 2.5 Pro for complex queries, Flash for speed
+        - **LLM Registry**: Separate models for parsing, generation, and chat
+
+        **Step 5: Safe Execution**
+        - **SQL Validation**: Multi-level safety checks (strict/basic modes)
+        - **BigQuery Integration**: Read-only execution with cost estimation
+        - **Dry Run Support**: Preview query costs without execution
+        - **Result Caching**: Avoid redundant queries and costs
+        """)
+
+    st.divider()
+
+    # Application Pages
+    st.header("🗺️ Application Pages")
+    st.markdown("Navigate between different interfaces to suit your workflow:")
+
+    page_col1, page_col2 = st.columns(2)
+
+    with page_col1:
+        with st.container():
+            st.markdown("### 🔍 Query Search")
+            st.markdown("""
+            **Ask data questions, get instant SQL + results**
+
+            **For non-technical users:**
+            Type your question in plain English → See the SQL we generate → Get your data instantly.
+            No coding required!
+
+            **For SQL experts:**
+            Describe what you need → Get production-ready SQL with joins, filters, and aggregations → Execute and refine in seconds.
+
+            ✨ Perfect for: Quick answers, one-off queries, exploring new datasets
+
+            ⏱️ **Time savings**: Minutes instead of hours writing complex queries
+            """)
+
+        with st.container():
+            st.markdown("### 📚 Query Catalog")
+            st.markdown("""
+            **Browse and search SQL examples**
+
+            - Explore 100+ pre-analyzed SQL queries
+            - Search by tables, joins, or query content
+            - View join relationship graphs
+            - Analyze query complexity metrics
+            - Paginated for performance
+
+            Perfect for: Learning SQL patterns and discovering examples
+            """)
+
+    with page_col2:
+        with st.container():
+            st.markdown("### 💬 Chat Interface")
+            st.markdown("""
+            **Your AI data assistant—learn, explore, and get answers**
+
+            **For everyone:**
+            - Ask follow-up questions naturally
+            - Learn SQL concepts with `@explain` agent
+            - Get step-by-step guidance for complex data questions
+
+            **For SQL learners:**
+            Use `@explain` to understand how queries work
+
+            **For SQL builders:**
+            Use `@create` to generate queries with conversation context
+            Use `@longanswer` for comprehensive analysis and alternatives
+
+            ✨ Perfect for: Learning, exploring data relationships, multi-step analysis
+
+            💬 **Benefit**: Conversational learning + production SQL generation in one place
+            """)
+
+        with st.container():
+            st.markdown("### 📊 Data Browser")
+            st.markdown("""
+            **Explore database schema**
+
+            - Browse all tables and columns
+            - View data types and relationships
+            - Search tables by name
+            - Fully-qualified table names (FQNs)
+            - Direct CSV download
+
+            Perfect for: Understanding your database structure
+            """)
+
+    st.divider()
+
+    # Key Features
+    st.header("✨ Key Features")
+
+    feature_col1, feature_col2, feature_col3 = st.columns(3)
+
+    with feature_col1:
+        st.markdown("""
+        **🧠 Smart Intelligence**
+
+        - LLM-based SQL parsing
+        - Automatic schema injection
+        - CTE-aware validation
+        - Query rewriting
+        - Multi-model orchestration
+        """)
+
+    with feature_col2:
+        st.markdown("""
+        **⚡ Performance**
+
+        - Gemini 1M context window
+        - 18.5x better utilization
+        - Smart deduplication
+        - Hybrid search fusion
+        - Multi-layer caching
+        """)
+
+    with feature_col3:
+        st.markdown("""
+        **🔒 Safety & Reliability**
+
+        - Read-only SQL enforcement
+        - Multi-level validation
+        - Cost estimation
+        - Dry-run support
+        - Comprehensive logging
+        """)
+
+    st.divider()
+
+    # Getting Started
+    st.header("🚀 Getting Started")
+
+    st.markdown("""
+    ### Quick Start Guide
+
+    1. **Start Simple** - Use the **🔍 Query Search** page to generate your first SQL query
+    2. **Ask Questions** - Type natural language like "Find total revenue by month"
+    3. **Review & Execute** - Check the generated SQL and run it against BigQuery
+    4. **Explore More** - Try the **💬 Chat** page for interactive learning
+    5. **Browse Examples** - Visit **📚 Query Catalog** to see patterns
+
+    ### Tips for Best Results
+
+    - 🎯 **Be specific**: "Join users with orders and calculate total spend" vs "Get user data"
+    - 📊 **Mention tables**: Reference table names when you know them
+    - 🔄 **Use agents**: Try `@explain` to learn how a query works
+    - 💡 **Iterate**: Refine queries through conversation in Chat mode
+    - 📖 **Learn patterns**: Browse the catalog to see how others structure queries
+    """)
+
+    st.divider()
+
+    # Technical Details
+    with st.expander("🔧 Technical Architecture & Components", expanded=False):
+        st.markdown("""
+        ### Core Components
+
+        **RAG Engine** (`simple_rag_simple_gemini.py`)
+        - Optimized for Gemini's large context window
+        - Smart deduplication using Jaccard similarity
+        - Context prioritization and token optimization
+
+        **LLM Registry** (`llm_registry.py`)
+        - Centralized model selection per pipeline role
+        - Environment variables: `LLM_PARSE_MODEL`, `LLM_GEN_MODEL`, `LLM_REWRITE_MODEL`, `LLM_CHAT_MODEL`
+        - Defaults: `gemini-2.5-pro` for generation, `gemini-2.5-flash-lite` for parsing/chat
+
+        **Schema Management** (`schema_manager.py`)
+        - Smart schema injection based on retrieved queries
+        - Table join analysis and relationship mapping
+        - Fully-qualified name (FQN) resolution
+
+        **BigQuery Integration** (`core/bigquery_executor.py`)
+        - Secure read-only SQL execution
+        - Safety validation and cost estimation
+        - Result caching and performance metrics
+
+        **SQL Validation** (`core/sql_validator.py`)
+        - Multi-level validation (strict/basic)
+        - Safety checks blocking DELETE, DROP, UPDATE
+        - Table/column name validation against schema
+
+        **Hybrid Search** (`hybrid_retriever.py`)
+        - FAISS vector similarity + BM25 keyword matching
+        - Configurable search weights
+        - Query rewriting for better retrieval
+
+        ### Data Flow
+
+        ```
+        User Question
+            ↓
+        [Query Rewriting] (optional)
+            ↓
+        [Hybrid Retrieval] → FAISS + BM25
+            ↓
+        [Schema Injection] → Smart table discovery
+            ↓
+        [LLM Generation] → Gemini with optimized context
+            ↓
+        [SQL Validation] → Safety checks + schema validation
+            ↓
+        [BigQuery Execution] → Dry run + actual execution
+            ↓
+        Results + Metrics
+        ```
+
+        ### Technology Stack
+
+        - **Frontend**: Streamlit (multi-page app)
+        - **Embeddings**: OpenAI `text-embedding-3-small` or Ollama
+        - **Vector Store**: FAISS (Facebook AI Similarity Search)
+        - **LLM**: Google Gemini 2.5 (Pro & Flash variants)
+        - **Database**: BigQuery (read-only execution)
+        - **Persistence**: Google Cloud Firestore (conversations)
+        - **Languages**: Python 3.12+
+        """)
+
+    st.divider()
+
+    # Resources
+    st.header("📚 Resources & Documentation")
+
+    doc_col1, doc_col2 = st.columns(2)
+
+    with doc_col1:
+        st.markdown("""
+        **📖 Documentation**
+
+        - `CLAUDE.md` - Complete project guide
+        - `docs/query_search_simple_flow.md` - Pipeline details
+        - `docs/llm_pipeline.md` - LLM usage documentation
+        - `README.md` - Setup and installation
+        - `DEPLOYMENT_GUIDE.md` - Cloud Run deployment
+        """)
+
+    with doc_col2:
+        st.markdown("""
+        **🛠️ Configuration**
+
+        - `requirements.txt` - Python dependencies
+        - `.env` - API keys and secrets
+        - `config.py` - Central configuration
+        - `llm_registry.py` - Model selection
+        - `pytest.ini` - Test configuration
+        """)
+
+    st.divider()
+
+    # Call to Action
+    st.markdown("""
+    ### Ready to Get Started?
+
+    Choose a page from the sidebar to begin exploring the application!
+
+    - **New to SQL RAG?** Start with **🔍 Query Search** to see it in action
+    - **Want to learn?** Try **💬 Chat** with the `@explain` agent
+    - **Exploring patterns?** Browse **📚 Query Catalog** for examples
+    - **Need schema info?** Check **📊 Data** for table details
+    """)
+
+    # Footer
+    st.caption("Built with Streamlit • Powered by Google Gemini 2.5 • Embeddings by OpenAI")
+
+
 def main():
     """Main Streamlit application"""
-    
+
     # Header
-    st.title("🔥 Simple SQL RAG with Gemini")
-    st.caption("Ask questions about your SQL queries using Google Gemini 2.5 Flash with 1M context window")
+    st.title("🔥 Ask Data Questions Without SQL")
+    st.caption("Get instant answers from your data in plain English—no SQL required. For SQL experts: build queries 10x faster with AI-powered assistance.")
     
     # Load CSV data first (needed for both pages)
     if 'csv_data' not in st.session_state:
@@ -2287,12 +2693,12 @@ def main():
         # Page selection
         page = st.radio(
             "Select Page:",
-            ["🔍 Query Search", "📊 Data", "📚 Query Catalog", "💬 Chat"],
+            ["🏠 Introduction", "🔍 Query Search", "📊 Data", "📚 Query Catalog", "💬 Chat"],
             key="page_selection"
         )
         
-        # Keep Query Search sidebar minimal; show configuration only for other pages
-        if page != "🔍 Query Search":
+        # Keep Query Search and Introduction pages minimal; show configuration only for other pages
+        if page not in ["🔍 Query Search", "🏠 Introduction"]:
             st.divider()
             st.header("⚙️ Configuration")
             # Advanced mode toggle: simple by default
@@ -2305,7 +2711,7 @@ def main():
             )
             st.session_state.advanced_mode = advanced_mode
         else:
-            # Force advanced mode off for a streamlined Query Search page
+            # Force advanced mode off for a streamlined Query Search and Introduction pages
             st.session_state.advanced_mode = False
 
         # Show configuration based on selected page
@@ -2533,7 +2939,11 @@ def main():
                 st.warning("Schema not loaded. Ensure the schema CSV exists.")
     
     # Route to appropriate page
-    if page == "🔍 Query Search":
+    if page == "🏠 Introduction":
+        # Introduction page - no prerequisites required
+        create_introduction_page()
+
+    elif page == "🔍 Query Search":
         # Load vector store for search page
         if not available_indices:
             st.error("❌ No vector stores found for search!")
@@ -3333,57 +3743,48 @@ def main():
         # Instructions
         if not query:
             st.markdown(f"""
-            ### 💡 How to use:
-            
-            1. **First time setup:**
-               ```bash
-               # Setup Gemini API key
-               export GEMINI_API_KEY="your-api-key"
-               
-               # Generate vector embeddings
-               python standalone_embedding_generator.py --csv "your_queries.csv"
-               ```
-            
-            2. **Enable Gemini Mode** for 18.5x better context utilization with Google Gemini
-            
-            3. **Enable Hybrid Search** for 20-40% better SQL term matching
-            
-            4. **Enable Query Rewriting** for 25-40% enhanced retrieval precision
-            
-            5. **Enable SQL Validation** to ensure generated SQL is syntactically correct and references valid schema elements
-            
-            6. **Ask questions** about your SQL queries and get comprehensive answers
-            
-            7. **Execute SQL queries** - when SQL is detected in responses, click "Execute Query" to run against BigQuery
-            
-            8. **Adjust Top-K** in the sidebar (use 100+ for Gemini mode)
-            
-            ### 🚀 Enhanced Features:
-            
-            **Gemini Optimization:**
-            - **Smart deduplication** removes redundant content
-            - **Content prioritization** balances JOINs, aggregations, descriptions
-            - **Enhanced context building** for comprehensive answers  
-            - **Real-time monitoring** of 1M token context utilization
-            
-            **Hybrid Search:**
-            - **Vector search** for semantic similarity (concepts, synonyms)
-            - **Keyword search** for exact SQL terms (table names, functions)
-            - **Auto-weight adjustment** based on query analysis
-            - **Fusion scoring** combines both methods optimally
-            
-            **SQL Validation:**
-            - **Syntax validation** checks SQL grammar and structure
-            - **Schema validation** verifies tables and columns exist
-            - **Real-time feedback** on query correctness
-            - **Intelligent suggestions** for fixing validation errors
-            
-            **BigQuery Execution:**
-            - **Automatic SQL detection** in generated responses
-            - **Secure execution** against thelook_ecommerce dataset
-            - **Interactive results** with sorting, filtering, and export
-            - **Performance metrics** showing execution time and data processed
-            - **Safety guards** prevent unauthorized operations and limit result size
+            ### 💡 How to Get Started:
+
+            **🎯 For Business Users (No SQL needed):**
+            1. Type your question in plain English above
+            2. Click "Generate SQL"
+            3. Review the results—we handle the SQL for you!
+
+            **⚡ For SQL Experts (Boost your speed):**
+            1. Describe what you need in natural language
+            2. Get production-ready SQL with joins, validation, and schema
+            3. Execute directly against BigQuery—iterate in seconds
+
+            ### 🚀 Why This Works:
+
+            **For non-technical users:**
+            - ✨ **No SQL required**: Ask questions naturally, get instant answers
+            - 🎯 **Self-service**: Stop depending on data teams for simple queries
+            - 📊 **Learn as you go**: See the SQL we generate, understand your data better
+
+            **For SQL professionals:**
+            - ⚡ **10x faster**: Complex queries in seconds, not hours
+            - ✅ **Production-ready**: Automatic validation catches errors before execution
+            - 🤖 **AI pair programmer**: Schema suggestions, join recommendations, optimization tips
+            - 📚 **Learn patterns**: Browse 100+ examples to level up your SQL skills
+
+            ### 🔧 Advanced Features:
+
+            **Smart SQL Generation:**
+            - Automatic schema injection for accurate table and column names
+            - Multi-table join recommendations based on relationships
+            - Production-ready queries with proper formatting and best practices
+
+            **Built-in Safety:**
+            - Syntax and schema validation before execution
+            - Read-only BigQuery access prevents data modifications
+            - Cost estimation and result size limits
+
+            **Performance & Results:**
+            - Execute queries directly against BigQuery datasets
+            - Interactive result tables with sorting and filtering
+            - Export results as CSV for further analysis
+            - Real-time performance metrics and execution stats
             """)
     
     elif page == "💬 Chat":

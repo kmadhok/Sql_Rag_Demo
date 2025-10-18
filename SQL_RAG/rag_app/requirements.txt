@@ -54,6 +54,7 @@ google-cloud-bigquery[pandas]>=3.0.0,<4.0.0  # BigQuery with pandas DataFrame su
 # These are optional and can be excluded for minimal production image
 # pyvis>=0.3.0,<1.0.0  # For network graphs
 # graphviz>=0.20.0,<1.0.0  # For graph visualization
+# sentence-transformers>=2.2.0,<3.0.0  # For semantic embeddings in join inference tool (sql_improvement/)
 
 # === Security and Production Hardening ===
 # Pin specific versions for production stability

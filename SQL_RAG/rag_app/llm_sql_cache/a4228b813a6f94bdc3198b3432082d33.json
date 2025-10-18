@@ -1,0 +1,84 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.order_items",
+      "bigquery-public-data.thelook_ecommerce.products"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "bigquery-public-data.thelook_ecommerce.order_items"
+      },
+      {
+        "alias": "p",
+        "table": "bigquery-public-data.thelook_ecommerce.products"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "category"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "oi",
+        "column": "sale_price"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "sale_price"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "number_of_orders",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      },
+      {
+        "alias": "average_order_value",
+        "column": "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)",
+      "COUNT(DISTINCT oi.order_id)",
+      "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+    ],
+    "computed_columns": [
+      "p.category",
+      "SUM(oi.sale_price)",
+      "COUNT(DISTINCT oi.order_id)",
+      "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+    ]
+  },
+  "analysis_time": 2.5936007499694824,
+  "tokens_used": 1283,
+  "cost_estimate": 9.6225e-05
+}

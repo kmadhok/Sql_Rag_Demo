@@ -1,0 +1,94 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.order_items`",
+      "`bigquery-public-data.thelook_ecommerce.products`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      },
+      {
+        "alias": "p",
+        "table": "`bigquery-public-data.thelook_ecommerce.products`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "created_at"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "product_category",
+        "column": "p.category"
+      },
+      {
+        "alias": "order_count",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT oi.order_id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "p.category AS product_category",
+      "COUNT(DISTINCT oi.order_id) AS order_count"
+    ]
+  },
+  "analysis_time": 2.3392319679260254,
+  "tokens_used": 1223,
+  "cost_estimate": 9.1725e-05
+}

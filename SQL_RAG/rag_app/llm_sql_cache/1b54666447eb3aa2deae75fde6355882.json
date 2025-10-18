@@ -1,0 +1,67 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "category"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "oi",
+        "column": "sale_price"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "sale_price"
+      },
+      {
+        "table": "oi",
+        "column": "order_id"
+      },
+      {
+        "table": "p",
+        "column": "category"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "number_of_orders",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      },
+      {
+        "alias": "average_order_value",
+        "column": "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)",
+      "COUNT(DISTINCT oi.order_id)",
+      "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+    ],
+    "computed_columns": [
+      "p.category",
+      "SUM(oi.sale_price)",
+      "COUNT(DISTINCT oi.order_id)",
+      "SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id))"
+    ]
+  },
+  "analysis_time": 1.637190818786621,
+  "tokens_used": 757,
+  "cost_estimate": 5.6775e-05
+}

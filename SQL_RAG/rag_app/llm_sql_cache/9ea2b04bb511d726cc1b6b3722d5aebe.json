@@ -1,0 +1,24 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_orders",
+        "column": "COUNT(order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(order_id)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 0.9190769195556641,
+  "tokens_used": 270,
+  "cost_estimate": 2.025e-05
+}

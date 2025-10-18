@@ -17,12 +17,15 @@ import argparse
 import os
 from pathlib import Path
 from typing import List
+from dotenv import load_dotenv
 
 import pandas as pd
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from utils.embedding_provider import get_embedding_function
+
+load_dotenv()
 
 
 def build_documents(df: pd.DataFrame) -> List[Document]:

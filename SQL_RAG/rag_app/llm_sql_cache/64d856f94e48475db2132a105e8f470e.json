@@ -1,0 +1,65 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "category"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "product_category",
+        "column": "p.category"
+      },
+      {
+        "alias": "order_count",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT oi.order_id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "p.category AS product_category",
+      "COUNT(DISTINCT oi.order_id) AS order_count"
+    ]
+  },
+  "analysis_time": 1.6582987308502197,
+  "tokens_used": 880,
+  "cost_estimate": 6.6e-05
+}

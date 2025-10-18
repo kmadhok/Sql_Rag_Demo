@@ -1,18 +1,56 @@
+Of course. Here is the efficient, working BigQuery SQL query to find the top 10 products by order count in the last 30 days, following all best practices and requirements.
+
+### **Analysis of Provided Examples**
+
+The provided `Example 1` demonstrates a common pattern that is relevant to the current request. It joins `order_items` with `products` and `distribution_centers` to aggregate sales data (`SUM(oi.sale_price)`). This pattern of joining transactional data (`order_items`) with descriptive data (`products`) and then grouping the results is fundamental to the solution below. My query will adopt a similar structure by joining `order_items` and `products`, but will use `COUNT` instead of `SUM` and add a time-based `WHERE` clause.
+
+### **BigQuery SQL Solution**
+
 ```sql
--- Select the product ID and the count of orders for each product
+-- This query identifies the top 10 most frequently ordered products in the last 30 days.
+-- It joins the order items with product details, filters for recent orders,
+-- and then counts the distinct orders for each product.
+
 SELECT
-    oi.product_id,
-    COUNT(oi.id) AS order_count
+    p.id AS product_id,
+    p.name AS product_name,
+    p.category AS product_category,
+    -- We count distinct order_ids to get the number of unique orders a product was part of.
+    -- This accurately reflects "order count" as requested.
+    -- An alternative, COUNT(oi.id), would count total units sold, not unique orders.
+    COUNT(DISTINCT oi.order_id) AS order_count
 FROM
+    -- CRITICAL: Always use fully-qualified table names. Aliases are used for readability.
     `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+JOIN
+    `bigquery-public-data.thelook_ecommerce.products` AS p
+    ON oi.product_id = p.id
 WHERE
-    -- Filter order items to include only those created in the last 30 days
+    -- CRITICAL: Filter for records within the last 30 days using the appropriate TIMESTAMP function.
+    -- The `created_at` column is of type TIMESTAMP, so we must use TIMESTAMP_SUB with CURRENT_TIMESTAMP().
+    -- This avoids data type mismatch errors and ensures correct time-based filtering.
     oi.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)
 GROUP BY
-    -- Group the results by product ID to count orders per product
-    oi.product_id
+    -- Group by product attributes to aggregate the order counts correctly.
+    p.id,
+    p.name,
+    p.category
 ORDER BY
-    -- Order the results by order count in descending order to get the top products
+    -- Order by the aggregated count in descending order to find the top products.
     order_count DESC
-LIMIT 10;
+LIMIT 10 -- Limit the result to the top 10 products.
 ```
+
+### **Explanation of Key Decisions**
+
+1.  **Table Selection & Joins**: The query joins `order_items` (for order data) with `products` (for product names and IDs). This is a standard approach for enriching transactional data with descriptive details, similar to the pattern seen in the provided example.
+2.  **Date/Time Filtering**:
+    *   The `created_at` column in `order_items` is a `TIMESTAMP`.
+    *   Per the requirements, I used `WHERE oi.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 30 DAY)`. This is the correct and most efficient way to filter a `TIMESTAMP` column in BigQuery for a rolling time window.
+    *   This avoids common errors that arise from mixing `DATE` functions (like `CURRENT_DATE()`) with `TIMESTAMP` columns.
+3.  **Aggregation (`COUNT(DISTINCT oi.order_id)`)**:
+    *   The requirement is "Top 10 products by order count".
+    *   `COUNT(DISTINCT oi.order_id)` calculates how many unique orders included a specific product. This is the most accurate interpretation of the request.
+    *   Using `COUNT(*)` or `COUNT(oi.id)` would count the total number of times a product was sold (i.e., its sales volume), which is different from the number of orders it appeared in.
+4.  **Fully-Qualified Names**: All tables are referenced using their full `project.dataset.table` names as required, with aliases (`oi`, `p`) for brevity within the query.
+5.  **Clarity and Readability**: Comments are included to explain the purpose of each major clause, especially the critical `WHERE` clause for date filtering and the choice of aggregation function. This makes the query easier to understand and maintain.

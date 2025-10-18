@@ -1,0 +1,63 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.orders",
+      "bigquery-public-data.thelook_ecommerce.users"
+    ],
+    "cte_tables": [
+      "TotalOrdersLast6Months",
+      "TotalUsers"
+    ],
+    "table_aliases": [
+      {
+        "alias": "orders",
+        "table": "TotalOrdersLast6Months"
+      },
+      {
+        "alias": "users",
+        "table": "TotalUsers"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "total_orders",
+        "column": "COUNT(order_id)"
+      },
+      {
+        "alias": "total_users",
+        "column": "COUNT(id)"
+      },
+      {
+        "alias": "orders_per_user_rate",
+        "column": "SAFE_DIVIDE(orders.total_orders, users.total_users)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(order_id)",
+      "COUNT(id)"
+    ],
+    "computed_columns": [
+      "SAFE_DIVIDE(orders.total_orders, users.total_users)"
+    ]
+  },
+  "analysis_time": 2.0289828777313232,
+  "tokens_used": 1313,
+  "cost_estimate": 9.8475e-05
+}

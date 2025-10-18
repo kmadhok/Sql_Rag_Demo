@@ -1,0 +1,77 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.orders`",
+      "`bigquery-public-data.thelook_ecommerce.order_items`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "`bigquery-public-data.thelook_ecommerce.orders`"
+      },
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "created_at"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "status"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "order_month",
+        "column": "FORMAT_TIMESTAMP('%Y-%m', o.created_at)"
+      },
+      {
+        "alias": "monthly_orders",
+        "column": "COUNT(DISTINCT o.order_id)"
+      },
+      {
+        "alias": "monthly_revenue",
+        "column": "ROUND(SUM(oi.sale_price), 2)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(DISTINCT o.order_id)",
+      "SUM(oi.sale_price)"
+    ],
+    "computed_columns": [
+      "FORMAT_TIMESTAMP('%Y-%m', o.created_at)",
+      "ROUND(SUM(oi.sale_price), 2)"
+    ]
+  },
+  "analysis_time": 2.753962278366089,
+  "tokens_used": 1491,
+  "cost_estimate": 0.000111825
+}

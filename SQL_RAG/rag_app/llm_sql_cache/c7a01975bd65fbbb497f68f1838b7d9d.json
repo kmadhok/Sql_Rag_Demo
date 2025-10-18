@@ -1,0 +1,28 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "TotalOrdersLast6Months",
+        "column": "total_orders"
+      },
+      {
+        "table": "TotalUsers",
+        "column": "total_users"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "orders_per_user_rate",
+        "column": "SAFE_DIVIDE(orders.total_orders, users.total_users)"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "SAFE_DIVIDE(orders.total_orders, users.total_users)"
+    ]
+  },
+  "analysis_time": 1.1249849796295166,
+  "tokens_used": 324,
+  "cost_estimate": 2.43e-05
+}

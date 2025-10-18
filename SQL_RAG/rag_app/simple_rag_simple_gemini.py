@@ -39,6 +39,10 @@ from langchain_core.documents import Document
 # Gemini imports
 from gemini_client import GeminiClient, test_gemini_connection
 
+# Configure logging (must be before imports that use logger in except blocks)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Import hybrid search functionality
 try:
     from hybrid_retriever import HybridRetriever, SearchWeights, HybridSearchResult
@@ -62,10 +66,6 @@ try:
 except ImportError:
     logger.warning("SQL validation not available - check core/sql_validator.py")
     SQL_VALIDATION_AVAILABLE = False
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Debug Logging Utility for SQL Validation Pipeline
 class DebugLogger:

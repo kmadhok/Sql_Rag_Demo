@@ -1,0 +1,34 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "user_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "status"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "lifetime_revenue",
+        "column": "ROUND(SUM(sale_price), 2)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(sale_price)"
+    ],
+    "computed_columns": [
+      "ROUND(SUM(sale_price), 2)"
+    ]
+  },
+  "analysis_time": 1.1435260772705078,
+  "tokens_used": 605,
+  "cost_estimate": 4.5375e-05
+}
