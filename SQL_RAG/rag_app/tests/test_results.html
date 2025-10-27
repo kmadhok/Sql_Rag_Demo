@@ -1,0 +1,257 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Results - app_simple_gemini.py</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .header { background: #f0f0f0; padding: 20px; border-radius: 5px; }
+        .summary { margin: 20px 0; }
+        .test-suite { margin: 20px 0; border: 1px solid #ddd; border-radius: 5px; }
+        .suite-header { padding: 15px; font-weight: bold; }
+        .passed { background: #d4edda; color: #155724; }
+        .failed { background: #f8d7da; color: #721c24; }
+        .suite-content { padding: 15px; }
+        .output { background: #f8f9fa; padding: 10px; border-radius: 3px; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .metrics { display: flex; justify-content: space-between; margin: 10px 0; }
+        .metric { text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧪 Test Results for app_simple_gemini.py</h1>
+        <p>Generated on 2025-10-26 09:28:00</p>
+    </div>
+    
+    <div class="summary">
+        <h2>📊 Summary</h2>
+        <div class="metrics">
+            <div class="metric">
+                <h3>5</h3>
+                <p>Total Suites</p>
+            </div>
+            <div class="metric">
+                <h3>0</h3>
+                <p>Passed</p>
+            </div>
+            <div class="metric">
+                <h3>5</h3>
+                <p>Failed</p>
+            </div>
+            <div class="metric">
+                <h3>1.53s</h3>
+                <p>Total Time</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="test-suite">
+        <div class="suite-header failed">
+            ❌ FAILED Refactoring Safety (0.35s)
+        </div>
+        <div class="suite-content">
+            <p><strong>File:</strong> test_refactoring_safety.py</p>
+            <h4>Output:</h4>
+            <div class="output">🚀 Running Refactoring Safety Tests
+
+
+📋 Import Compatibility:
+🧪 Testing import compatibility...
+✅ New modules imported successfully
+✅ Configuration objects created successfully
+
+📋 Configuration Compatibility:
+🧪 Testing configuration backward compatibility...
+✅ Original configuration constants preserved
+✅ Feature flags default to safe legacy mode
+
+📋 Safe Loader Fallback:
+🧪 Testing safe loader fallback...
+✅ Safe loader fallback works correctly
+
+📋 DataFrame Optimizer:
+🧪 Testing DataFrame optimizer compatibility...
+✅ DataFrame optimizer legacy mode works
+✅ DataFrame pagination works
+
+📋 App Still Runs:
+🧪 Testing that original app still runs...
+❌ App run test failed: [Errno 2] No such file or directory: 'app_simple_gemini.py'
+
+🎯 Safety Test Results:
+   ✅ PASS: Import Compatibility
+   ✅ PASS: Configuration Compatibility
+   ✅ PASS: Safe Loader Fallback
+   ✅ PASS: DataFrame Optimizer
+   ❌ FAIL: App Still Runs
+
+   Summary: 4/5 tests passed
+❌ SOME SAFETY TESTS FAILED - Fix issues before proceeding
+</div>
+        </div>
+    </div>
+
+    <div class="test-suite">
+        <div class="suite-header failed">
+            ❌ FAILED Security Improvements (0.27s)
+        </div>
+        <div class="suite-content">
+            <p><strong>File:</strong> test_security_improvements.py</p>
+            <h4>Output:</h4>
+            <div class="output">🚀 Running Security Improvement Tests
+
+
+📋 Safe Loader Security:
+🧪 Testing safe loader security...
+✅ File path validation working correctly
+❌ Safe loader security test failed: type object 'SafeLoader' has no attribute '_validate_pickle_data_raw'
+
+📋 SQL Validation Security:
+🧪 Testing SQL validation security...
+✅ Safe SQL queries pass validation
+✅ Dangerous SQL queries are blocked
+
+📋 Input Validation Security:
+🧪 Testing input validation security...
+✅ Safe inputs pass validation
+  Blocked: <script>alert('xss')</script>...
+  Blocked: javascript:alert('xss')...
+  Blocked: ${7*7}...
+✅ Dangerous inputs are blocked
+
+📋 Feature Flag Security:
+🧪 Testing feature flag security defaults...
+✅ Feature flags default to safe values
+
+📋 Backward Compatibility Security:
+🧪 Testing backward compatibility with security...
+❌ Backward compatibility security test failed: [Errno 2] No such file or directory: 'app_simple_gemini.py'
+
+🎯 Security Test Results:
+   ❌ FAIL: Safe Loader Security
+   ✅ PASS: SQL Validation Security
+   ✅ PASS: Input Validation Security
+   ✅ PASS: Feature Flag Security
+   ❌ FAIL: Backward Compatibility Security
+
+   Summary: 3/5 tests passed
+❌ SOME SECURITY TESTS FAILED - Review implementations
+Dangerous SQL pattern detected: DROP
+Dangerous SQL pattern detected: UNION
+Dangerous SQL pattern detected: --
+Dangerous pattern detected in general: <script[^>]*>.*?</script>
+Dangerous pattern detected in general: javascript:
+Dangerous pattern detected in general: \$\{.*\}
+</div>
+        </div>
+    </div>
+
+    <div class="test-suite">
+        <div class="suite-header failed">
+            ❌ FAILED App Comprehensive (0.30s)
+        </div>
+        <div class="suite-content">
+            <p><strong>File:</strong> test_app_simple_gemini_comprehensive.py</p>
+            <h4>Output:</h4>
+            <div class="output">Traceback (most recent call last):
+  File "/Users/kanumadhok/Downloads/code/Sql_Rag_Demo/SQL_RAG/rag_app/tests/test_app_simple_gemini_comprehensive.py", line 23, in <module>
+    from app_simple_gemini import (
+  File "/Users/kanumadhok/Downloads/code/Sql_Rag_Demo/SQL_RAG/rag_app/app_simple_gemini.py", line 46, in <module>
+    from langchain_community.vectorstores import FAISS
+ModuleNotFoundError: No module named 'langchain_community'
+</div>
+        </div>
+    </div>
+
+    <div class="test-suite">
+        <div class="suite-header failed">
+            ❌ FAILED Streamlit Workflow (0.31s)
+        </div>
+        <div class="suite-content">
+            <p><strong>File:</strong> test_streamlit_workflow.py</p>
+            <h4>Output:</h4>
+            <div class="output">🚀 Running Streamlit Workflow Tests
+
+
+📋 Streamlit Workflow:
+🧪 Testing configuration management...
+  ❌ test_configuration_management failed: No module named 'langchain_community'
+🧪 Testing conversation management integration...
+  ❌ test_conversation_management_integration failed: No module named 'langchain_community'
+🧪 Testing data loading in Streamlit context...
+  ❌ test_data_loading_in_context failed: No module named 'langchain_community'
+🧪 Testing error display workflows...
+  ❌ test_error_display_workflows failed: No module named 'langchain_community'
+🧪 Testing page setup and configuration...
+❌ Page setup failed: No module named 'langchain_community'
+  ❌ test_page_setup_and_configuration failed: No module named 'langchain_community'
+🧪 Testing sidebar navigation...
+  ❌ test_sidebar_navigation failed: No module named 'langchain_community'
+🧪 Testing styling application...
+  ❌ test_styling_application failed: No module named 'langchain_community'
+🧪 Testing workflow state persistence...
+  ❌ test_workflow_state_persistence failed: No module named 'langchain_community'
+⚠️ Streamlit Workflow - Some tests failed
+
+📋 Page Specific Functionality:
+🧪 Testing catalog page functionality...
+  ❌ test_catalog_page_functionality failed: No module named 'langchain_community'
+🧪 Testing chat page functionality...
+  ❌ test_chat_page_functionality failed: No module named 'langchain_community'
+🧪 Testing data page functionality...
+  ❌ test_data_page_functionality failed: No module named 'langchain_community'
+🧪 Testing query search page functionality...
+  ❌ test_query_search_page_functionality failed: No module named 'langchain_community'
+⚠️ Page Specific Functionality - Some tests failed
+
+🎯 Streamlit Workflow Test Results:
+   Summary: 0/12 tests passed
+❌ SOME STREAMLIT WORKFLOW TESTS FAILED - Fix UI integration issues
+</div>
+        </div>
+    </div>
+
+    <div class="test-suite">
+        <div class="suite-header failed">
+            ❌ FAILED Performance & Regression (0.30s)
+        </div>
+        <div class="suite-content">
+            <p><strong>File:</strong> test_performance_regression.py</p>
+            <h4>Output:</h4>
+            <div class="output">🚀 Running Performance & Regression Tests
+
+
+📋 Performance Regression:
+🧪 Testing agent detection performance...
+  ❌ test_agent_detection_performance failed: No module named 'langchain_community'
+🧪 Testing data loading performance...
+  ❌ test_data_loading_performance failed: No module named 'langchain_community'
+🧪 Testing pagination performance...
+  ❌ test_pagination_performance failed: No module named 'langchain_community'
+🧪 Testing utility function performance...
+  ❌ test_utility_function_performance failed: No module named 'langchain_community'
+⚠️ Performance Regression - Some tests failed
+
+📋 Memory Usage:
+🧪 Testing DataFrame memory efficiency...
+  ❌ test_dataframe_memory_efficiency failed: No module named 'langchain_community'
+🧪 Testing session state memory usage...
+  ❌ test_session_state_memory_growth failed: No module named 'langchain_community'
+⚠️ Memory Usage - Some tests failed
+
+📋 Function Signature Regression:
+🧪 Testing function signature stability...
+  ❌ test_critical_function_signatures failed: No module named 'langchain_community'
+🧪 Testing return type consistency...
+  ❌ test_return_type_consistency failed: No module named 'langchain_community'
+⚠️ Function Signature Regression - Some tests failed
+
+🎯 Performance & Regression Test Results:
+   Summary: 0/8 tests passed
+❌ SOME PERFORMANCE & REGRESSION TESTS FAILED - Review performance issues
+</div>
+        </div>
+    </div>
+
+</body>
+</html>

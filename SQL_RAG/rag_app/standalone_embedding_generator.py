@@ -36,6 +36,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
 from tqdm import tqdm
 
+from utils.skip_list_loader import load_skip_queries
+
 # Import required components
 try:
     from data_source_manager import DataSourceManager
@@ -124,7 +126,8 @@ class GPUStandaloneEmbeddingGenerator:
     
     def __init__(self, csv_path: str, output_dir: str = "faiss_indices", 
                  batch_size: int = 100, max_workers: int = 16, verbose: bool = False,
-                 schema_path: Optional[str] = None, lookml_dir: Optional[str] = None):
+                 schema_path: Optional[str] = None, lookml_dir: Optional[str] = None,
+                 skip_list: Optional[List[str]] = None):
         """
         Initialize the GPU-accelerated standalone embedding generator
         
@@ -147,10 +150,16 @@ class GPUStandaloneEmbeddingGenerator:
         self.verbose = verbose
         self.schema_path = Path(schema_path) if schema_path else None
         self.lookml_dir = Path(lookml_dir) if lookml_dir else None
+        self.skip_queries: Set[str] = set()
         
         # Validate inputs
         if not self.csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
+        if skip_list:
+            skip_paths = [Path(path) for path in skip_list]
+            self.skip_queries = load_skip_queries(skip_paths)
+            if verbose:
+                print(f"🧮 Loaded {len(self.skip_queries)} queries from skip list")
         
         # Create output directory
         self.output_dir.mkdir(exist_ok=True, parents=True)
@@ -447,6 +456,13 @@ class GPUStandaloneEmbeddingGenerator:
             
             if initial_count != final_count:
                 print(f"⚠️  Removed {initial_count - final_count} rows with empty queries")
+
+            if self.skip_queries:
+                before_skip = len(df)
+                df = df[~df["query"].astype(str).str.strip().isin(self.skip_queries)].copy()
+                skipped = before_skip - len(df)
+                if skipped:
+                    print(f"🛑 Skipped {skipped} queries from skip list")
             
             if self.verbose:
                 print(f"📊 Loaded {len(df)} valid queries from CSV")
@@ -1433,6 +1449,11 @@ Performance Notes:
         '--verbose', action='store_true',
         help='Enable detailed output'
     )
+
+    parser.add_argument(
+        '--skip-list', action='append',
+        help='Path to a text or CSV file listing SQL queries to skip (repeatable)'
+    )
     
     args = parser.parse_args()
     
@@ -1491,6 +1512,15 @@ Performance Notes:
         print("❌ Number of workers must be at least 1")
         return 1
     
+    skip_files: List[str] = []
+    if args.skip_list:
+        for path in args.skip_list:
+            skip_path = Path(path)
+            if not skip_path.exists():
+                print(f"❌ Skip-list file not found: {path}")
+                return 1
+        skip_files = args.skip_list
+
     # Performance optimization suggestions
     if args.workers > 20:
         print("⚠️  Very high worker count (>20) may not provide additional benefits")
@@ -1512,7 +1542,8 @@ Performance Notes:
             max_workers=args.workers,
             verbose=args.verbose,
             schema_path=args.schema,
-            lookml_dir=args.lookml_dir
+            lookml_dir=args.lookml_dir,
+            skip_list=skip_files
         )
         
         # Generate embeddings

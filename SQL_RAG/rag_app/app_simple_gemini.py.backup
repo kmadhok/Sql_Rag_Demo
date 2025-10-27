@@ -70,43 +70,6 @@ if not logging.getLogger(__name__).handlers:
     logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Import utility functions
-from utils.app_utils import (
-    estimate_token_count,
-    calculate_context_utilization,
-    safe_get_value,
-    get_user_session_id,
-    calculate_conversation_tokens,
-    _fast_extract_tables,
-    detect_agent_type,
-    detect_chat_agent_type,
-    get_agent_indicator,
-    get_chat_agent_indicator,
-    calculate_pagination,
-    get_page_slice,
-    get_page_info,
-    auto_save_conversation
-)
-
-# Import data loading functions
-from data.app_data_loader import (
-    load_vector_store,
-    load_csv_data,
-    load_lookml_safe_join_map,
-    load_schema_manager,
-    get_available_indices,
-    load_cached_analytics,
-    load_cached_graph_files
-)
-
-# Import UI page functions
-from ui.pages import (
-    create_query_catalog_page,
-    create_data_page,
-    create_chat_page,
-    create_introduction_page
-)
-
 # Import necessary components for chat-specific RAG function
 from gemini_client import GeminiClient
 
@@ -145,41 +108,19 @@ except ImportError:
 #     logging.basicConfig(level=logging.INFO)
 # logger = logging.getLogger(__name__)
 
-# Configuration - Enhanced with backwards compatibility
-try:
-    from config.app_config import app_config
-    # Use modern configuration if available
-    FAISS_INDICES_DIR = app_config.FAISS_INDICES_DIR
-    DEFAULT_VECTOR_STORE = app_config.DEFAULT_VECTOR_STORE
-    CSV_PATH = app_config.CSV_PATH
-    CATALOG_ANALYTICS_DIR = app_config.CATALOG_ANALYTICS_DIR
-    SCHEMA_CSV_PATH = app_config.SCHEMA_CSV_PATH
-    LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent / "lookml_data"
-    
-    # Pagination config
-    QUERIES_PER_PAGE = app_config.QUERIES_PER_PAGE
-    MAX_PAGES_TO_SHOW = app_config.MAX_PAGES_TO_SHOW
-    
-except ImportError:
-    # Fallback to original configuration
-    logger.info("Using legacy configuration (app_config not available)")
-    FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
-    DEFAULT_VECTOR_STORE = "index_transformed_sample_queries"
-    CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"
-    CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"
-    SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"
-    LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent / "lookml_data"
-    
-    # Legacy pagination config
-    QUERIES_PER_PAGE = 15
-    MAX_PAGES_TO_SHOW = 10
+# Configuration
+FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
+DEFAULT_VECTOR_STORE = "index_transformed_sample_queries"  # Expected index name
+CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
+CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
+SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"  # Schema file with table_id, column, datatype
+LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"  # LookML join relationships
+SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
+LOOKML_DIR = Path(__file__).parent / "lookml_data"
 
-# Pagination Configuration - Unified (removes duplication)
-# Note: QUERIES_PER_PAGE and MAX_PAGES_TO_SHOW already defined above
+# Pagination Configuration
+QUERIES_PER_PAGE = 15  # Optimal balance: not too few, not too many for performance
+MAX_PAGES_TO_SHOW = 10  # Maximum pages to show in dropdown for large datasets
 
 # Streamlit page config
 st.set_page_config(
@@ -188,17 +129,373 @@ st.set_page_config(
     layout="wide"
 )
 
+def estimate_token_count(text: str) -> int:
+    """Rough estimation of token count (4 chars ≈ 1 token)."""
+    return len(text) // 4
 
+def calculate_context_utilization(docs: list, query: str) -> dict:
+    """Calculate context utilization for Gemini's 1M token window."""
+    GEMINI_MAX_TOKENS = 1000000  # 1M token context window
+    
+    # Estimate tokens
+    query_tokens = estimate_token_count(query)
+    context_tokens = sum(estimate_token_count(doc.page_content) for doc in docs)
+    total_input_tokens = query_tokens + context_tokens
+    
+    # Calculate utilization
+    utilization_percent = (total_input_tokens / GEMINI_MAX_TOKENS) * 100
+    
+    return {
+        'query_tokens': query_tokens,
+        'context_tokens': context_tokens,
+        'total_input_tokens': total_input_tokens,
+        'utilization_percent': min(utilization_percent, 100),  # Cap at 100%
+        'chunks_used': len(docs),
+        'avg_tokens_per_chunk': context_tokens / len(docs) if docs else 0
+    }
 
+def load_vector_store(index_name: str = DEFAULT_VECTOR_STORE) -> Optional[FAISS]:
+    """
+    Load pre-built vector store from faiss_indices directory
+    
+    Args:
+        index_name: Name of the index directory to load
+        
+    Returns:
+        FAISS vector store or None if loading fails
+    """
+    index_path = FAISS_INDICES_DIR / index_name
+    
+    if not index_path.exists():
+        st.error(f"❌ Vector store not found at: {index_path}")
+        st.info("💡 First run: python standalone_embedding_generator.py --csv 'your_data.csv'")
+        return None
+    
+    try:
+        # Initialize embeddings using provider factory (Ollama or OpenAI)
+        from utils.embedding_provider import get_embedding_function
+        embeddings = get_embedding_function()
+        
+        # Load the pre-built vector store
+        # Default keeps existing behavior; can be overridden via env for stricter safety
+        allow_dangerous = os.getenv("FAISS_SAFE_DESERIALIZATION", "0").lower() not in ("1", "true", "yes")
+        if allow_dangerous:
+            logger.info("Loading FAISS index with allow_dangerous_deserialization=True (trusted local data)")
+        else:
+            logger.info("Loading FAISS index with safe deserialization")
+        vector_store = FAISS.load_local(
+            str(index_path),
+            embeddings,
+            allow_dangerous_deserialization=allow_dangerous
+        )
+        
+        logger.info(f"✅ Loaded vector store from {index_path}")
+        return vector_store
+        
+    except Exception as e:
+        st.error(f"❌ Error loading vector store: {e}")
+        logger.error(f"Vector store loading error: {e}")
+        return None
 
+def get_available_indices() -> List[str]:
+    """Get list of available vector store indices"""
+    if not FAISS_INDICES_DIR.exists():
+        return []
+    
+    indices = []
+    for path in FAISS_INDICES_DIR.iterdir():
+        if path.is_dir() and path.name.startswith("index_"):
+            indices.append(path.name)
+    
+    return sorted(indices)
 
+@st.cache_resource
+def load_lookml_safe_join_map() -> Optional[Dict[str, Any]]:
+    """
+    Load LookML safe-join map for enhanced SQL generation.
+    
+    Returns:
+        Dictionary containing LookML join relationships or None if loading fails
+    """
+    # 1) Primary: load from faiss_indices (created by standalone_embedding_generator --lookml-dir)
+    if LOOKML_SAFE_JOIN_MAP_PATH.exists():
+        try:
+            with open(LOOKML_SAFE_JOIN_MAP_PATH, 'r') as f:
+                safe_join_map = json.load(f)
+            logger.info(
+                f"✅ Loaded LookML safe-join map from {LOOKML_SAFE_JOIN_MAP_PATH} with "
+                f"{safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load safe-join map from {LOOKML_SAFE_JOIN_MAP_PATH}: {e}")
 
+    # 2) Secondary: load from project root if present
+    if SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH.exists():
+        try:
+            with open(SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH, 'r') as f:
+                safe_join_map = json.load(f)
+            logger.info(
+                f"✅ Loaded LookML safe-join map from {SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH} with "
+                f"{safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load safe-join map from {SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH}: {e}")
 
+    # 3) Fallback: parse LookML files on the fly if available
+    try:
+        if LOOKML_DIR.exists():
+            logger.info(f"🔎 LookML safe-join map not found; attempting to parse LookML from {LOOKML_DIR}")
+            try:
+                from simple_lookml_parser import SimpleLookMLParser
+            except Exception as ie:
+                logger.warning(f"⚠️ SimpleLookMLParser import failed: {ie}")
+                return None
 
+            parser = SimpleLookMLParser(verbose=False)
+            models = parser.parse_directory(LOOKML_DIR)
+            if not models:
+                logger.info("No LookML models parsed; LookML features disabled")
+                return None
 
+            safe_join_map = parser.generate_safe_join_map(models)
 
+            # Attempt to cache to faiss_indices for reuse
+            try:
+                LOOKML_SAFE_JOIN_MAP_PATH.parent.mkdir(parents=True, exist_ok=True)
+                with open(LOOKML_SAFE_JOIN_MAP_PATH, 'w') as f:
+                    json.dump(safe_join_map, f, indent=2)
+                logger.info(f"💾 Cached LookML safe-join map to {LOOKML_SAFE_JOIN_MAP_PATH}")
+            except Exception as we:
+                logger.debug(f"Could not cache safe-join map: {we}")
 
+            logger.info(
+                f"✅ Generated LookML safe-join map with {safe_join_map.get('metadata', {}).get('total_explores', 0)} explores"
+            )
+            return safe_join_map
+        else:
+            logger.info(f"LookML directory not found at {LOOKML_DIR}; LookML features disabled")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Error generating LookML safe-join map on the fly: {e}")
+        return None
 
+@st.cache_resource
+def load_schema_manager() -> Optional[SchemaManager]:
+    """
+    Load and cache SchemaManager for smart schema injection.
+    
+    Returns:
+        SchemaManager instance or None if loading fails or schema not available
+    """
+    if not SCHEMA_MANAGER_AVAILABLE:
+        return None
+    
+    if not SCHEMA_CSV_PATH.exists():
+        logger.info(f"Schema file not found at {SCHEMA_CSV_PATH} - schema injection disabled")
+        logger.debug(f"Expected schema file path: {SCHEMA_CSV_PATH.absolute()}")
+        return None
+    
+    try:
+        # Create schema manager with the schema CSV file
+        schema_manager = create_schema_manager(str(SCHEMA_CSV_PATH), verbose=True)
+        
+        if schema_manager:
+            logger.info(f"✅ Schema manager loaded: {schema_manager.table_count} tables, {schema_manager.column_count} columns")
+            return schema_manager
+        else:
+            logger.warning("Failed to create schema manager")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Error loading schema manager: {e}")
+        return None
+
+def load_csv_data() -> Optional[pd.DataFrame]:
+    """
+    Load optimized CSV data with pre-parsed columns from analytics cache
+    
+    Returns:
+        DataFrame with queries and pre-parsed metadata or None if loading fails
+    """
+    # PRIORITY 1: Load optimized Parquet file (fastest)
+    if CATALOG_ANALYTICS_DIR.exists():
+        parquet_path = CATALOG_ANALYTICS_DIR / "optimized_queries.parquet"
+        if parquet_path.exists():
+            try:
+                df = pd.read_parquet(parquet_path)
+                # Convert numpy arrays to Python lists for consistency
+                if 'tables_parsed' in df.columns:
+                    df['tables_parsed'] = df['tables_parsed'].apply(lambda x: list(x) if hasattr(x, '__iter__') and not isinstance(x, str) else ([] if pd.isna(x) else x))
+                if 'joins_parsed' in df.columns:
+                    df['joins_parsed'] = df['joins_parsed'].apply(lambda x: list(x) if hasattr(x, '__iter__') and not isinstance(x, str) else ([] if pd.isna(x) else x))
+                logger.info(f"⚡ Loaded {len(df)} queries from optimized Parquet (pre-parsed)")
+                return df
+            except ImportError:
+                logger.warning("PyArrow not available for Parquet loading")
+            except Exception as e:
+                logger.warning(f"Failed to load Parquet cache: {e}")
+        
+        # PRIORITY 2: Load optimized CSV file  
+        csv_cache_path = CATALOG_ANALYTICS_DIR / "optimized_queries.csv"
+        if csv_cache_path.exists():
+            try:
+                df = pd.read_csv(csv_cache_path)
+                # Parse JSON strings back to lists for cached DataFrame
+                if 'tables_parsed' in df.columns:
+                    df['tables_parsed'] = df['tables_parsed'].apply(lambda x: json.loads(x) if pd.notna(x) and x != '' else [])
+                if 'joins_parsed' in df.columns:
+                    df['joins_parsed'] = df['joins_parsed'].apply(lambda x: json.loads(x) if pd.notna(x) and x != '' else [])
+                logger.info(f"✅ Loaded {len(df)} queries from optimized CSV cache (pre-parsed)")
+                return df
+            except Exception as e:
+                logger.warning(f"Failed to load optimized CSV cache: {e}")
+    
+    # FALLBACK: Original CSV (requires manual parsing - slower)
+    try:
+        if not CSV_PATH.exists():
+            st.error(f"❌ CSV file not found: {CSV_PATH}")
+            st.error("💡 Please run: python catalog_analytics_generator.py --csv 'your_file.csv'")
+            return None
+        
+        df = pd.read_csv(CSV_PATH)
+        df = df.fillna('')
+        
+        # Ensure required columns exist
+        if 'query' not in df.columns:
+            st.error(f"❌ Missing required 'query' column in {CSV_PATH}")
+            return None
+        
+        # Remove rows with empty queries
+        df = df[df['query'].str.strip() != '']
+        
+        # Warning: No pre-parsed columns available
+        st.warning("⚠️ Using original CSV without pre-parsed data - performance may be slower")
+        st.info("💡 Run `python catalog_analytics_generator.py --csv 'your_file.csv'` for better performance")
+        
+        logger.info(f"📄 Loaded {len(df)} queries from original CSV (no cache)")
+        return df
+        
+    except Exception as e:
+        st.error(f"❌ Error loading data: {e}")
+        logger.error(f"Data loading error: {e}")
+        return None
+
+def safe_get_value(row, column: str, default: str = '') -> str:
+    """Safely get value from dataframe row, handling missing/empty values"""
+    try:
+        value = row.get(column, default)
+        if pd.isna(value) or value is None:
+            return default
+        return str(value).strip()
+    except Exception as e:
+        logger.debug(f"safe_get_value fallback for column '{column}': {e}")
+        return default
+
+def get_user_session_id() -> str:
+    """
+    Get or create a unique user session ID for conversation management.
+    
+    Returns:
+        str: Unique user session identifier
+    """
+    if 'user_session_id' not in st.session_state:
+        import hashlib
+        import time
+        
+        # Create a unique session ID based on timestamp and random component
+        timestamp = str(time.time())
+        random_component = str(hash(timestamp + str(id(st.session_state))))
+        
+        # Create hash for shorter, more manageable ID
+        session_content = f"{timestamp}_{random_component}"
+        hash_object = hashlib.md5(session_content.encode())
+        st.session_state.user_session_id = f"user_{hash_object.hexdigest()[:16]}"
+        
+        logger.info(f"Generated new user session ID: {st.session_state.user_session_id}")
+    
+    return st.session_state.user_session_id
+
+def auto_save_conversation():
+    """
+    Auto-save the current conversation if conversation management is available.
+    This is called after each assistant response to keep conversations persisted.
+    """
+    if not CONVERSATION_MANAGER_AVAILABLE:
+        return
+    
+    # Only auto-save if we have messages and conversation manager is ready
+    if (not st.session_state.get('chat_messages') or 
+        'conversation_manager' not in st.session_state):
+        return
+    
+    try:
+        user_session_id = get_user_session_id()
+        conv_id = st.session_state.get('current_conversation_id')
+        
+        # Auto-save conversation
+        saved_id, success = st.session_state.conversation_manager.save_conversation(
+            messages=st.session_state.chat_messages,
+            user_session_id=user_session_id,
+            conversation_id=conv_id
+        )
+        
+        if success:
+            st.session_state.current_conversation_id = saved_id
+            logger.debug(f"Auto-saved conversation: {saved_id}")
+        else:
+            logger.warning("Auto-save failed")
+            
+    except Exception as e:
+        logger.error(f"Auto-save error: {e}")
+
+def calculate_pagination(total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, Any]:
+    """Calculate pagination parameters for query display"""
+    if total_queries <= 0:
+        return {
+            'total_pages': 0,
+            'page_size': page_size,
+            'has_multiple_pages': False,
+            'total_queries': 0
+        }
+    
+    total_pages = math.ceil(total_queries / page_size)
+    return {
+        'total_pages': total_pages,
+        'page_size': page_size,
+        'has_multiple_pages': total_pages > 1,
+        'total_queries': total_queries
+    }
+
+def get_page_slice(df: pd.DataFrame, page_num: int, page_size: int = QUERIES_PER_PAGE) -> pd.DataFrame:
+    """Get DataFrame slice for specific page"""
+    if df.empty or page_num < 1:
+        return pd.DataFrame()
+    
+    start_idx = (page_num - 1) * page_size
+    end_idx = start_idx + page_size
+    
+    # Ensure we don't go beyond the dataframe
+    if start_idx >= len(df):
+        return pd.DataFrame()
+    
+    return df.iloc[start_idx:end_idx]
+
+def get_page_info(page_num: int, total_queries: int, page_size: int = QUERIES_PER_PAGE) -> Dict[str, int]:
+    """Get information about current page range"""
+    start_query = (page_num - 1) * page_size + 1
+    end_query = min(page_num * page_size, total_queries)
+    
+    return {
+        'start_query': start_query,
+        'end_query': end_query,
+        'queries_on_page': end_query - start_query + 1
+    }
+
+# REMOVED: parse_tables_column() - now using pre-parsed tables_parsed column from optimized_queries.parquet
+
+# REMOVED: parse_joins_column() - now using pre-parsed joins_parsed column from optimized_queries.parquet
 
 def display_query_card(row, index: int):
     """Display a single query card using pre-parsed data for optimal performance"""
@@ -421,11 +718,298 @@ def display_join_analysis(join_analysis: Dict):
     else:
         st.info("No join relationships found in the data")
 
+def create_query_catalog_page(df: pd.DataFrame):
+    """Create the query catalog page with cached analytics for performance"""
+    st.subheader("📚 Query Catalog")
+    st.caption(f"Browse all {len(df)} SQL queries with their metadata")
+    
+    # Try to load cached analytics first
+    cached_analytics = load_cached_analytics()
+    
+    # Search/filter functionality
+    search_term = st.text_input(
+        "🔍 Search queries:", 
+        placeholder="Search by query content, description, or tables..."
+    )
+    
+    # Filter dataframe based on search - using ONLY pre-parsed columns
+    filtered_df = df
+    if search_term:
+        search_lower = search_term.lower()
+        
+        # Check if we have pre-parsed data for efficient search
+        if 'tables_parsed' in df.columns and 'joins_parsed' in df.columns:
+            # Fast vectorized search using pre-parsed columns
+            mask_list = []
+            for idx, row in df.iterrows():
+                match = False
+                
+                # Search in query and description (always available)
+                query = safe_get_value(row, 'query')
+                description = safe_get_value(row, 'description')
+                
+                if (search_lower in query.lower() or 
+                    search_lower in description.lower()):
+                    match = True
+                
+                # Search in pre-parsed tables (list format)
+                if not match and isinstance(row.get('tables_parsed'), list):
+                    for table in row['tables_parsed']:
+                        if search_lower in str(table).lower():
+                            match = True
+                            break
+                
+                # Search in pre-parsed joins (list of dicts format)
+                if not match and isinstance(row.get('joins_parsed'), list):
+                    for join_info in row['joins_parsed']:
+                        if isinstance(join_info, dict):
+                            # Create searchable text from join info
+                            searchable_parts = [
+                                join_info.get('left_table', ''),
+                                join_info.get('right_table', ''),
+                                join_info.get('left_column', ''),
+                                join_info.get('right_column', ''),
+                                join_info.get('join_type', ''),
+                                join_info.get('condition', ''),
+                                join_info.get('transformation', '')
+                            ]
+                            searchable_text = ' '.join(str(part) for part in searchable_parts).lower()
+                            
+                            if search_lower in searchable_text:
+                                match = True
+                                break
+                
+                mask_list.append(match)
+            
+            # Apply the filter
+            filtered_df = df[pd.Series(mask_list, index=df.index)]
+            st.info(f"⚡ Found {len(filtered_df)} queries matching '{search_term}' (fast search)")
+        else:
+            # No pre-parsed data available - limited search capability
+            st.warning("⚠️ Limited search capability without pre-parsed data")
+            
+            # Basic search in query and description only
+            query_mask = df['query'].str.contains(search_term, case=False, na=False)
+            desc_mask = df.get('description', pd.Series(dtype=bool)).str.contains(search_term, case=False, na=False) if 'description' in df.columns else pd.Series([False] * len(df))
+            
+            filtered_df = df[query_mask | desc_mask]
+            st.info(f"📄 Found {len(filtered_df)} queries matching '{search_term}' (basic search - run analytics generator for full search)")
+            st.caption("💡 Run `python catalog_analytics_generator.py --csv 'your_file.csv'` for enhanced search in tables and joins")
+    
+    # Display analytics - ONLY use cached analytics (no fallback computation)
+    if cached_analytics:
+        # Use cached analytics for much faster display
+        join_analysis = cached_analytics['join_analysis']
+        metadata = cached_analytics['metadata']
+        
+        # Show cache status
+        st.caption(f"⚡ Using cached analytics (generated in {metadata['processing_time']:.2f}s)")
+        
+        # Only show full analytics for non-search results to avoid confusion
+        if not search_term:
+            display_join_analysis(join_analysis)
+            
+            # Load and display cached graphs
+            graph_files = load_cached_graph_files()
+            if graph_files and len(join_analysis['relationships']) > 0:
+                st.subheader("🌐 Table Relationship Graph")
+                
+                # Display the first available graph
+                graph_file = Path(graph_files[0])
+                if graph_file.suffix.lower() == '.svg':
+                    # Display SVG graph safely via HTML
+                    with open(graph_file, 'r', encoding='utf-8') as f:
+                        svg_content = f.read()
+                    st.markdown(svg_content, unsafe_allow_html=True)
+                else:
+                    # Display PNG/other formats
+                    st.image(str(graph_file), use_column_width=True)
+                
+                st.caption(f"Graph loaded from cache: {graph_file.name}")
+        else:
+            # For search results, show simple stats only
+            st.info(f"📊 Showing {len(filtered_df)} search results (full analytics available for complete dataset)")
+    else:
+        # NO FALLBACK COMPUTATION - require cache
+        st.error("❌ **Analytics cache not available**")
+        st.error("🚫 **Query Catalog requires pre-computed analytics for optimal performance**")
+        st.code("""
+# Run this command to generate analytics cache:
+python catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
+        """)
+        st.stop()  # Stop execution - don't attempt heavy computation
+    
+    st.divider()
+    
+    # Display queries with pagination to prevent freezing
+    st.subheader(f"📋 Queries ({len(filtered_df)} total)")
+    
+    if len(filtered_df) == 0:
+        st.warning("No queries found matching your search criteria")
+        return
+    
+    # Calculate pagination parameters
+    pagination_info = calculate_pagination(len(filtered_df))
+    
+    if pagination_info['has_multiple_pages']:
+        # Show pagination controls for large datasets
+        col1, col2, col3 = st.columns([1, 2, 1])
+        
+        with col1:
+            st.metric("Total Queries", len(filtered_df))
+        
+        with col2:
+            # Page selector dropdown
+            current_page = st.selectbox(
+                "📄 Select Page:",
+                range(1, pagination_info['total_pages'] + 1),
+                index=0,
+                format_func=lambda x: f"Page {x} of {pagination_info['total_pages']}",
+                key="query_page_selector"
+            )
+        
+        with col3:
+            st.metric("Per Page", QUERIES_PER_PAGE)
+        
+        # Show current page info
+        page_info = get_page_info(current_page, len(filtered_df))
+        st.caption(f"📍 Showing queries {page_info['start_query']}-{page_info['end_query']} of {len(filtered_df)}")
+        
+    else:
+        # No pagination needed for small datasets
+        current_page = 1
+        st.info(f"📄 Showing all {len(filtered_df)} queries (single page)")
+    
+    st.divider()
+    
+    # Get current page data slice (CRITICAL: Only render current page!)
+    current_page_df = get_page_slice(filtered_df, current_page)
+    
+    if current_page_df.empty:
+        st.error("❌ No data for the selected page")
+        return
+    
+    # Render ONLY current page queries (15 max instead of 100+)
+    for index, (_, row) in enumerate(current_page_df.iterrows()):
+        # Calculate global index for proper query numbering
+        global_index = (current_page - 1) * QUERIES_PER_PAGE + index
+        display_query_card(row, global_index)
+    
+    # Add navigation hints for large datasets
+    if pagination_info['has_multiple_pages']:
+        st.divider()
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if current_page > 1:
+                st.caption("⬅️ Use dropdown above to go to previous pages")
+        
+        with col2:
+            st.caption(f"📖 Page {current_page} of {pagination_info['total_pages']}")
+        
+        with col3:
+            if current_page < pagination_info['total_pages']:
+                st.caption("➡️ Use dropdown above to go to next pages")
 
+def load_cached_analytics() -> Optional[Dict[str, Any]]:
+    """Load cached analytics if available and up to date"""
+    try:
+        if not CATALOG_ANALYTICS_DIR.exists():
+            return None
+        
+        cache_metadata_file = CATALOG_ANALYTICS_DIR / "cache_metadata.json"
+        join_analysis_file = CATALOG_ANALYTICS_DIR / "join_analysis.json"
+        
+        if not cache_metadata_file.exists() or not join_analysis_file.exists():
+            return None
+        
+        # Load and validate cache
+        with open(cache_metadata_file) as f:
+            metadata = json.load(f)
+        
+        # Check if cache is still valid
+        if CSV_PATH.exists():
+            csv_modified_time = os.path.getmtime(CSV_PATH)
+            cached_modified_time = metadata.get('source_csv_modified', 0)
+            
+            if csv_modified_time > cached_modified_time:
+                logger.info("Cache is outdated, will need rebuild")
+                return None
+        
+        # Load join analysis
+        with open(join_analysis_file) as f:
+            join_analysis = json.load(f)
+        
+        logger.info("✅ Loaded cached analytics")
+        return {
+            'metadata': metadata,
+            'join_analysis': join_analysis
+        }
+        
+    except Exception as e:
+        logger.warning(f"Failed to load cached analytics: {e}")
+        return None
 
+def load_cached_graph_files() -> List[str]:
+    """Load list of cached graph files"""
+    graph_files = []
+    if CATALOG_ANALYTICS_DIR.exists():
+        for format_type in ["svg", "png"]:
+            graph_file = CATALOG_ANALYTICS_DIR / f"relationships_graph.{format_type}"
+            if graph_file.exists():
+                graph_files.append(str(graph_file))
+    return graph_files
 
-
-
+def create_data_page(schema_manager: Optional[SchemaManager]):
+    """Render a simple data schema page from the CSV-backed SchemaManager."""
+    st.title("📊 Dataset Schema")
+    
+    if not schema_manager:
+        st.error("❌ Schema not available. Ensure data_new/thelook_ecommerce_schema.csv exists.")
+        st.stop()
+    
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Tables", schema_manager.table_count)
+    with col2:
+        st.metric("Columns", schema_manager.column_count)
+    with col3:
+        st.caption(f"Source: {SCHEMA_CSV_PATH.name}")
+    
+    st.divider()
+    st.subheader("🔎 Browse Tables")
+    
+    # Search + list of tables
+    search = st.text_input("Search tables", "", help="Filter tables by name (substring)")
+    try:
+        all_tables = sorted(list(schema_manager.schema_lookup.keys()))
+    except Exception:
+        all_tables = []
+    filtered = [t for t in all_tables if (search.lower() in t.lower())] if search else all_tables
+    
+    if not filtered:
+        st.info("No tables matched your search.")
+        return
+    
+    # Table expanders with columns and datatypes
+    df_schema = schema_manager.schema_df
+    max_show = len(filtered)
+    for t in filtered[:max_show]:
+        fqn = schema_manager.get_fqn(t) or t
+        with st.expander(t, expanded=False):
+            st.caption(f"FQN: `{fqn}`")
+            if df_schema is not None:
+                try:
+                    norm = schema_manager._normalize_table_name(t)
+                    table_df = df_schema[df_schema['table_id'] == norm][['column', 'datatype']].reset_index(drop=True)
+                    st.dataframe(table_df, use_container_width=True, hide_index=True)
+                except Exception:
+                    cols = schema_manager.get_table_columns(t)
+                    st.write(", ".join(cols) if cols else "No columns")
+            else:
+                cols = schema_manager.get_table_columns(t)
+                st.write(", ".join(cols) if cols else "No columns")
     
     st.divider()
     # Download schema CSV
@@ -510,7 +1094,82 @@ def display_session_stats():
         </div>
         """, unsafe_allow_html=True)
 
+def detect_agent_type(user_input: str) -> Tuple[Optional[str], str]:
+    """
+    Detect agent keyword and extract the actual question
+    
+    Args:
+        user_input: Raw user input string
+        
+    Returns:
+        Tuple of (agent_type, cleaned_question) where agent_type is None for normal queries
+    """
+    user_input = user_input.strip()
+    
+    if user_input.startswith("@explain"):
+        question = user_input[8:].strip()  # Remove "@explain" prefix
+        return "explain", question
+    elif user_input.startswith("@create"):
+        question = user_input[7:].strip()  # Remove "@create" prefix
+        return "create", question
+    elif user_input.startswith("@schema"):
+        question = user_input[7:].strip()  # Remove "@schema" prefix
+        return "schema", question
+    else:
+        return None, user_input
 
+
+def detect_chat_agent_type(user_input: str) -> Tuple[Optional[str], str]:
+    """
+    Chat-specific agent detection with @longanswer support
+    
+    Args:
+        user_input: Raw user input string
+        
+    Returns:
+        Tuple of (agent_type, cleaned_question) where agent_type is None for concise responses
+    """
+    user_input = user_input.strip()
+    
+    if user_input.startswith("@explain"):
+        question = user_input[8:].strip()  # Remove "@explain" prefix
+        return "explain", question
+    elif user_input.startswith("@create"):
+        question = user_input[7:].strip()  # Remove "@create" prefix
+        return "create", question
+    elif user_input.startswith("@schema"):
+        question = user_input[7:].strip()  # Remove "@schema" prefix
+        return "schema", question
+    elif user_input.startswith("@longanswer"):
+        question = user_input[11:].strip()  # Remove "@longanswer" prefix
+        return "longanswer", question
+    else:
+        return None, user_input  # Default to concise responses
+
+
+def get_agent_indicator(agent_type: Optional[str]) -> str:
+    """Get UI indicator for active agent"""
+    if agent_type == "explain":
+        return "🔍 Explain Agent"
+    elif agent_type == "create":
+        return "⚡ Create Agent"
+    elif agent_type == "schema":
+        return "🗂️ Schema Agent"
+    else:
+        return "💬 Chat"
+
+
+def get_chat_agent_indicator(agent_type: Optional[str]) -> str:
+    """Get UI indicator for chat-specific agents"""
+    if agent_type == "explain":
+        return "🔍 Explain Agent"
+    elif agent_type == "create":
+        return "⚡ Create Agent"
+    elif agent_type == "schema":
+        return "🗂️ Schema Agent"
+    elif agent_type == "longanswer":
+        return "📖 Detailed Answer"
+    else:
         return "💬 Concise Chat"
 
 
@@ -686,7 +1345,6 @@ def answer_question_chat_mode(
         if schema_manager:
             try:
                 # Fast regex extractor to avoid expensive LLM calls per document
-                # Use the utility function for table extraction
                 import re as _re
                 def _fast_extract_tables(text: str) -> List[str]:
                     if not text or not isinstance(text, str):
@@ -694,17 +1352,17 @@ def answer_question_chat_mode(
                     tables = set()
                     text_lower = text.lower()
                     patterns = [
-                        r'\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        r'\b(?:inner\s+|left\s+|right\s+|full\s+|cross\s+)?join\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        r'\bupdate\s+([a-zA-Z_][a-zA-Z0-9_]*)',
-                        r'\binsert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*)',
+                        r'\bfrom\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\b(?:inner\s+|left\s+|right\s+|full\s+|cross\s+)?join\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\bupdate\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\binsert\s+into\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
+                        r'\bdelete\s+from\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)',
                     ]
                     for pat in patterns:
                         for match in _re.findall(pat, text_lower):
-                            # Simple table normalization for this context
-                            table_name = match.split('.')[-1]  # Remove schema prefix if any
-                            if table_name and table_name not in {'SELECT', 'WHERE', 'ORDER'}:
-                                tables.add(table_name)
+                            norm = schema_manager._normalize_table_name(match)
+                            if norm:
+                                tables.add(norm)
                     return list(tables)
 
                 # Derive relevant tables from a limited number of docs + question
@@ -823,7 +1481,34 @@ def answer_question_chat_mode(
         return None
 
 
-
+def calculate_conversation_tokens(chat_messages):
+    """Calculate total tokens used in the conversation including context"""
+    total_conversation_tokens = 0
+    total_response_tokens = 0
+    total_context_tokens = 0
+    
+    for msg in chat_messages:
+        # Count message content tokens
+        content_tokens = estimate_token_count(msg.get('content', ''))
+        total_conversation_tokens += content_tokens
+        
+        # Count response tokens from API usage
+        if msg.get('token_usage'):
+            response_tokens = msg['token_usage'].get('total_tokens', 0)
+            total_response_tokens += response_tokens
+            
+            # Count context tokens from retrieved sources
+            if msg.get('sources'):
+                context_tokens = sum(estimate_token_count(doc.page_content) for doc in msg['sources'])
+                total_context_tokens += context_tokens
+    
+    return {
+        'conversation_tokens': total_conversation_tokens,
+        'response_tokens': total_response_tokens,
+        'context_tokens': total_context_tokens,
+        'total_tokens': total_conversation_tokens + total_context_tokens,
+        'utilization_percent': min((total_conversation_tokens + total_context_tokens) / 1000000 * 100, 100)
+    }
 
 def render_chat_message(msg, is_user=True):
     """Render a single chat message using Streamlit's native chat components"""
@@ -856,8 +1541,217 @@ def render_chat_message(msg, is_user=True):
                     if j < len(msg['sources']):
                         st.divider()
 
+def create_chat_page(vector_store, csv_data):
+    """Create ChatGPT-like chat conversation page with Gemini mode"""
+    
+    # Initialize chat messages in session state
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+    
+    # Calculate real-time token usage
+    token_stats = calculate_conversation_tokens(st.session_state.chat_messages)
+    
+    # Header with context utilization
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.title("💬 SQL RAG Chat")
+        st.caption("Powered by Google Gemini 2.5 Flash")
+    
+    with col2:
+        # Context utilization progress bar
+        utilization = token_stats['utilization_percent']
+        if utilization < 50:
+            color = "🟢"
+            status = "Good"
+        elif utilization < 80:
+            color = "🟡" 
+            status = "Moderate"
+        else:
+            color = "🔴"
+            status = "High"
+        
+        st.metric(
+            f"{color} Context Usage", 
+            f"{utilization:.1f}%",
+            f"{token_stats['total_tokens']:,} tokens"
+        )
+    
+    with col3:
+        st.metric(
+            "💬 Messages", 
+            len(st.session_state.chat_messages),
+            f"Remaining: {1000000 - token_stats['total_tokens']:,}"
+        )
+    
+    # Progress bar for context utilization
+    st.progress(utilization / 100)
+    
+    st.divider()
+    
+    # Display existing messages using native Streamlit chat components
+    if st.session_state.chat_messages:
+        for msg in st.session_state.chat_messages:
+            if msg['role'] == 'user':
+                render_chat_message(msg, is_user=True)
+            else:
+                render_chat_message(msg, is_user=False)
+    else:
+        # Simple welcome message using native components
+        st.markdown("### 👋 Welcome! Ask Your Data Questions Here")
+        st.markdown("""
+        **No SQL required!** Just type your question in plain English:
+        - "What were our top selling products last month?"
+        - "Show me customer spending by region"
+        - "Which users made repeat purchases?"
 
+        **SQL experts:** Get 10x faster query generation:
+        - Describe complex joins → Get production-ready SQL
+        - Use `@explain` to learn new patterns
+        - Use `@create` for instant code generation
+        """)
 
+        st.info("**💡 Chat Keywords:**")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.success("**Default:** 💬 Quick, concise answers")
+            st.info("**@explain** 🔍 Learn how SQL queries work")
+        with col2:
+            st.warning("**@create** ⚡ Generate production SQL")
+            if st.session_state.lookml_safe_join_map:
+                st.info("**@schema** 🗂️ Explore table relationships")
+            st.error("**@longanswer** 📖 Deep dive analysis")
+
+        st.markdown("---")
+    
+    # Add clear conversation button
+    if st.session_state.chat_messages:
+        if st.button("🗑️ Clear Conversation", use_container_width=True, key="clear_conversation_button"):
+            st.session_state.chat_messages = []
+            st.session_state.token_usage = []
+            st.rerun()
+        st.markdown("---")
+    
+    # Use Streamlit's native chat input
+    user_input = st.chat_input(
+        placeholder="Ask about SQL queries, joins, optimizations... Use @explain, @create, @schema, or @longanswer for specialized responses"
+    )
+    
+    # Process new message
+    if user_input:
+        # Detect chat agent type (includes @longanswer)
+        agent_type, actual_question = detect_chat_agent_type(user_input.strip())
+        
+        # Add user message with agent info
+        st.session_state.chat_messages.append({
+            'role': 'user',
+            'content': user_input.strip(),
+            'agent_type': agent_type,
+            'actual_question': actual_question
+        })
+        
+        # Rerun to display the new message and trigger response generation
+        st.rerun()
+    
+    # Generate response if last message was from user and no response yet
+    if (st.session_state.chat_messages and 
+        st.session_state.chat_messages[-1]['role'] == 'user' and
+        (len(st.session_state.chat_messages) == 1 or 
+         st.session_state.chat_messages[-2]['role'] == 'assistant')):
+        
+        last_user_msg = st.session_state.chat_messages[-1]
+        agent_type = last_user_msg.get('agent_type')
+        actual_question = last_user_msg.get('actual_question', last_user_msg['content'])
+        
+        # Get conversation context (exclude the message we're responding to)
+        conversation_context = ""
+        for msg in st.session_state.chat_messages[:-1]:
+            if msg['role'] == 'user':
+                conversation_context += f"User: {msg['content']}\n"
+            else:
+                conversation_context += f"Assistant: {msg['content']}\n"
+        
+        # Handle @schema agent queries directly
+        if agent_type == "schema":
+            # Generate @schema response directly without using Gemini/RAG
+            schema_response = handle_schema_query(actual_question, st.session_state.lookml_safe_join_map)
+            
+            # Add schema response to chat history
+            st.session_state.chat_messages.append({
+                'role': 'assistant',
+                'content': schema_response,
+                'agent_type': agent_type,
+                'token_usage': {'total_tokens': 0, 'prompt_tokens': 0, 'completion_tokens': 0}  # No token usage for schema agent
+            })
+            
+            # Auto-save conversation after schema response
+            auto_save_conversation()
+            
+            st.rerun()
+        else:
+            # Generate response using chat-specific function
+            agent_indicator = get_chat_agent_indicator(agent_type)
+            with st.spinner(f"Generating response with {agent_indicator}..."):
+                try:
+                    result = answer_question_chat_mode(
+                        question=actual_question,
+                        vector_store=vector_store,
+                        k=100,  # Use high k for comprehensive retrieval
+                        schema_manager=st.session_state.get('schema_manager'),
+                        conversation_context=conversation_context,
+                        agent_type=agent_type,
+                        user_context=st.session_state.get('user_context', ""),
+                        excluded_tables=st.session_state.get('excluded_tables', [])
+                    )
+                    
+                    if result:
+                        answer, sources, token_usage = result
+                        
+                        # Add assistant response with agent info
+                        st.session_state.chat_messages.append({
+                            'role': 'assistant',
+                            'content': answer,
+                            'sources': sources,
+                            'token_usage': token_usage,
+                            'agent_type': agent_type
+                        })
+                        
+                        # Track token usage
+                        if 'token_usage' not in st.session_state:
+                            st.session_state.token_usage = []
+                        st.session_state.token_usage.append(token_usage)
+                        
+                        # Auto-save conversation after successful response
+                        auto_save_conversation()
+                        
+                    else:
+                        # Add error message to chat
+                        st.session_state.chat_messages.append({
+                            'role': 'assistant',
+                            'content': "❌ I apologize, but I encountered an error generating a response. Please try again.",
+                            'sources': [],
+                            'token_usage': {},
+                            'agent_type': agent_type
+                        })
+                        
+                        # Auto-save conversation even with error message
+                        auto_save_conversation()
+                        
+                except Exception as e:
+                    # Add error message to chat
+                    st.session_state.chat_messages.append({
+                        'role': 'assistant',
+                        'content': f"❌ Error: {str(e)}. Please try rephrasing your question.",
+                        'sources': [],
+                        'token_usage': {},
+                        'agent_type': agent_type
+                    })
+                    
+                    # Auto-save conversation with error message
+                    auto_save_conversation()
+        
+        # Rerun to show new messages
+        st.rerun()
     
     # Show detailed token breakdown at bottom if there are messages
     if st.session_state.chat_messages:
@@ -995,21 +1889,11 @@ def display_sql_execution_interface(answer: str):
         st.markdown("**📝 Generated SQL Query:**")
         st.code(extracted_sql, language="sql")
         
-        # Enhanced safety validation with logging
+        # Safety validation with logging
         if debug_mode:
-            st.write("🔒 **Running enhanced safety validation**...")
+            st.write("🔒 **Running safety validation**...")
         
-        # Try new security system first
-        try:
-            from security.sql_validator import validate_sql_legacy_wrapper
-            is_valid, validation_msg = validate_sql_legacy_wrapper(extracted_sql)
-            if debug_mode:
-                st.write(f"🛡️ **Using enhanced security validation**")
-        except ImportError:
-            # Fallback to existing validation
-            if debug_mode:
-                st.write("⚠️ **Using legacy safety validation (new security modules not available)")
-            is_valid, validation_msg = executor.validate_sql_safety(extracted_sql) if hasattr(executor, 'validate_sql_safety') else (True, None)
+        is_valid, validation_msg = executor.validate_sql_safety(extracted_sql)
         
         if is_valid:
             st.success("✅ Query passed safety validation")
@@ -1276,14 +2160,395 @@ def display_sql_execution_results(result: QueryResult):
             st.caption(f"📋 Job ID: `{result.job_id}`")
 
 
+def create_introduction_page():
+    """Render the introduction/welcome page explaining the project and pipeline"""
 
+    # Hero Section
+    st.title("⚡ SQL RAG with Google Gemini")
+    st.markdown("""
+    ### Your Data, Your Questions—No SQL Required
 
+    **For Product Managers & Business Users:**
+    Ask questions about your data in plain English. Get instant, accurate answers without writing a single line of SQL.
 
+    **For Data Analysts & SQL Experts:**
+    Build complex queries 10x faster. Get AI-powered suggestions, automatic validation, and instant execution—spend less time coding, more time analyzing.
+    """)
 
+    # Quick Stats
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("🤖 LLM", "Gemini 2.5", "Flash & Pro")
+    with col2:
+        st.metric("📊 Context", "1M tokens", "Optimized")
+    with col3:
+        st.metric("🔍 Search", "Hybrid", "Vector + BM25")
+    with col4:
+        st.metric("✅ Safety", "Validated", "Read-only")
 
+    st.divider()
 
+    # Project Overview
+    st.header("💡 What Can You Do?")
+    st.markdown("""
+    **🎯 Product Managers & Business Users:**
+    - ✨ **Ask questions naturally**: "What were our top 5 products last month?" → Get instant results
+    - 🚀 **No SQL required**: Skip the learning curve, get data insights immediately
+    - ⚡ **Self-service analytics**: Stop waiting on data teams, get answers in seconds
+    - 📊 **Explore your data**: Browse tables, understand relationships, discover insights
 
+    **⚡ Data Analysts & SQL Experts:**
+    - 🏃 **10x faster development**: Generate complex joins and aggregations in seconds
+    - ✅ **Production-ready SQL**: Automatic validation ensures your queries work the first time
+    - 🔍 **Learn from examples**: Browse 100+ curated SQL patterns with smart search
+    - 🤖 **AI pair programmer**: Get suggestions, optimizations, and schema assistance as you work
+    """)
 
+    st.divider()
+
+    # Pipeline Flow
+    st.header("🔄 Pipeline Architecture")
+    st.markdown("""
+    The system follows a sophisticated 5-step pipeline optimized for accuracy and performance:
+    """)
+
+    # Pipeline visualization using columns
+    st.markdown("#### End-to-End Flow")
+
+    pipeline_col1, pipeline_col2, pipeline_col3, pipeline_col4, pipeline_col5 = st.columns(5)
+
+    with pipeline_col1:
+        st.markdown("""
+        **1️⃣ Embedding Generation**
+
+        📝 OpenAI `text-embedding-3-small`
+
+        ⚡ High-quality vector representations
+        """)
+
+    with pipeline_col2:
+        st.markdown("""
+        **2️⃣ Vector Store**
+
+        🗄️ FAISS indexing
+
+        💾 Fast similarity search
+        """)
+
+    with pipeline_col3:
+        st.markdown("""
+        **3️⃣ Retrieval**
+
+        🔍 Hybrid search (Vector + BM25)
+
+        🎯 Configurable weights
+        """)
+
+    with pipeline_col4:
+        st.markdown("""
+        **4️⃣ Generation**
+
+        🤖 Gemini 2.5 Pro/Flash
+
+        📊 1M context optimization
+        """)
+
+    with pipeline_col5:
+        st.markdown("""
+        **5️⃣ Execution**
+
+        ✅ SQL safety validation
+
+        ☁️ BigQuery execution
+        """)
+
+    # Detailed pipeline explanation
+    with st.expander("📚 Learn More About the Pipeline", expanded=False):
+        st.markdown("""
+        ### Detailed Pipeline Steps
+
+        **Step 1: Embedding Generation**
+        - Uses OpenAI's `text-embedding-3-small` model (default) or local Ollama embeddings
+        - Converts SQL queries and metadata into dense vector representations
+        - Generates FAISS indices stored in `faiss_indices/` directory
+
+        **Step 2: Vector Store**
+        - FAISS (Facebook AI Similarity Search) provides fast nearest-neighbor search
+        - Supports millions of vectors with sub-millisecond query times
+        - Persistent storage with automatic loading on application start
+
+        **Step 3: Hybrid Retrieval**
+        - **Vector Search**: Semantic similarity using embeddings
+        - **Keyword Search**: BM25 algorithm for exact term matching
+        - **Fusion**: Configurable weights (default: 70% vector, 30% keyword)
+        - **Query Rewriting**: Optional LLM-based query enhancement
+
+        **Step 4: Smart Generation**
+        - **Schema Injection**: Automatically includes relevant table schemas
+        - **Context Optimization**: Smart deduplication using Jaccard similarity
+        - **Multi-Model Support**: Gemini 2.5 Pro for complex queries, Flash for speed
+        - **LLM Registry**: Separate models for parsing, generation, and chat
+
+        **Step 5: Safe Execution**
+        - **SQL Validation**: Multi-level safety checks (strict/basic modes)
+        - **BigQuery Integration**: Read-only execution with cost estimation
+        - **Dry Run Support**: Preview query costs without execution
+        - **Result Caching**: Avoid redundant queries and costs
+        """)
+
+    st.divider()
+
+    # Application Pages
+    st.header("🗺️ Application Pages")
+    st.markdown("Navigate between different interfaces to suit your workflow:")
+
+    page_col1, page_col2 = st.columns(2)
+
+    with page_col1:
+        with st.container():
+            st.markdown("### 🔍 Query Search")
+            st.markdown("""
+            **Ask data questions, get instant SQL + results**
+
+            **For non-technical users:**
+            Type your question in plain English → See the SQL we generate → Get your data instantly.
+            No coding required!
+
+            **For SQL experts:**
+            Describe what you need → Get production-ready SQL with joins, filters, and aggregations → Execute and refine in seconds.
+
+            ✨ Perfect for: Quick answers, one-off queries, exploring new datasets
+
+            ⏱️ **Time savings**: Minutes instead of hours writing complex queries
+            """)
+
+        with st.container():
+            st.markdown("### 📚 Query Catalog")
+            st.markdown("""
+            **Browse and search SQL examples**
+
+            - Explore 100+ pre-analyzed SQL queries
+            - Search by tables, joins, or query content
+            - View join relationship graphs
+            - Analyze query complexity metrics
+            - Paginated for performance
+
+            Perfect for: Learning SQL patterns and discovering examples
+            """)
+
+    with page_col2:
+        with st.container():
+            st.markdown("### 💬 Chat Interface")
+            st.markdown("""
+            **Your AI data assistant—learn, explore, and get answers**
+
+            **For everyone:**
+            - Ask follow-up questions naturally
+            - Learn SQL concepts with `@explain` agent
+            - Get step-by-step guidance for complex data questions
+
+            **For SQL learners:**
+            Use `@explain` to understand how queries work
+
+            **For SQL builders:**
+            Use `@create` to generate queries with conversation context
+            Use `@longanswer` for comprehensive analysis and alternatives
+
+            ✨ Perfect for: Learning, exploring data relationships, multi-step analysis
+
+            💬 **Benefit**: Conversational learning + production SQL generation in one place
+            """)
+
+        with st.container():
+            st.markdown("### 📊 Data Browser")
+            st.markdown("""
+            **Explore database schema**
+
+            - Browse all tables and columns
+            - View data types and relationships
+            - Search tables by name
+            - Fully-qualified table names (FQNs)
+            - Direct CSV download
+
+            Perfect for: Understanding your database structure
+            """)
+
+    st.divider()
+
+    # Key Features
+    st.header("✨ Key Features")
+
+    feature_col1, feature_col2, feature_col3 = st.columns(3)
+
+    with feature_col1:
+        st.markdown("""
+        **🧠 Smart Intelligence**
+
+        - LLM-based SQL parsing
+        - Automatic schema injection
+        - CTE-aware validation
+        - Query rewriting
+        - Multi-model orchestration
+        """)
+
+    with feature_col2:
+        st.markdown("""
+        **⚡ Performance**
+
+        - Gemini 1M context window
+        - 18.5x better utilization
+        - Smart deduplication
+        - Hybrid search fusion
+        - Multi-layer caching
+        """)
+
+    with feature_col3:
+        st.markdown("""
+        **🔒 Safety & Reliability**
+
+        - Read-only SQL enforcement
+        - Multi-level validation
+        - Cost estimation
+        - Dry-run support
+        - Comprehensive logging
+        """)
+
+    st.divider()
+
+    # Getting Started
+    st.header("🚀 Getting Started")
+
+    st.markdown("""
+    ### Quick Start Guide
+
+    1. **Start Simple** - Use the **🔍 Query Search** page to generate your first SQL query
+    2. **Ask Questions** - Type natural language like "Find total revenue by month"
+    3. **Review & Execute** - Check the generated SQL and run it against BigQuery
+    4. **Explore More** - Try the **💬 Chat** page for interactive learning
+    5. **Browse Examples** - Visit **📚 Query Catalog** to see patterns
+
+    ### Tips for Best Results
+
+    - 🎯 **Be specific**: "Join users with orders and calculate total spend" vs "Get user data"
+    - 📊 **Mention tables**: Reference table names when you know them
+    - 🔄 **Use agents**: Try `@explain` to learn how a query works
+    - 💡 **Iterate**: Refine queries through conversation in Chat mode
+    - 📖 **Learn patterns**: Browse the catalog to see how others structure queries
+    """)
+
+    st.divider()
+
+    # Technical Details
+    with st.expander("🔧 Technical Architecture & Components", expanded=False):
+        st.markdown("""
+        ### Core Components
+
+        **RAG Engine** (`simple_rag_simple_gemini.py`)
+        - Optimized for Gemini's large context window
+        - Smart deduplication using Jaccard similarity
+        - Context prioritization and token optimization
+
+        **LLM Registry** (`llm_registry.py`)
+        - Centralized model selection per pipeline role
+        - Environment variables: `LLM_PARSE_MODEL`, `LLM_GEN_MODEL`, `LLM_REWRITE_MODEL`, `LLM_CHAT_MODEL`
+        - Defaults: `gemini-2.5-pro` for generation, `gemini-2.5-flash-lite` for parsing/chat
+
+        **Schema Management** (`schema_manager.py`)
+        - Smart schema injection based on retrieved queries
+        - Table join analysis and relationship mapping
+        - Fully-qualified name (FQN) resolution
+
+        **BigQuery Integration** (`core/bigquery_executor.py`)
+        - Secure read-only SQL execution
+        - Safety validation and cost estimation
+        - Result caching and performance metrics
+
+        **SQL Validation** (`core/sql_validator.py`)
+        - Multi-level validation (strict/basic)
+        - Safety checks blocking DELETE, DROP, UPDATE
+        - Table/column name validation against schema
+
+        **Hybrid Search** (`hybrid_retriever.py`)
+        - FAISS vector similarity + BM25 keyword matching
+        - Configurable search weights
+        - Query rewriting for better retrieval
+
+        ### Data Flow
+
+        ```
+        User Question
+            ↓
+        [Query Rewriting] (optional)
+            ↓
+        [Hybrid Retrieval] → FAISS + BM25
+            ↓
+        [Schema Injection] → Smart table discovery
+            ↓
+        [LLM Generation] → Gemini with optimized context
+            ↓
+        [SQL Validation] → Safety checks + schema validation
+            ↓
+        [BigQuery Execution] → Dry run + actual execution
+            ↓
+        Results + Metrics
+        ```
+
+        ### Technology Stack
+
+        - **Frontend**: Streamlit (multi-page app)
+        - **Embeddings**: OpenAI `text-embedding-3-small` or Ollama
+        - **Vector Store**: FAISS (Facebook AI Similarity Search)
+        - **LLM**: Google Gemini 2.5 (Pro & Flash variants)
+        - **Database**: BigQuery (read-only execution)
+        - **Persistence**: Google Cloud Firestore (conversations)
+        - **Languages**: Python 3.12+
+        """)
+
+    st.divider()
+
+    # Resources
+    st.header("📚 Resources & Documentation")
+
+    doc_col1, doc_col2 = st.columns(2)
+
+    with doc_col1:
+        st.markdown("""
+        **📖 Documentation**
+
+        - `CLAUDE.md` - Complete project guide
+        - `docs/query_search_simple_flow.md` - Pipeline details
+        - `docs/llm_pipeline.md` - LLM usage documentation
+        - `README.md` - Setup and installation
+        - `DEPLOYMENT_GUIDE.md` - Cloud Run deployment
+        """)
+
+    with doc_col2:
+        st.markdown("""
+        **🛠️ Configuration**
+
+        - `requirements.txt` - Python dependencies
+        - `.env` - API keys and secrets
+        - `config.py` - Central configuration
+        - `llm_registry.py` - Model selection
+        - `pytest.ini` - Test configuration
+        """)
+
+    st.divider()
+
+    # Call to Action
+    st.markdown("""
+    ### Ready to Get Started?
+
+    Choose a page from the sidebar to begin exploring the application!
+
+    - **New to SQL RAG?** Start with **🔍 Query Search** to see it in action
+    - **Want to learn?** Try **💬 Chat** with the `@explain` agent
+    - **Exploring patterns?** Browse **📚 Query Catalog** for examples
+    - **Need schema info?** Check **📊 Data** for table details
+    """)
+
+    # Footer
+    st.caption("Built with Streamlit • Powered by Google Gemini 2.5 • Embeddings by OpenAI")
 
 
 def apply_modern_styling():
@@ -1837,20 +3102,6 @@ def main():
             placeholder="e.g., Write SQL to join users and orders and compute monthly spend",
             key="simple_query_input"
         )
-        
-        # Enhanced input validation for security
-        if simple_query:
-            try:
-                from security.input_validator import validate_input_legacy_wrapper
-                input_valid, input_error = validate_input_legacy_wrapper(simple_query, 'query')
-                if not input_valid:
-                    st.error(f"🚫 Input validation failed: {input_error}")
-                    simple_query = None
-            except ImportError:
-                # Fallback - basic validation
-                if len(simple_query.strip()) > 2000:
-                    st.error("🚫 Query too long (max 2000 characters)")
-                    simple_query = None
 
         generate_clicked = st.button("Generate SQL", type="primary", key="simple_generate_sql_button")
 
@@ -1907,20 +3158,6 @@ def main():
                 placeholder="e.g., Which queries show customer spending analysis with multiple JOINs?",
                 key="query_search_input"
             )
-            
-            # Enhanced input validation for security
-            if query:
-                try:
-                    from security.input_validator import validate_input_legacy_wrapper
-                    input_valid, input_error = validate_input_legacy_wrapper(query, 'search')
-                    if not input_valid:
-                        st.error(f"🚫 Input validation failed: {input_error}")
-                        query = None
-                except ImportError:
-                    # Fallback - basic validation
-                    if len(query.strip()) > 500:
-                        st.error("🚫 Search term too long (max 500 characters)")
-                        query = None
 
             # Check if we should process the query (not if SQL execution just completed)
             search_clicked = st.button("🔍 Search", type="primary", key="main_search_button")

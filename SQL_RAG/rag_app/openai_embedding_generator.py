@@ -24,6 +24,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 
 from utils.embedding_provider import get_embedding_function
+from utils.skip_list_loader import load_skip_queries
 
 load_dotenv()
 
@@ -49,6 +50,11 @@ def main():
     ap = argparse.ArgumentParser(description="Generate FAISS store with OpenAI embeddings from CSV")
     ap.add_argument("--csv", required=True, help="Path to CSV with a 'query' column")
     ap.add_argument("--output", default="faiss_indices", help="Output directory for vector store")
+    ap.add_argument(
+        "--skip-list",
+        action="append",
+        help="Path to text or CSV file with queries to skip (repeatable)",
+    )
     args = ap.parse_args()
 
     csv_path = Path(args.csv).expanduser().resolve()
@@ -62,7 +68,18 @@ def main():
     if not os.getenv("OPENAI_API_KEY"):
         raise RuntimeError("OPENAI_API_KEY env var is required for OpenAI embeddings")
 
+    skip_queries = set()
+    if args.skip_list:
+        skip_paths = [Path(p).expanduser().resolve() for p in args.skip_list]
+        skip_queries = load_skip_queries(skip_paths)
+
     df = pd.read_csv(csv_path)
+    if skip_queries:
+        before = len(df)
+        df = df[~df["query"].astype(str).str.strip().isin(skip_queries)].copy()
+        skipped = before - len(df)
+        if skipped:
+            print(f"🛑 Skipped {skipped} queries from skip list")
     docs = build_documents(df)
     if not docs:
         raise RuntimeError("No valid queries found in CSV")
@@ -80,4 +97,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
