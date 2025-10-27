@@ -1,135 +1,319 @@
-# Retail SQL RAG Demo
+# SQL RAG Application 🐕
 
-This is a minimal Retrieval-Augmented Generation (RAG) demo that lets you ask questions about the **`retail_system`** SQL / Python codebase.
+A modern RAG (Retrieval-Augmented Generation) application for natural language SQL querying, built with FastAPI + React. Migrated from Streamlit for better scalability and user experience.
 
-It uses:
+## 🚀 Features
 
-* **OpenAI text-embedding-3-small** for embeddings (cloud) — default
-* **FAISS** for the in-memory vector store
-* **Google Gemini 2.5 Flash** for fast, intelligent answer generation
-* A sophisticated RAG engine with hybrid search and smart schema injection
+- **🤖 AI-Powered SQL Generation**: Translate natural language to optimized SQL queries
+- **💬 Real-time Chat**: WebSocket-powered streaming responses
+- **📊 SQL Execution**: Safe query execution with cost controls
+- **🗂️ Schema Explorer**: Interactive database schema browsing
+- **🔍 Query Catalog**: Searchable collection of pre-built queries
+- **📈 Analytics**: Query statistics and usage insights
+- **🎯 Specialized Agents**: @create, @explain, @schema, @longanswer modes
+- **💾 Conversation Persistence**: Save and resume conversations
+- **📱 Responsive Design**: Mobile and tablet friendly
+
+## 📁 Project Structure
+
+```
+sql-rag-app/
+├── backend/                    # FastAPI backend
+│   ├── app.py                 # Main FastAPI application
+│   ├── api/                   # API route handlers
+│   │   ├── chat.py           # Chat endpoints
+│   │   ├── data.py           # Data endpoints
+│   │   └── sql.py            # SQL execution endpoints
+│   ├── models/               # Pydantic models/schemas
+│   └── services/             # Business logic services
+├── frontend/                   # React frontend
+│   ├── src/
+│   │   ├── components/       # Reusable UI components
+│   │   ├── pages/           # Page components
+│   │   ├── hooks/           # Custom React hooks
+│   │   ├── services/        # API services
+│   │   ├── store/           # Redux state management
+│   │   └── types/           # TypeScript type definitions
+│   └── package.json
+├── rag_app/                   # Original Streamlit app (reference)
+├── docker-compose.yml         # Development environment
+└── README.md
+```
+
+## 🛠️ Technology Stack
+
+### Backend
+- **FastAPI**: Modern Python web framework
+- **Pydantic**: Data validation and serialization
+- **WebSockets**: Real-time communication
+- **BigQuery**: Database backend
+- **Gemini AI**: Language model for RAG
+
+### Frontend
+- **React 18**: Modern UI framework
+- **TypeScript**: Type-safe development
+- **Redux Toolkit**: State management
+- **React Router**: Client-side routing
+- **Modern CSS**: Responsive design
+
+### Infrastructure
+- **Docker**: Containerization
+- **Nginx**: Reverse proxy
+- **Docker Compose**: Development orchestration
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 18+ and npm
+- Python 3.9+
+- Docker and Docker Compose
+- Google Cloud credentials for BigQuery
+- Gemini API key
+
+### Environment Setup
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd sql-rag-app
+   ```
+
+2. **Set up environment variables**:
+   ```bash
+   # Create .env file
+   cp .env.example .env
+   
+   # Edit .env with your credentials
+   nano .env
+   ```
+
+   Required environment variables:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key
+   BIGQUERY_PROJECT_ID=your_project_id
+   GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
+   ```
+
+### Development Mode
+
+1. **Using Docker Compose (Recommended)**:
+   ```bash
+   docker-compose up --build
+   ```
+   The application will be available at:
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+   - API Documentation: http://localhost:8000/docs
+
+2. **Manual Development Setup**:
+   
+   **Backend**:
+   ```bash
+   cd backend
+   pip install -r requirements.txt
+   python app.py
+   ```
+   
+   **Frontend**:
+   ```bash
+   cd frontend
+   npm install
+   npm start
+   ```
+
+## 📖 Usage
+
+### Chat Interface
+1. Navigate to http://localhost:3000/chat
+2. Start asking questions in plain English:
+   - "Show me top 10 customers by order total"
+   - "What are the most popular products?"
+3. Use specialized agents:
+   - `@create`: Generate SQL queries
+   - `@explain`: Explain query logic
+   - `@schema`: Explore database structure
+   - `@longanswer`: Get detailed explanations
+
+### Query Search
+1. Go to http://localhost:3000/search
+2. Browse the catalog of pre-built SQL queries
+3. Use filters to find queries by tables, complexity, etc.
+4. Copy queries directly to clipboard
+
+### Data Schema
+1. Visit http://localhost:3000/data
+2. Explore database tables and relationships
+3. Understand column types and constraints
+4. Visualize table joins
+
+### Analytics
+1. Check http://localhost:3000/analytics
+2. View query execution statistics
+3. Monitor token usage and costs
+4. Analyze query patterns
+
+## 🔧 Configuration
+
+### Backend Configuration
+
+Update `backend/app.py` settings:
+- CORS origins
+- WebSocket connection limits
+- Rate limiting
+- Logging levels
+
+### Frontend Configuration
+
+Update `frontend/src/utils/constants.ts`:
+- API endpoints
+- WebSocket URLs
+- UI preferences
+- Feature flags
+
+## 📚 API Documentation
+
+### Main Endpoints
+
+- `POST /api/chat/query` - Send chat query
+- `POST /api/chat/execute-sql` - Execute SQL
+- `GET /api/data/schema` - Get database schema
+- `GET /api/data/analytics` - Get analytics
+- `GET /api/data/queries` - Get query catalog
+- `WS /ws/chat/{session_id}` - Real-time chat
+
+Interactive documentation available at: http://localhost:8000/docs
+
+## 🚀 Deployment
+
+### Production Docker Deployment
+
+1. **Build and deploy**:
+   ```bash
+   docker-compose -f docker-compose.prod.yml up -d
+   ```
+
+2. **Configure nginx** for SSL/HTTPS:
+   ```bash
+   # Edit nginx/nginx.conf
+   nano nginx/nginx.conf
+   ```
+
+3. **Monitor logs**:
+   ```bash
+   docker-compose logs -f
+   ```
+
+### Cloud Deployment Options
+
+- **Google Cloud Run**: Backend auto-scaling
+- **Vercel**: Frontend hosting
+- **AWS ECS**: Container orchestration
+- **DigitalOcean**: All-in-one platform
+
+## 🧪 Testing
+
+### Backend Tests
+```bash
+cd backend
+pytest tests/ -v
+```
+
+### Frontend Tests
+```bash
+cd frontend
+npm test
+```
+
+### Integration Tests
+```bash
+# Run full application tests
+docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+```
+
+## 📝 Migration from Streamlit
+
+This application was migrated from a Streamlit version. Key improvements:
+
+- ✅ Real-time streaming via WebSockets
+- ✅ Better responsive design
+- ✅ Mobile-friendly interface
+- ✅ Improved state management
+- ✅ Production-ready architecture
+- ✅ Better performance and scalability
+
+Migration details are documented in [`STREAMLIT_TO_FASTAPI_REACT_MIGRATION_ROADMAP.md`](STREAMLIT_TO_FASTAPI_REACT_MIGRATION_ROADMAP.md)
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+1. **WebSocket connection failed**:
+   - Check backend is running on port 8000
+   - Verify CORS settings match frontend URL
+   - Check firewall/proxy settings
+
+2. **BigQuery connection errors**:
+   - Verify service account credentials
+   - Check project ID and permissions
+   - Ensure BigQuery API is enabled
+
+3. **Gemini API errors**:
+   - Verify API key is valid
+   - Check rate limits and quotas
+   - Ensure proper request formatting
+
+4. **Frontend build errors**:
+   - Clear node_modules and reinstall
+   - Check Node.js version compatibility
+   - Verify TypeScript configuration
+
+### Debug Mode
+
+Enable debug logging:
+```bash
+# Backend
+DEBUG=1 python backend/app.py
+
+# Frontend
+LOG_LEVEL=debug npm start
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit changes: `git commit -m 'Add amazing feature'`
+4. Push to branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+### Development Guidelines
+- Follow TypeScript and Python best practices
+- Write tests for new features
+- Update documentation
+- Use conventional commit messages
+- Ensure all checks pass
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🙏 Acknowledgments
+
+- Original Streamlit application architecture
+- FastAPI and React communities
+- Google Cloud Platform services
+- Gemini AI platform
+- All contributors and users
+
+## 📞 Support
+
+- 📧 Email: support@example.com
+- 💬 Discord: [Community Server]
+- 🐛 Issues: [GitHub Issues]
+- 📖 Documentation: [Wiki]
 
 ---
 
-## 1  Install Python packages
+Made with ❤️ by pikushi 🐕
 
-```bash
-python -m venv .venv && source .venv/bin/activate  # optional
-pip install -r rag_app/requirements.txt
-```
-
-## 2  Set up API keys and embeddings
-
-By default, the system uses OpenAI embeddings and Google Gemini for generation. You can also switch to local Ollama embeddings.
-
-### Option A: OpenAI embeddings (default, recommended)
-
-Use OpenAI's state-of-the-art `text-embedding-3-*` models for high-quality embeddings.
-
-1) **Get your OpenAI API key** from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
-
-2) **Set up environment variables**:
-
-```bash
-# Required: OpenAI API key
-export OPENAI_API_KEY=sk-your-openai-api-key-here
-
-# Required: Google Gemini API key (for text generation)
-export GEMINI_API_KEY=your-gemini-api-key-here
-
-# Optional: Embedding model (default: text-embedding-3-small)
-export OPENAI_EMBEDDING_MODEL=text-embedding-3-small
-
-# Optional: Provider selection (default: openai)
-export EMBEDDINGS_PROVIDER=openai
-```
-
-3) **Generate embeddings** using the new OpenAI provider:
-
-```bash
-# Generate vector embeddings using OpenAI
-python data/standalone_embedding_generator.py --csv "sample_queries_with_metadata.csv"
-
-# Generate analytics cache for fast Query Catalog
-python data/catalog_analytics_generator.py --csv "sample_queries_with_metadata.csv"
-```
-
-4) **Launch the application**:
-
-```bash
-streamlit run app.py
-```
-
-### Option B: Local Ollama embeddings (legacy)
-
-For local processing without API costs, you can use Ollama:
-
-```bash
-# Install Ollama (if not already installed)
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Download required models
-ollama pull nomic-embed-text  # For embeddings
-
-# Set environment to use Ollama
-export EMBEDDINGS_PROVIDER=ollama
-export OLLAMA_EMBEDDING_MODEL=nomic-embed-text
-
-# Generate embeddings locally
-python data/standalone_embedding_generator.py --csv "sample_queries_with_metadata.csv"
-```
-
-## 3  Use the application
-
-The application provides three interfaces:
-
-1. **🔍 Query Search**: Advanced RAG with Gemini optimization, hybrid search, and smart schema injection
-2. **💬 Chat Interface**: ChatGPT-like conversation with specialized agents (@explain, @create, @schema)
-3. **📚 Query Catalog**: Browse and search through your SQL query dataset
-
-Access the web interface at: `http://localhost:8501`
-
-The first run will build a FAISS index (stored as `rag_app/faiss_index.pkl`). Subsequent runs load the cached index for faster responses.
-
----
-
-### Parameters
-
-* `--k` – how many top chunks to retrieve (default **4**)
-
-### Notes
-
-* The local Phi3 model is instructed **not to hallucinate**; it will answer *"I don't know..."* if the context is insufficient.
-* The script keeps things simple—no external databases or web servers required. Feel free to adapt it into a web API, Streamlit app, etc. 
-
----
-
-## Batch Runner (automate Query Search flow)
-
-You can run a list of questions through the same pipeline used by the Query Search page (retrieval → schema injection → Gemini generation → SQL validation → SQL extraction → BigQuery execution) and log all artifacts.
-
-Prerequisites:
-- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) for Gemini
-- BigQuery auth via ADC (locally: `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS`)
-- A FAISS index under `faiss_indices/` (see embedding generation above)
-
-Run:
-```bash
-python scripts/run_batch_questions.py \
-  --questions-file scripts/questions.example.txt \
-  --output-dir logs/batch_run \
-  --index-name index_transformed_sample_queries
-```
-
-Options:
-- `--no-execute` to skip BigQuery execution (still logs SQL)
-- `--basic-validation` to relax schema checks
-- Override BigQuery target via env: `BIGQUERY_PROJECT_ID`, `BIGQUERY_DATASET`
-
-Outputs in `--output-dir`:
-- `run.log` – high-level run log
-- `results.jsonl` – per-question JSON records (question, token usage, sources, SQL, execution summary)
-- `qNNN_answer.txt` – full LLM answer
-- `qNNN_query.sql` – extracted SQL (if any)
-- `qNNN_result.csv` – BigQuery result (if executed and successful)
-- `qNNN_debug.md` – detailed pipeline trace
+#codepuppy
