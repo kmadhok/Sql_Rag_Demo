@@ -9,12 +9,11 @@ logger = logging.getLogger(__name__)
 
 class SafeSQLValidator:
     """SQL validation and security wrapper"""
-    
-    # Dangerous SQL patterns to block (UNION allowed for read-only queries)
+    # Dangerous SQL patterns to block (UNION allowed for read-only operations)
     DANGEROUS_PATTERNS = [
         r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE)\b',
         r'\b(EXEC|EXECUTE)\b',  # Removed UNION as it's safe for read-only operations
-        r'(\;|\-\-|\/\*|\*\/)',  # Comment delimiters
+        r'(\-\-|\/\*|\*\/)',  # Comment delimiters (removed ; as it's valid SQL syntax)
         r'(\<\?php|\<script)',  # Script injection
         r'\b(exec\(|system\(|shell_exec\()\b',  # Command execution
         r'\b(xp_cmdshell|sp_oacreate)\b',  # SQL Server specific

@@ -2685,6 +2685,9 @@ def main():
                     st.error("Failed to load vector store")
                     return
         
+        # Set chat function reference in session_state for UI pages to access
+        st.session_state._answer_question_chat_mode = answer_question_chat_mode
+        
         # Create chat page
         create_chat_page(st.session_state.vector_store, st.session_state.csv_data)
 
