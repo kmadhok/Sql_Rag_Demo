@@ -1,14 +1,27 @@
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect
+"""
+Streamlit application for SQL query generation and data analysis
+"""
+import logging
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
-import logging
 import os
 import json
 from typing import Dict, Any
 import asyncio
+from pathlib import Path
 
-from api import chat, data, sql
+# Load environment variables from parent directory
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    from dotenv import load_dotenv
+    load_dotenv(env_path)
+    print(f"✅ Loaded environment from: {env_path}")
+else:
+    print(f"⚠️ No .env file found at: {env_path}")
+
+from api import chat, data, sql, query_search
 from services.websocket_service import WebSocketManager
 from models.schemas import ChatRequest, ChatResponse
 
@@ -60,52 +73,8 @@ app.add_middleware(
 # Include routers
 app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 app.include_router(sql.router, prefix="/api/sql", tags=["sql"])
-app.include_router(data.router, prefix="/api/data", tags=["data"])
-
-# WebSocket endpoint for real-time chat
-@app.websocket("/ws/chat/{session_id}")
-async def websocket_chat(websocket: WebSocket, session_id: str):
-    await websocket_manager.connect(websocket, session_id)
-    
-    try:
-        while True:
-            # Receive message from client
-            data = await websocket.receive_text()
-            
-            try:
-                message_data = json.loads(data)
-                
-                # Process message through chat service
-                from services.rag_service import rag_service
-                rag_response = rag_service.process_query(
-                    question=message_data.get('message', ''),
-                    agent_type=message_data.get('agent_type', 'normal'),
-                    context=message_data.get('context')
-                )
-                
-                # Send back response
-                response = {
-                    "type": "message",
-                    "data": rag_response
-                }
-                await websocket.send_text(json.dumps(response))
-                
-            except json.JSONDecodeError:
-                error_response = {
-                    "type": "error",
-                    "message": "Invalid JSON format"
-                }
-                await websocket.send_text(json.dumps(error_response))
-            except Exception as e:
-                error_response = {
-                    "type": "error",
-                    "message": f"Processing error: {str(e)}"
-                }
-                await websocket.send_text(json.dumps(error_response))
-    
-    except WebSocketDisconnect:
-        websocket_manager.disconnect(websocket, session_id)
-        logger.info(f"WebSocket disconnected from session: {session_id}")
+app.include_router(data.router, prefix="/api", tags=["data"])
+app.include_router(query_search.router, prefix="/api", tags=["query-search"])
 
 # Health check endpoint
 @app.get("/health", response_model=dict)
@@ -140,7 +109,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "app:app",
         host="0.0.0.0",
-        port=8000,
+        port=8001,
         reload=True,
         log_level="info"
     )

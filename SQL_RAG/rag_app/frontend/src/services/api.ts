@@ -1,9 +1,9 @@
 import axios from 'axios';
 
 // Create axios instance with base configuration
-// Use relative URL to go through nginx proxy instead of direct backend connection
+// Use port 8001 for direct backend connection when not using nginx proxy
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || '/api',  // Use relative path for nginx proxy
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8001/api',  // Direct connection to backend on port 8001
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',

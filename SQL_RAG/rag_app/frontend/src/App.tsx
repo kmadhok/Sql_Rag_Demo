@@ -1,9 +1,9 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider } from 'react-redux';
-import { store } from './store';
 import { useSelector } from 'react-redux';
 import { RootState } from './store';
+import { store } from './store';
 
 // Pages
 import IntroductionPage from './pages/IntroductionPage';
@@ -39,9 +39,8 @@ const AppContent: React.FC = () => {
               <Route path="*" element={<Navigate to="/introduction" replace />} />
             </Routes>
           </main>
-          
-          <Notifications />
         </div>
+        <Notifications />
       </Router>
     </div>
   );
