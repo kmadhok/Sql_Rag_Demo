@@ -19,14 +19,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# WebSocket manager for real-time connections
+# Initialize WebSocket manager
 websocket_manager = WebSocketManager()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting up RAG SQL Service")
-    # Initialize services here if needed
+    # Initialize any connections here
     yield
     # Shutdown
     logger.info("Shutting down RAG SQL Service")
@@ -47,6 +47,9 @@ app.add_middleware(
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://frontend:3000",
+        "http://localhost:80",      # Nginx proxy on localhost
+        "http://127.0.0.1:80",      # Nginx proxy on 127.0.0.1
+        "http://0.0.0.0:80",        # Alternative local access
         os.getenv("FRONTEND_URL", "http://localhost:3000")
     ],
     allow_credentials=True,
@@ -72,122 +75,66 @@ async def websocket_chat(websocket: WebSocket, session_id: str):
             try:
                 message_data = json.loads(data)
                 
-                # Validate message structure
-                chat_request = ChatRequest(**message_data)
+                # Process message through chat service
+                from services.rag_service import rag_service
+                rag_response = rag_service.process_query(
+                    question=message_data.get('message', ''),
+                    agent_type=message_data.get('agent_type', 'normal'),
+                    context=message_data.get('context')
+                )
                 
-                # Process the message using chat service
-                # This would use your existing RAG logic
-                try:
-                    from services.rag_service import rag_service
-                    from models.schemas import ChatResponse
-                    from datetime import datetime
-                    
-                    # Process query
-                    result = await rag_service.process_query(
-                        question=chat_request.message,
-                        agent_type=chat_request.agentType,
-                        conversation_context=chat_request.conversationContext,
-                        session_id=session_id
-                    )
-                    
-                    # Send response
-                    response = ChatResponse(
-                        message=result.get('message', ''),
-                        sqlQuery=result.get('sql_query'),
-                        sqlExecuted=result.get('sql_executed', False),
-                        sqlResult=result.get('sql_result'),
-                        sources=result.get('sources', []),
-                        tokenUsage=result.get('token_usage', {}),
-                        contextUtilization=result.get('context_utilization'),
-                        agentUsed=result.get('agent_used'),
-                        sessionId=session_id,
-                        timestamp=datetime.now().isoformat(),
-                        processingTime=result.get('processing_time')
-                    )
-                    
-                    await websocket.send_text(response.json())
-                    
-                except Exception as e:
-                    logger.error(f"Error processing chat message: {e}")
-                    error_response = {
-                        "error": "Failed to process message",
-                        "message": str(e),
-                        "sessionId": session_id,
-                        "timestamp": datetime.now().isoformat()
-                    }
-                    await websocket.send_text(json.dumps(error_response))
-                    
+                # Send back response
+                response = {
+                    "type": "message",
+                    "data": rag_response
+                }
+                await websocket.send_text(json.dumps(response))
+                
             except json.JSONDecodeError:
-                logger.error(f"Invalid JSON received: {data}")
-                await websocket.send_text(json.dumps({
-                    "error": "Invalid message format",
-                    "sessionId": session_id
-                }))
+                error_response = {
+                    "type": "error",
+                    "message": "Invalid JSON format"
+                }
+                await websocket.send_text(json.dumps(error_response))
             except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                await websocket.send_text(json.dumps({
-                    "error": "Failed to process message",
-                    "message": str(e),
-                    "sessionId": session_id
-                }))
-                
+                error_response = {
+                    "type": "error",
+                    "message": f"Processing error: {str(e)}"
+                }
+                await websocket.send_text(json.dumps(error_response))
+    
     except WebSocketDisconnect:
-        logger.info(f"Client disconnected from session {session_id}")
-        await websocket_manager.disconnect(websocket, session_id)
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-        await websocket_manager.disconnect(websocket, session_id)
+        websocket_manager.disconnect(websocket, session_id)
+        logger.info(f"WebSocket disconnected from session: {session_id}")
 
 # Health check endpoint
-@app.get("/health")
+@app.get("/health", response_model=dict)
 async def health_check():
+    """Health check endpoint"""
     return {
         "status": "healthy",
         "service": "RAG SQL Service",
         "version": "1.0.0"
     }
 
-# Root endpoint with basic info
+# Root endpoint
 @app.get("/", response_class=HTMLResponse)
 async def root():
+    """Root endpoint with basic info"""
     return """
-    <!DOCTYPE html>
     <html>
-    <head>
-        <title>RAG SQL Service</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; background: #f5f5f5; }
-            .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-            h1 { color: #333; }
-            .api-list { list-style: none; padding: 0; }
-            .api-list li { margin: 10px 0; padding: 15px; background: #f8f9fa; border-left: 4px solid #007bff; border-radius: 4px; }
-            .endpoint { font-family: monospace; background: #e9ecef; padding: 2px 6px; border-radius: 3px; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>⚡ RAG SQL Service API</h1>
+        <head>
+            <title>RAG SQL Service</title>
+        </head>
+        <body>
+            <h1>RAG SQL Service</h1>
             <p>FastAPI backend for SQL RAG application</p>
-            
-            <h2>Available Endpoints:</h2>
-            <ul class="api-list">
-                <li><span class="endpoint">GET /api/data/schema</span> - Get database schema</li>
-                <li><span class="endpoint">GET /api/data/analytics</span> - Get catalog analytics</li>
-                <li><span class="endpoint">GET /api/data/queries</span> - Get query catalog</li>
-                <li><span class="endpoint">POST /api/chat/query</span> - Send chat query</li>
-                <li><span class="endpoint">POST /api/chat/execute-sql</span> - Execute SQL</li>
-                <li><span class="endpoint">GET /api/chat/history/{session_id}</span> - Get conversation history</li>
-                <li><span class="endpoint">WS /ws/chat/{session_id}</span> - Real-time chat WebSocket</li>
-            </ul>
-            
-            <h2>Documentation:</h2>
-            <p>Visit <a href="/docs">/docs</a> for interactive API documentation</p>
-        </div>
-    </body>
+            <p><a href="/docs">API Documentation</a></p>
+            <p><a href="/health">Health Check</a></p>
+        </body>
     </html>
     """
 
-# For development
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

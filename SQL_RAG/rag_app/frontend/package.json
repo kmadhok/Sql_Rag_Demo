@@ -1,6 +1,6 @@
 {
   "name": "sql-rag-frontend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "React frontend for SQL RAG application",
   "private": true,
   "dependencies": {
@@ -8,23 +8,24 @@
     "@types/node": "^20.8.0",
     "@types/react": "^18.2.31",
     "@types/react-dom": "^18.2.14",
+    "axios": "^1.13.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-redux": "^8.1.3",
     "react-router-dom": "^6.16.0",
     "react-scripts": "5.0.1",
-    "typescript": "^5.2.2",
+    "typescript": "^4.9.5",
     "web-vitals": "^3.5.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.6",
-    "testing-library/react": "^13.4.0",
-    "testing-library/jest-dom": "^6.1.4"
+    "@testing-library/jest-dom": "^6.1.4",
+    "@testing-library/react": "^13.4.0",
+    "@types/jest": "^29.5.6"
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "react-scripts test --watchAll=false",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

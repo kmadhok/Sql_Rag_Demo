@@ -1,117 +1,117 @@
 import React, { useState } from 'react';
-import { QueryItem } from '../../types/data';
-import '../styles/QueryCard.css';
+import { QueryItem } from '../../types/api';
+import './QueryCard.css';
 
 interface QueryCardProps {
   query: QueryItem;
-  onCopy: (sql: string) => void;
+  onExecute?: (sql: string) => void;
+  onView?: (sql: string) => void;
 }
 
-const QueryCard: React.FC<QueryCardProps> = ({ query, onCopy }) => {
-  const [expanded, setExpanded] = useState(false);
-  
-  const handleCopy = () => {
-    onCopy(query.query);
-    // Could add a toast notification here
+const QueryCard: React.FC<QueryCardProps> = ({ 
+  query, 
+  onExecute, 
+  onView 
+}) => {
+  const [copied, setCopied] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(query.sql);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
   };
-  
-  const truncateQuery = (sql: string, maxLength: number = 80) => {
-    if (sql.length <= maxLength) return sql;
-    return sql.substring(0, maxLength) + '...';
+
+  const getComplexityColor = (complexity: string) => {
+    switch (complexity) {
+      case 'Easy': return 'easy';
+      case 'Medium': return 'medium';
+      case 'Hard': return 'hard';
+      default: return 'medium';
+    }
   };
-  
+
+  const getCategoryIcon = (category: string) => {
+    switch (category) {
+      case 'Basic': return '🔍';
+      case 'Analytics': return '📊';
+      case 'Reports': return '📈';
+      case 'Admin': return '⚙️';
+      default: return '🔍';
+    }
+  };
+
   return (
     <div className="query-card">
       <div className="query-header">
-        <h4 className="query-title">
-          Query #{query.id}
-          {query.tags && query.tags.length > 0 && (
-            <div className="query-tags">
-              {query.tags.slice(0, 3).map((tag, index) => (
-                <span key={index} className="tag">
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </h4>
-      </div>
-      
-      {query.description && (
-        <p className="query-description">{query.description}</p>
-      )}
-      
-      <div className="query-meta">
-        {query.tables && query.tables.length > 0 && (
-          <div className="query-tables">
-            <span className="meta-label">Tables:</span>
-            {query.tables.slice(0, 3).map((table, index) => (
-              <span key={index} className="table-tag">
-                {table}
-              </span>
-            ))}
-            {query.tables.length > 3 && (
-              <span className="table-more">
-                +{query.tables.length - 3} more
-              </span>
-            )}
-          </div>
-        )}
-        
-        {query.joins && query.joins.length > 0 && (
-          <div className="query-joins">
-            <span className="meta-label">Joins:</span>
-            <span className="join-count">
-              {query.joins.length} {query.joins.length === 1 ? 'join' : 'joins'}
+        <div className="query-title">
+          <h3>{query.title}</h3>
+          <div className="query-badges">
+            <span className="category-badge">
+              {getCategoryIcon(query.category)} {query.category}
+            </span>
+            <span className={`complexity-badge ${getComplexityColor(query.complexity)}`}>
+              {query.complexity}
             </span>
           </div>
-        )}
-      </div>
-      
-      <div className="query-sql">
-        <div className="sql-preview">
-          <code>{truncateQuery(query.query)}</code>
         </div>
-        
-        {expanded && (
-          <div className="sql-full">
-            <pre>
-              <code>{query.query}</code>
+        <div className="query-actions">
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="view-button"
+          >
+            {showDetails ? 'Hide' : 'View'}
+          </button>
+          <button
+            onClick={handleCopy}
+            className={`copy-button ${copied ? 'copied' : ''}`}
+          >
+            {copied ? '✓ Copied!' : '📋 Copy'}
+          </button>
+          {onExecute && (
+            <button
+              onClick={() => onExecute(query.sql)}
+              className="execute-button"
+            >
+              ▶ Execute
+            </button>
+          )}
+        </div>
+      </div>
+
+      <p className="query-description">{query.description}</p>
+
+      {query.tags && query.tags.length > 0 && (
+        <div className="query-tags">
+          {query.tags.map((tag, index) => (
+            <span key={index} className="tag">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {showDetails && (
+        <div className="query-details">
+          <div className="sql-section">
+            <h4>SQL Query:</h4>
+            <pre className="sql-code">
+              <code>{query.sql}</code>
             </pre>
           </div>
-        )}
-      </div>
-      
-      <div className="query-actions">
-        <button
-          onClick={() => setExpanded(!expanded)}
-          className="expand-button"
-        >
-          {expanded ? '▼ Show Less' : '▶ Show More'}
-        </button>
-        
-        <button
-          onClick={handleCopy}
-          className="copy-button"
-          title="Copy SQL to clipboard"
-        >
-          📋 Copy SQL
-        </button>
-      </div>
-      
-      {query.joins && query.joins.length > 0 && expanded && (
-        <div className="query-joins-detail">
-          <h5>Join Details:</h5>
-          {query.joins.map((join, index) => (
-            <div key={index} className="join-info">
-              <span className="join-type">
-                {join.type.toUpperCase()}
-              </span>
-              <span className="join-relationship">
-                {join.leftTable}.{join.leftColumn} ↔ {join.rightTable}.{join.rightColumn}
-              </span>
+          
+          {query.usage_count !== undefined && (
+            <div className="usage-info">
+              <span>Used {query.usage_count} times</span>
+              {query.last_used && (
+                <span>Last used: {new Date(query.last_used).toLocaleDateString()}</span>
+              )}
             </div>
-          ))}
+          )}
         </div>
       )}
     </div>

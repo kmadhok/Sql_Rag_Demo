@@ -1,67 +1,40 @@
 import React from 'react';
-import { AgentType } from '../../types/api';
-import '../styles/AgentSelector.css';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState, AppDispatch } from '../../store';
+import { setAgentType } from '../../store/chatSlice';
+import './AgentSelector.css';
 
 interface AgentSelectorProps {
-  selectedAgent: AgentType;
-  onAgentChange: (agent: AgentType) => void;
+  disabled?: boolean;
 }
 
-const AgentSelector: React.FC<AgentSelectorProps> = ({
-  selectedAgent,
-  onAgentChange,
-}) => {
-  const agents = [
-    {
-      type: AgentType.NORMAL,
-      name: 'Normal',
-      description: 'Standard question answering',
-      icon: '💬',
-    },
-    {
-      type: AgentType.CREATE,
-      name: '@create',
-      description: 'Generate SQL queries',
-      icon: '🔨',
-    },
-    {
-      type: AgentType.EXPLAIN,
-      name: '@explain',
-      description: 'Explain SQL queries',
-      icon: '📖',
-    },
-    {
-      type: AgentType.SCHEMA,
-      name: '@schema',
-      description: 'Explore database schema',
-      icon: '🗂️',
-    },
-    {
-      type: AgentType.LONGANSWER,
-      name: '@longanswer',
-      description: 'Detailed explanations',
-      icon: '📝',
-    },
+const AgentSelector: React.FC<AgentSelectorProps> = ({ disabled = false }) => {
+  const { agentType } = useSelector((state: RootState) => state.chat);
+  const dispatch = useDispatch<AppDispatch>();
+
+  const agentOptions = [
+    { value: 'normal', label: 'Normal' },
+    { value: 'create', label: 'Create' },
+    { value: 'explain', label: 'Explain' },
+    { value: 'schema', label: 'Schema' },
+    { value: 'longanswer', label: 'Long Answer' },
   ];
-  
+
   return (
     <div className="agent-selector">
-      <label className="agent-label">Agent Mode:</label>
-      <div className="agent-options">
-        {agents.map((agent) => (
-          <button
-            key={agent.type}
-            className={`agent-option ${
-              selectedAgent === agent.type ? 'selected' : ''
-            }`}
-            onClick={() => onAgentChange(agent.type)}
-            title={agent.description}
-          >
-            <span className="agent-icon">{agent.icon}</span>
-            <span className="agent-name">{agent.name}</span>
-          </button>
+      <label>Agent Mode:</label>
+      <select
+        value={agentType}
+        onChange={(e) => dispatch(setAgentType(e.target.value))}
+        disabled={disabled}
+        className="agent-select"
+      >
+        {agentOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
         ))}
-      </div>
+      </select>
     </div>
   );
 };
