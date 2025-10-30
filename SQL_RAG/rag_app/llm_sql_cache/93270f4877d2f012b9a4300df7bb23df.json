@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.users",
+      "bigquery-public-data.thelook_ecommerce.events"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "u",
+        "table": "bigquery-public-data.thelook_ecommerce.users"
+      },
+      {
+        "alias": "e",
+        "table": "bigquery-public-data.thelook_ecommerce.events"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.8002071380615234,
+  "tokens_used": 401,
+  "cost_estimate": 3.0075e-05
+}

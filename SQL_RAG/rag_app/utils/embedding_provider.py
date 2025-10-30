@@ -6,17 +6,23 @@ Provides a unified interface for different embedding providers with
 optimized configuration for both local development and cloud deployment.
 
 Supports:
+- Google Gemini embeddings (default, recommended for Cloud Run and Vertex AI)
 - OpenAI embeddings (production-ready, cloud-optimized)
 - Ollama embeddings (local development, legacy support)
 
 Configuration (environment variables):
-- EMBEDDINGS_PROVIDER: "openai" (default, recommended for Cloud Run) or "ollama"
+- EMBEDDINGS_PROVIDER: "gemini" (default, recommended), "openai", or "ollama"
+- GEMINI_EMBEDDING_MODEL: defaults to "gemini-embedding-001" (Google's embedding model)
 - OPENAI_EMBEDDING_MODEL: defaults to "text-embedding-3-small" (cost-effective, high quality)
+- GOOGLE_CLOUD_PROJECT: required for Gemini embeddings (your GCP project ID)
+- GOOGLE_CLOUD_LOCATION: defaults to "global" for Gemini embeddings
+- GOOGLE_GENAI_USE_VERTEXAI: defaults to "True" for production use
 - OPENAI_API_KEY: required when using OpenAI (store in Google Secret Manager for Cloud Run)
 - OLLAMA_EMBEDDING_MODEL: defaults to "nomic-embed-text" (local development only)
 
 Cloud Run Deployment Notes:
-- OpenAI is the recommended provider for serverless deployment
+- Gemini embeddings are RECOMMENDED for serverless deployment with Vertex AI
+- OpenAI provider is also supported for serverless deployment
 - Ollama requires persistent infrastructure and is not suitable for Cloud Run
 - API keys should be managed through Google Secret Manager in production
 """
@@ -40,9 +46,10 @@ def get_embedding_function(
 
     Args:
         provider: Embedding provider to use. Options:
-            - "openai" (default, recommended for Cloud Run): Uses OpenAI's embedding API
+            - "gemini" (default, recommended for Cloud Run): Uses Google's Gemini embedding API via Vertex AI
+            - "openai": Uses OpenAI's embedding API (alternative option)
             - "ollama": Local Ollama embeddings (development only, not for Cloud Run)
-            Defaults to EMBEDDINGS_PROVIDER environment variable or "openai".
+            Defaults to EMBEDDINGS_PROVIDER environment variable or "gemini".
         model: Optional explicit model name override.
 
     Returns:
@@ -58,15 +65,17 @@ def get_embedding_function(
         - Comprehensive logging for debugging in cloud environments
         - Fallback error handling for missing dependencies
     """
-    selected = (provider or os.getenv("EMBEDDINGS_PROVIDER", "openai")).lower()
+    selected = (provider or os.getenv("EMBEDDINGS_PROVIDER", "gemini")).lower()
     logger.info(f"Initializing embedding provider: {selected}")
 
-    if selected == "openai":
+    if selected == "gemini":
+        return _create_gemini_embeddings(model)
+    elif selected == "openai":
         return _create_openai_embeddings(model)
     elif selected == "ollama":
         return _create_ollama_embeddings(model)
     else:
-        error_msg = f"Unknown embeddings provider: '{selected}'. Supported providers: 'openai', 'ollama'"
+        error_msg = f"Unknown embeddings provider: '{selected}'. Supported providers: 'gemini', 'openai', 'ollama'"
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
@@ -129,6 +138,150 @@ def _create_openai_embeddings(model: str | None = None) -> Any:
         raise RuntimeError(error_msg) from e
 
 
+def _create_gemini_embeddings(model: str | None = None) -> Any:
+    """Create Google Gemini embeddings instance via Gen AI SDK.
+    
+    Recommended production choice for Cloud Run deployment with Vertex AI.
+    
+    Args:
+        model: Optional model name override.
+        
+    Returns:
+        Configured Gemini embeddings object compatible with LangChain interface.
+        
+    Raises:
+        RuntimeError: If google-genai is not installed or required environment
+                     variables are missing.
+    """
+    try:
+        from google import genai
+        from google.genai.types import EmbedContentConfig
+        logger.info("Successfully imported Google Gen AI SDK")
+    except ImportError as e:
+        error_msg = (
+            "google-genai is not installed. "
+            "Install it with: pip install --upgrade google-genai"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg) from e
+
+    # Check for required environment variables
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project_id:
+        error_msg = (
+            "GOOGLE_CLOUD_PROJECT environment variable not set. "
+            "For local development: export GOOGLE_CLOUD_PROJECT='your-project-id' "
+            "For Cloud Run: ensure the service account has the right project access"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+
+    # Configure Gen AI SDK for Vertex AI
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
+    use_vertexai = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True").lower() in ("true", "1", "yes")
+    model_name = model or os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+    
+    logger.info(f"Using Gemini embedding model: {model_name}")
+    logger.info(f"Using Vertex AI: {use_vertexai}, Project: {project_id}, Location: {location}")
+
+    try:
+        # Initialize Gen AI client
+        client = genai.Client(
+            vertexai=use_vertexai,
+            project=project_id,
+            location=location
+        )
+        
+        # Create a LangChain-compatible wrapper for Gemini embeddings
+        class GeminiEmbeddings:
+            """LangChain-compatible wrapper for Google Gemini embeddings."""
+            
+            def __init__(self, client: genai.Client, model: str, task_type: str = "RETRIEVAL_DOCUMENT"):
+                self.client = client
+                self.model = model
+                self.task_type = task_type
+                # Gemini embedding has 768 dimensions by default
+                self._dimension = 768
+                
+            def embed_documents(self, texts: list[str]) -> list[list[float]]:
+                """Embed multiple documents for retrieval."""
+                return self._embed_batch(texts, "RETRIEVAL_DOCUMENT")
+                
+            def embed_query(self, text: str) -> list[float]:
+                """Embed a single query for retrieval."""
+                return self._embed_batch([text], "RETRIEVAL_QUERY")[0]
+            
+            def __call__(self, input_text: str | list[str]) -> list[float] | list[list[float]]:
+                """Make the embedding function callable directly.
+                
+                This is required for compatibility with LangChain vector stores
+                that expect the embedding function to be callable.
+                
+                Args:
+                    input_text: Single text string or list of texts to embed.
+                    
+                Returns:
+                    Embedding vector(s) as list(s) of floats.
+                """
+                if isinstance(input_text, str):
+                    # Single text - use query embedding
+                    return self.embed_query(input_text)
+                elif isinstance(input_text, list):
+                    # Multiple texts - use document embedding
+                    return self.embed_documents(input_text)
+                else:
+                    raise TypeError(f"Expected str or list[str], got {type(input_text)}")
+                
+            def _embed_batch(self, texts: list[str], task_type: str) -> list[list[float]]:
+                """Internal method to embed a batch of texts."""
+                embeddings = []
+                
+                # Process texts in batches to avoid rate limits
+                batch_size = 100  # Gemini has generous rate limits
+                for i in range(0, len(texts), batch_size):
+                    batch = texts[i:i + batch_size]
+                    
+                    try:
+                        response = client.models.embed_content(
+                            model=self.model,
+                            contents=batch,
+                            config=EmbedContentConfig(
+                                task_type=task_type,
+                                output_dimensionality=768  # Standard Gemini embedding dimension
+                            )
+                        )
+                        
+                        # Extract embedding values from response
+                        for embedding in response.embeddings:
+                            embeddings.append(embedding.values)
+                            
+                    except Exception as batch_error:
+                        error_msg = f"Failed to embed batch {i//batch_size + 1}: {str(batch_error)}"
+                        logger.error(error_msg)
+                        raise RuntimeError(error_msg) from batch_error
+                
+                return embeddings
+            
+            @property
+            def dimension(self) -> int:
+                """Return the embedding dimension."""
+                return self._dimension
+                
+        embeddings = GeminiEmbeddings(client, model_name)
+        logger.info("Gemini embeddings initialized successfully")
+        return embeddings
+        
+    except Exception as e:
+        error_msg = (
+            f"Failed to initialize Gemini embeddings: {str(e)}. "
+            "Ensure Google Cloud authentication is properly configured. "
+            "For local development: run 'gcloud auth application-default login' "
+            "For Cloud Run: ensure the service account has 'aiplatform.user' role"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg) from e
+
+
 def _create_ollama_embeddings(model: str | None = None) -> Any:
     """Create Ollama embeddings instance for local development.
     
@@ -184,9 +337,22 @@ def get_provider_info() -> dict[str, Any]:
     Returns:
         Dictionary containing provider configuration details.
     """
-    provider = os.getenv("EMBEDDINGS_PROVIDER", "openai").lower()
+    provider = os.getenv("EMBEDDINGS_PROVIDER", "gemini").lower()
     
-    if provider == "openai":
+    if provider == "gemini":
+        model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+        use_vertexai = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True").lower() in ("true", "1", "yes")
+        return {
+            "provider": "gemini",
+            "model": model,
+            "project_id": project_id or "NOT_SET",
+            "use_vertexai": use_vertexai,
+            "api_key_configured": bool(project_id),  # Uses GCP authentication
+            "cloud_ready": True,
+            "dimensions": 768,  # Gemini embedding standard dimensions
+        }
+    elif provider == "openai":
         model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         api_key_set = bool(os.getenv("OPENAI_API_KEY"))
         return {

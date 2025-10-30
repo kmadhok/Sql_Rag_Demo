@@ -1,0 +1,25 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.orders"
+    ],
+    "cte_tables": [
+      "first_order"
+    ],
+    "table_aliases": [
+      {
+        "alias": "u",
+        "table": "bigquery-public-data.thelook_ecommerce.users"
+      },
+      {
+        "alias": "f",
+        "table": "first_order"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.8135888576507568,
+  "tokens_used": 436,
+  "cost_estimate": 3.27e-05
+}

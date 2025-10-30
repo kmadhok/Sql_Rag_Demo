@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-GPU-Accelerated Standalone Embedding Generator - Windows Compatible Pre-Build Mode
+Gemini-Powered Standalone Embedding Generator - Windows Compatible
 
 A high-performance command-line tool for generating embeddings on Windows systems
-with NVIDIA GPU acceleration. Uses ThreadPoolExecutor for stable concurrent processing
-and leverages Ollama's built-in GPU acceleration and concurrency features.
+with FAISS GPU acceleration. Uses ThreadPoolExecutor for stable concurrent processing
+and leverages Google's Gemini embeddings for superior vector quality.
 
 Optimized for systems with:
 - NVIDIA GPUs (RTX A1000 6GB VRAM and similar)
 - High RAM (16GB+ recommended)
 - Multi-core CPUs
+- Google Cloud access with proper authentication
 
 Usage:
     python standalone_embedding_generator.py --csv "queries.csv"
     python standalone_embedding_generator.py --csv "data.csv" --batch-size 300 --workers 16
     python standalone_embedding_generator.py --help
 
-Performance Notes:
-- Uses ThreadPoolExecutor (no pickle issues)
-- Leverages Ollama GPU acceleration (20-50x faster)
+Features:
+- Uses Gemini embeddings (768-dimension, high-quality)
+- FAISS GPU acceleration for vector operations (20-50x faster)
 - Supports large batch sizes with high RAM systems
-- Optimized for concurrent GPU embedding requests
+- Optimized for concurrent GPU processing
+- Cloud-ready with Vertex AI integration
 """
 
 import os
@@ -41,16 +43,20 @@ from utils.skip_list_loader import load_skip_queries
 # Import required components
 try:
     from data_source_manager import DataSourceManager
-    from langchain_ollama import OllamaEmbeddings
+    from utils.embedding_provider import get_embedding_function
     from langchain_community.vectorstores import FAISS
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    try:
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+    except ImportError:
+        from langchain.text_splitter import RecursiveCharacterTextSplitter
     from langchain_core.documents import Document
     # Import LookML parser
     from simple_lookml_parser import SimpleLookMLParser
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Please ensure all required packages are installed:")
-    print("pip install langchain-ollama langchain-community faiss-gpu pandas tqdm")
+    print("pip install faiss-gpu pandas tqdm langchain langchain-community")
+    print("For Gemini embeddings: pip install google-genai")
     print("Note: If faiss-gpu installation fails, fallback to faiss-cpu")
     sys.exit(1)
 
@@ -67,27 +73,26 @@ def process_document_batch_gpu(batch_data):
     Full GPU-accelerated worker function for processing a batch of documents
     
     Uses ThreadPoolExecutor (no pickle issues) with both:
-    - Ollama GPU acceleration for embeddings
+    - Gemini embeddings for high-quality vector representations
     - FAISS GPU acceleration for vector operations
     
     Args:
-        batch_data: Tuple of (doc_data_list, model_name)
+        batch_data: Tuple of (doc_data_list)
         
     Returns:
         FAISS vector store (GPU-enabled if available) or None if failed
     """
     try:
         # Unpack data (no pickle issues with ThreadPoolExecutor)
-        doc_data_list, model_name = batch_data
+        doc_data_list = batch_data
         
         # Import fresh instances (thread-safe)
-        from langchain_ollama import OllamaEmbeddings
+        from utils.embedding_provider import get_embedding_function
         from langchain_community.vectorstores import FAISS
         from langchain_core.documents import Document
         
-        # Initialize embeddings with GPU acceleration
-        # Ollama automatically uses GPU if available and configured
-        embeddings = OllamaEmbeddings(model=model_name)
+        # Initialize Gemini embeddings
+        embeddings = get_embedding_function(provider="gemini")
         
         # Recreate Document objects from data
         documents = []
@@ -122,7 +127,7 @@ def process_document_batch_gpu(batch_data):
 
 
 class GPUStandaloneEmbeddingGenerator:
-    """GPU-accelerated standalone embedding generator with Windows-compatible threading"""
+    """GPU-accelerated standalone embedding generator with Gemini embeddings"""
     
     def __init__(self, csv_path: str, output_dir: str = "faiss_indices", 
                  batch_size: int = 100, max_workers: int = 16, verbose: bool = False,
@@ -198,7 +203,7 @@ class GPUStandaloneEmbeddingGenerator:
                 self.schema_lookup = {}
     
     def _check_gpu_capabilities(self) -> Dict[str, bool]:
-        """Check GPU capabilities for both FAISS and Ollama"""
+        """Check GPU capabilities for FAISS acceleration"""
         capabilities = {
             'faiss_gpu': False,
             'nvidia_gpu': False,
@@ -394,39 +399,37 @@ class GPUStandaloneEmbeddingGenerator:
         return self.schema_lookup.get(normalized_name, [])
     
     def _initialize_embeddings(self) -> bool:
-        """Initialize Ollama embeddings with GPU acceleration testing"""
+        """Initialize Gemini embeddings"""
         try:
             if self.verbose:
-                print("🔧 Initializing Ollama GPU-accelerated embeddings...")
+                print("🔧 Initializing Gemini embeddings...")
             
-            self.embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            self.embeddings = get_embedding_function(provider="gemini")
             
-            # Test connection and GPU acceleration
+            # Test connection
             start_time = time.time()
-            test_result = self.embeddings.embed_query("test connection for GPU acceleration")
+            test_result = self.embeddings.embed_query("test connection for Gemini embeddings")
             embedding_time = time.time() - start_time
             
             if len(test_result) > 0:
                 if self.verbose:
-                    print(f"✅ Ollama connection verified (embedding took {embedding_time:.3f}s)")
+                    print(f"✅ Gemini connection verified (embedding took {embedding_time:.3f}s)")
                     print(f"📊 Embedding dimensions: {len(test_result)}")
-                    if embedding_time < 0.1:  # Very fast = likely GPU accelerated
-                        print("🚀 GPU acceleration appears to be active!")
-                    elif embedding_time < 1.0:  # Fast = good performance
-                        print("⚡ Good embedding performance detected")
-                    else:  # Slow = likely CPU only
-                        print("⚠️  Slower performance - check GPU configuration")
+                    if embedding_time < 1.0:  # Fast = good performance
+                        print("🚀 Good embedding performance detected")
+                    else:  # Slow = potential issues
+                        print("⚠️  Slower performance - check network and API configuration")
                 return True
             else:
-                print("❌ Ollama returned empty embedding")
+                print("❌ Gemini returned empty embedding")
                 return False
                 
         except Exception as e:
-            print(f"❌ Failed to initialize Ollama embeddings: {e}")
-            print("Make sure Ollama is running with GPU support:")
-            print("  1. ollama serve")
-            print("  2. ollama pull nomic-embed-text")
-            print("  3. Set OLLAMA_NUM_PARALLEL=16 for optimal concurrency")
+            print(f"❌ Failed to initialize Gemini embeddings: {e}")
+            print("Make sure Google Cloud authentication is properly configured:")
+            print("  1. Set GOOGLE_CLOUD_PROJECT environment variable")
+            print("  2. Ensure service account has 'aiplatform.user' role")
+            print("  3. For local development: gcloud auth application-default login")
             return False
     
     def _load_and_validate_csv(self) -> pd.DataFrame:
@@ -958,8 +961,8 @@ class GPUStandaloneEmbeddingGenerator:
             if self.verbose:
                 print(f"⚠️  Could not save progress: {e}")
     
-    def _prepare_batch_data(self, docs_batch: List[Document]) -> Tuple[List[Dict], str]:
-        """Convert Document objects to serializable data for Windows multiprocessing"""
+    def _prepare_batch_data(self, docs_batch: List[Document]) -> List[Dict]:
+        """Convert Document objects to serializable data for multiprocessing"""
         doc_data_list = []
         for doc in docs_batch:
             doc_data = {
@@ -968,7 +971,7 @@ class GPUStandaloneEmbeddingGenerator:
             }
             doc_data_list.append(doc_data)
         
-        return doc_data_list, "nomic-embed-text"
+        return doc_data_list
     
     def _generate_embeddings_gpu_parallel(self, documents: List[Document], resume: bool = False) -> FAISS:
         """Generate embeddings using GPU-accelerated ThreadPoolExecutor (Windows-compatible)"""
@@ -983,7 +986,7 @@ class GPUStandaloneEmbeddingGenerator:
         
         print(f"🔧 Processing {len(documents)} documents in {total_batches} batches")
         print(f"📊 Batch size: {self.batch_size}, GPU-accelerated workers: {self.max_workers}")
-        print("🚀 Using ThreadPoolExecutor with Ollama GPU acceleration")
+        print("🚀 Using ThreadPoolExecutor with Gemini embeddings")
         
         if resume and progress['completed_batches'] > 0:
             print(f"📁 Resuming from batch {progress['completed_batches']}/{total_batches}")
@@ -1021,7 +1024,7 @@ class GPUStandaloneEmbeddingGenerator:
                             vector_stores.append(vector_store)
                             
                             # Update progress (calculate hash from batch data)
-                            doc_data_list, _ = batch_data
+                            doc_data_list = batch_data
                             content = "\n".join([doc_data['content'] for doc_data in doc_data_list])
                             batch_hash = hashlib.md5(content.encode()).hexdigest()
                             self.processed_hashes.add(batch_hash)
@@ -1279,24 +1282,24 @@ class GPUStandaloneEmbeddingGenerator:
             else:
                 print("🔄 GPU-accelerated embedding generation starting...")
             
-            print("🚀 Leveraging Ollama GPU acceleration with ThreadPoolExecutor")
+            print("🚀 Leveraging Gemini embeddings with ThreadPoolExecutor")
             
             # Report GPU capabilities
             if self.gpu_available.get('faiss_gpu') and self.gpu_available.get('nvidia_gpu'):
-                print(f"🎯 Full GPU acceleration enabled:")
+                print(f"🎯 Full acceleration enabled:")
                 print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
-                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   ⚡ Gemini embeddings: High-quality API-based")
                 print(f"   🚀 FAISS vector operations: GPU-accelerated")
             elif self.gpu_available.get('nvidia_gpu'):
-                print(f"⚡ Partial GPU acceleration:")
+                print(f"⚡ Partial acceleration:")
                 print(f"   📊 NVIDIA GPU: {self.gpu_available['gpu_memory']} MB VRAM")
-                print(f"   ⚡ Ollama embeddings: GPU-accelerated")
+                print(f"   ⚡ Gemini embeddings: High-quality API-based")
                 print(f"   ⚠️  FAISS operations: CPU mode (install faiss-gpu)")
             else:
                 print("⚠️  CPU-only mode detected")
                 print("💡 Consider installing faiss-gpu and ensuring NVIDIA GPU drivers")
             
-            # Initialize Ollama
+            # Initialize Gemini embeddings
             if not self._initialize_embeddings():
                 return False
             
@@ -1342,10 +1345,10 @@ class GPUStandaloneEmbeddingGenerator:
     def _load_existing_vector_store(self, index_path) -> Optional:
         """Load existing FAISS vector store from disk"""
         try:
-            from langchain_ollama import OllamaEmbeddings
+            from utils.embedding_provider import get_embedding_function
             from langchain_community.vectorstores import FAISS
             
-            embeddings = OllamaEmbeddings(model="nomic-embed-text")
+            embeddings = get_embedding_function(provider="gemini")
             vector_store = FAISS.load_local(
                 str(index_path),
                 embeddings,
@@ -1361,9 +1364,9 @@ class GPUStandaloneEmbeddingGenerator:
 
 
 def main():
-    """Main entry point for GPU-accelerated standalone embedding generator"""
+    """Main entry point for Gemini-powered standalone embedding generator"""
     parser = argparse.ArgumentParser(
-        description="GPU-accelerated standalone embedding generator with Windows compatibility",
+        description="Gemini-powered standalone embedding generator with FAISS GPU acceleration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1392,11 +1395,12 @@ Examples:
   python standalone_embedding_generator.py --csv "data.csv" --incremental
   
 Performance Notes:
-  - GPU acceleration provides 20-50x speedup over CPU-only processing
+  - Gemini embeddings provide high-quality 768-dimension vectors for superior search
+  - FAISS GPU acceleration provides 20-50x speedup over CPU-only processing
   - Incremental mode processes only new queries (seconds vs minutes)
   - Higher batch sizes recommended for systems with 16GB+ RAM
   - More workers leverage GPU concurrency (recommend 12-20 for RTX A1000)
-  - Set OLLAMA_NUM_PARALLEL=16 environment variable for optimal GPU utilization
+  - Ensure Google Cloud authentication is properly configured for Gemini access
         """
     )
     
@@ -1404,6 +1408,8 @@ Performance Notes:
         '--csv', required=True,
         help='Path to CSV file containing queries'
     )
+    
+
     
     parser.add_argument(
         '--output', default='faiss_indices',
@@ -1527,11 +1533,11 @@ Performance Notes:
     if args.batch_size > 500:
         print("⚠️  Very large batch size (>500) may cause memory issues on some systems")
     
-    # GPU acceleration reminder
-    print("💡 For optimal GPU performance, ensure:")
-    print("   1. Ollama is running: ollama serve")
-    print("   2. GPU model loaded: ollama pull nomic-embed-text") 
-    print("   3. Set concurrency: export OLLAMA_NUM_PARALLEL=16")
+    # Gemini authentication reminder
+    print("💡 For optimal Gemini performance, ensure:")
+    print("   1. Set GOOGLE_CLOUD_PROJECT environment variable")
+    print("   2. Configure GCP authentication (gcloud auth application-default login)")
+    print("   3. Ensure service account has 'aiplatform.user' role")
     
     # Create generator
     try:
@@ -1566,5 +1572,5 @@ Performance Notes:
 if __name__ == "__main__":
     # GPU-accelerated threading approach - no multiprocessing setup needed
     # ThreadPoolExecutor is Windows-compatible and avoids pickle issues
-    print("🚀 Starting GPU-accelerated embedding generation...")
+    print("🚀 Starting Gemini-powered embedding generation...")
     sys.exit(main())

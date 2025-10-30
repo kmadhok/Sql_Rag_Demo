@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.users",
+      "bigquery-public-data.thelook_ecommerce.orders"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "ag",
+        "table": "age_group"
+      },
+      {
+        "alias": "oc",
+        "table": "order_counts"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.9169070720672607,
+  "tokens_used": 368,
+  "cost_estimate": 2.76e-05
+}

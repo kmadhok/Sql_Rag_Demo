@@ -11,7 +11,7 @@ class AppConfig:
     
     # Original constants from main app
     FAISS_INDICES_DIR: Path = Path(__file__).parent.parent / "faiss_indices"
-    DEFAULT_VECTOR_STORE: str = "index_transformed_sample_queries"
+    DEFAULT_VECTOR_STORE: str = "index_sample_queries_with_metadata_recovered"
     CSV_PATH: Path = Path(__file__).parent.parent / "sample_queries_with_metadata.csv"
     CATALOG_ANALYTICS_DIR: Path = Path(__file__).parent.parent / "catalog_analytics"
     SCHEMA_CSV_PATH: Path = Path(__file__).parent.parent / "data_new/thelook_ecommerce_schema.csv"

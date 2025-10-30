@@ -54,7 +54,6 @@ except ImportError:
     GRAPHVIZ_AVAILABLE = False
 
 # Import our enhanced RAG function and hybrid search components
-from simple_rag_simple_gemini import answer_question_simple_gemini
 from utils.embedding_provider import get_provider_info
 from prompt_templates import get_chat_prompt_template
 
@@ -86,6 +85,17 @@ from utils.app_utils import (
     get_page_slice,
     get_page_info,
     auto_save_conversation
+)
+
+from services.query_search_service import (
+    QuerySearchSettings,
+    run_query_search
+)
+from services.sql_execution_service import (
+    SQLExecutionSettings,
+    initialize_executor,
+    run_sql_execution,
+    validate_sql_safety
 )
 
 # Import data loading functions
@@ -131,6 +141,7 @@ try:
     from core.sql_validator import ValidationLevel
     SQL_VALIDATION_AVAILABLE = True
 except ImportError:
+    ValidationLevel = None  # type: ignore
     SQL_VALIDATION_AVAILABLE = False
 
 # Import BigQuery execution components
@@ -166,7 +177,7 @@ except ImportError:
     # Fallback to original configuration
     logger.info("Using legacy configuration (app_config not available)")
     FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
-    DEFAULT_VECTOR_STORE = "index_transformed_sample_queries"
+    DEFAULT_VECTOR_STORE = "index_sample_queries_with_metadata_recovered"
     CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"
     CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"
     SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"
@@ -937,11 +948,13 @@ def display_sql_execution_interface(answer: str):
         try:
             if debug_mode:
                 st.write("🔧 Initializing BigQuery executor...")
-            # Prefer env-configured project and dataset when provided
-            bq_project = os.getenv('BIGQUERY_PROJECT_ID') or os.getenv('GOOGLE_CLOUD_PROJECT') or "brainrot-453319"
-            bq_dataset = os.getenv('BIGQUERY_DATASET') or "bigquery-public-data.thelook_ecommerce"
-            st.session_state.bigquery_executor = BigQueryExecutor(project_id=bq_project, dataset_id=bq_dataset)
-            logger.info(f"✅ BigQuery executor initialized successfully (project={bq_project}, dataset={bq_dataset})")
+            settings = SQLExecutionSettings()
+            st.session_state.bigquery_executor = initialize_executor(settings)
+            logger.info(
+                "✅ BigQuery executor initialized successfully (project=%s, dataset=%s)",
+                st.session_state.bigquery_executor.project_id,
+                st.session_state.bigquery_executor.dataset_id
+            )
             if debug_mode:
                 st.success("✅ BigQuery executor initialized")
         except Exception as e:
@@ -995,33 +1008,22 @@ def display_sql_execution_interface(answer: str):
         st.markdown("**📝 Generated SQL Query:**")
         st.code(extracted_sql, language="sql")
         
-        # Enhanced safety validation with logging
+        # Safety validation using shared service
         if debug_mode:
-            st.write("🔒 **Running enhanced safety validation**...")
-        
-        # Try new security system first
-        try:
-            from security.sql_validator import validate_sql_legacy_wrapper
-            is_valid, validation_msg = validate_sql_legacy_wrapper(extracted_sql)
-            if debug_mode:
-                st.write(f"🛡️ **Using enhanced security validation**")
-        except ImportError:
-            # Fallback to existing validation
-            if debug_mode:
-                st.write("⚠️ **Using legacy safety validation (new security modules not available)")
-            is_valid, validation_msg = executor.validate_sql_safety(extracted_sql) if hasattr(executor, 'validate_sql_safety') else (True, None)
+            st.write("🔒 **Running safety validation**...")
+        is_valid, validation_msg = validate_sql_safety(extracted_sql, executor)
         
         if is_valid:
             st.success("✅ Query passed safety validation")
+            if debug_mode and validation_msg:
+                st.info(f"Validator message: {validation_msg}")
             logger.info("✅ SQL query passed safety validation")
-            if debug_mode:
-                st.write("✅ **Safety validation passed**")
         else:
             error_msg = f"Safety validation failed: {validation_msg}"
             st.error(f"🚫 {error_msg}")
             logger.warning(f"🚫 {error_msg}")
-            if debug_mode:
-                st.write(f"🚫 **Safety validation failed**: {validation_msg}")
+            if debug_mode and validation_msg:
+                st.write(f"🚫 **Validation details:** {validation_msg}")
             return
         
         # Execution form to prevent unwanted reruns (submit button only in form)
@@ -1080,7 +1082,7 @@ def display_sql_execution_interface(answer: str):
             if 'extracted_sql' in st.session_state:
                 del st.session_state.extracted_sql
             # Clear execution-related state to allow new processing
-            for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed']:
+            for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed', 'sql_execution_metadata', 'sql_execution_validation']:
                 if key in st.session_state:
                     del st.session_state[key]
             logger.info("🗑️ Cleared SQL and execution state from session state")
@@ -1097,7 +1099,7 @@ def display_sql_execution_interface(answer: str):
                 # Force re-extraction by clearing session state
                 del st.session_state.extracted_sql
                 # Clear execution-related state to allow new processing
-                for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed']:
+                for key in ['sql_execution_result', 'sql_execution_error', 'sql_execution_completed', 'sql_execution_metadata', 'sql_execution_validation']:
                     if key in st.session_state:
                         del st.session_state[key]
                 logger.info("🔄 Forced SQL re-extraction by clearing session state")
@@ -1118,6 +1120,9 @@ def handle_sql_execution_status(debug_mode: bool = False):
     # Check for execution errors
     if 'sql_execution_error' in st.session_state and st.session_state.sql_execution_error:
         st.error(f"❌ {st.session_state.sql_execution_error}")
+        validation_msg = st.session_state.get('sql_execution_validation')
+        if validation_msg:
+            st.info(f"🛡️ Validation details: {validation_msg}")
         if debug_mode:
             st.write(f"**Error Details**: {st.session_state.sql_execution_error}")
         return
@@ -1128,8 +1133,14 @@ def handle_sql_execution_status(debug_mode: bool = False):
         st.subheader("📊 Query Execution Results")
         
         result = st.session_state.sql_execution_result
+        metadata = st.session_state.get('sql_execution_metadata', {})
+        validation_msg = st.session_state.get('sql_execution_validation')
         if debug_mode:
             st.write(f"**📊 Result Status**: Success={result.success}, Rows={result.total_rows}")
+            if metadata:
+                st.write(f"**⚙️ Execution Metadata**: {metadata}")
+            if validation_msg:
+                st.write(f"**🛡️ Validation Details**: {validation_msg}")
         
         display_sql_execution_results(result)
 
@@ -1160,17 +1171,35 @@ def execute_sql_callback():
         dry_run = bool(st.session_state.get('bq_dry_run', False))
         max_bytes_billed = st.session_state.get('bq_max_bytes_billed', 100_000_000)
 
-        result = executor.execute_query(sql, dry_run=dry_run, max_bytes_billed=max_bytes_billed)
-        
-        # Store result in session state for display after rerun
-        st.session_state.sql_execution_result = result
+        response = run_sql_execution(
+            sql,
+            executor=executor,
+            settings=SQLExecutionSettings(
+                project_id=executor.project_id,
+                dataset_id=executor.dataset_id,
+                dry_run=dry_run,
+                max_bytes_billed=max_bytes_billed,
+                debug_mode=debug_mode
+            )
+        )
+
+        if response.success and response.result:
+            st.session_state.sql_execution_result = response.result
+            st.session_state.sql_execution_error = None
+            st.session_state.sql_execution_metadata = response.metadata or {}
+            st.session_state.sql_execution_validation = response.validation_message
+            logger.info(f"💾 [CALLBACK] Execution completed - Success: {response.result.success}")
+        else:
+            error_msg = response.error_message or "SQL execution failed."
+            st.session_state.sql_execution_result = None
+            st.session_state.sql_execution_error = error_msg
+            logger.warning(f"❌ [CALLBACK] Execution failed: {error_msg}")
+            st.session_state.sql_execution_metadata = response.metadata or {}
+            # Propagate validation details for potential UI use
+            st.session_state.sql_execution_validation = response.validation_message
+
         st.session_state.sql_executing = False
         st.session_state.sql_execution_completed = True  # Prevent query reprocessing
-        
-        logger.info(f"💾 [CALLBACK] Execution completed - Success: {result.success}")
-        
-        if debug_mode:
-            logger.info(f"🐛 [CALLBACK] Debug mode - storing execution details")
             
     except Exception as e:
         error_msg = f"Callback execution error: {str(e)}"
@@ -1861,30 +1890,39 @@ def main():
                 'sql_executing',
                 'sql_execution_error',
                 'sql_execution_result',
+                'sql_execution_metadata',
+                'sql_execution_validation',
                 'extracted_sql'
             ]:
                 if _k in st.session_state:
                     del st.session_state[_k]
 
-        if generate_clicked and simple_query.strip():
+        if generate_clicked and simple_query and simple_query.strip():
             with st.spinner("Generating SQL with Gemini..."):
-                try:
-                    result = answer_question_simple_gemini(
-                        question=simple_query.strip(),
-                        vector_store=st.session_state.vector_store,
-                        k=20,
-                        schema_manager=st.session_state.get('schema_manager'),
-                        lookml_safe_join_map=st.session_state.get('lookml_safe_join_map'),
-                        sql_validation=False
-                    )
-                    if result:
-                        answer_text, _sources, _usage = result
-                        # Show only the SQL + execution interface
-                        display_sql_execution_interface(answer_text)
-                    else:
-                        st.error("❌ Failed to generate SQL. Please try again.")
-                except Exception as e:
-                    st.error(f"❌ Error generating SQL: {e}")
+                service_result = run_query_search(
+                    simple_query.strip(),
+                    vector_store=st.session_state.vector_store,
+                    schema_manager=st.session_state.get('schema_manager'),
+                    lookml_safe_join_map=st.session_state.get('lookml_safe_join_map'),
+                    settings=QuerySearchSettings(k=20, sql_validation=False)
+                )
+
+                if service_result.error:
+                    st.error(f"❌ {service_result.error}")
+                else:
+                    # Persist SQL so the execution interface can reuse it without re-extraction
+                    if service_result.sql:
+                        st.session_state.extracted_sql = service_result.sql
+                    elif 'extracted_sql' in st.session_state:
+                        del st.session_state['extracted_sql']
+
+                    # Optionally display the generated narrative answer (if any)
+                    if service_result.answer_text:
+                        st.markdown("**🧠 Gemini Response:**")
+                        st.write(service_result.answer_text)
+
+                    # Show SQL execution interface (will reuse stored SQL)
+                    display_sql_execution_interface(service_result.answer_text or service_result.sql or "")
 
         # If SQL already exists from a prior run, show execution UI persistently
         if (not generate_clicked) and st.session_state.get('extracted_sql'):
@@ -1983,6 +2021,66 @@ def main():
             elif st.session_state.get('advanced_mode', False):
                 st.info("Load a schema CSV to list tables (data_new/thelook_ecommerce_schema.csv)")
         
+        # Advanced query configuration (persisted for potential future UI controls)
+        if 'advanced_query_k' not in st.session_state:
+            st.session_state.advanced_query_k = 20
+        k = max(1, int(st.session_state.get('advanced_query_k', 20)))
+        st.session_state.advanced_query_k = k
+
+        if 'advanced_query_gemini_mode' not in st.session_state:
+            st.session_state.advanced_query_gemini_mode = False
+        gemini_mode = bool(st.session_state.get('advanced_query_gemini_mode', False))
+        st.session_state.advanced_query_gemini_mode = gemini_mode
+
+        if 'advanced_query_hybrid_search' not in st.session_state:
+            st.session_state.advanced_query_hybrid_search = False
+        hybrid_search = bool(st.session_state.get('advanced_query_hybrid_search', False))
+        st.session_state.advanced_query_hybrid_search = hybrid_search
+
+        if 'advanced_query_auto_adjust_weights' not in st.session_state:
+            st.session_state.advanced_query_auto_adjust_weights = True
+        auto_adjust_weights = bool(st.session_state.get('advanced_query_auto_adjust_weights', True))
+        st.session_state.advanced_query_auto_adjust_weights = auto_adjust_weights
+
+        if 'advanced_query_query_rewriting' not in st.session_state:
+            st.session_state.advanced_query_query_rewriting = False
+        query_rewriting = bool(st.session_state.get('advanced_query_query_rewriting', False))
+        st.session_state.advanced_query_query_rewriting = query_rewriting
+
+        schema_manager_available = bool(st.session_state.get('schema_manager'))
+        if 'advanced_query_schema_injection' not in st.session_state:
+            st.session_state.advanced_query_schema_injection = schema_manager_available
+        schema_injection = bool(st.session_state.get('advanced_query_schema_injection', schema_manager_available))
+        st.session_state.advanced_query_schema_injection = schema_injection
+
+        sql_validation_default = SQL_VALIDATION_AVAILABLE
+        if 'advanced_query_sql_validation' not in st.session_state:
+            st.session_state.advanced_query_sql_validation = sql_validation_default
+        sql_validation = bool(st.session_state.get('advanced_query_sql_validation', sql_validation_default))
+        st.session_state.advanced_query_sql_validation = sql_validation
+
+        default_validation_level = ValidationLevel.SCHEMA_STRICT if (SQL_VALIDATION_AVAILABLE and ValidationLevel is not None) else None
+        validation_level = st.session_state.get('advanced_query_validation_level', default_validation_level)
+        if SQL_VALIDATION_AVAILABLE and ValidationLevel is not None and isinstance(validation_level, str):
+            validation_level = getattr(ValidationLevel, validation_level, default_validation_level)
+        st.session_state.advanced_query_validation_level = validation_level
+
+        search_weights = None
+        search_weights_raw = st.session_state.get('advanced_query_search_weights')
+        if (not auto_adjust_weights) and HYBRID_SEARCH_AVAILABLE and isinstance(search_weights_raw, dict):
+            try:
+                search_weights = SearchWeights(
+                    vector_weight=search_weights_raw.get('vector_weight', 0.5),
+                    keyword_weight=search_weights_raw.get('keyword_weight', 0.5)
+                )
+            except Exception:
+                search_weights = None
+
+        if 'advanced_query_show_full_queries' not in st.session_state:
+            st.session_state.advanced_query_show_full_queries = False
+        show_full_queries = bool(st.session_state.get('advanced_query_show_full_queries', False))
+        st.session_state.advanced_query_show_full_queries = show_full_queries
+        
         if should_process_query:
             # Clear any previous SQL execution completion flag
             if 'sql_execution_completed' in st.session_state:
@@ -2062,27 +2160,48 @@ def main():
                         logger.info(f"🚫 SQL VALIDATION DISABLED")
                         logger.debug(f"[SQL VALIDATION DEBUG] SQL validation DISABLED by user setting")
                     
-                    # Call our enhanced RAG function with Gemini, hybrid search, query rewriting, and smart schema injection
-                    # Generate answer (includes retrieval, schema injection, validation)
-                    result = answer_question_simple_gemini(
-                        question=query,
+                    # Execute the RAG pipeline via shared service logic
+                    service_error = None
+                    service_sql = None
+                    service_result = run_query_search(
+                        query,
                         vector_store=st.session_state.vector_store,
-                        k=k,
-                        gemini_mode=gemini_mode,
-                        hybrid_search=hybrid_search,
-                        search_weights=search_weights,
-                        auto_adjust_weights=auto_adjust_weights,
-                        query_rewriting=query_rewriting,
                         schema_manager=schema_manager_to_use,
-                        lookml_safe_join_map=st.session_state.lookml_safe_join_map,
-                        sql_validation=sql_validation,
-                        validation_level=validation_level,
-                        excluded_tables=st.session_state.get('excluded_tables', []),
-                        user_context=st.session_state.get('user_context', "")
+                        lookml_safe_join_map=st.session_state.get('lookml_safe_join_map'),
+                        settings=QuerySearchSettings(
+                            k=k,
+                            gemini_mode=gemini_mode,
+                            hybrid_search=hybrid_search,
+                            search_weights=search_weights,
+                            auto_adjust_weights=auto_adjust_weights,
+                            query_rewriting=query_rewriting,
+                            sql_validation=sql_validation,
+                            validation_level=validation_level,
+                            excluded_tables=st.session_state.get('excluded_tables', []),
+                            user_context=st.session_state.get('user_context', "")
+                        )
                     )
+
+                    if service_result.error:
+                        service_error = service_result.error
+                        logger.error(f"❌ Query pipeline error: {service_error}")
+                        result = None
+                    else:
+                        result = (
+                            service_result.answer_text,
+                            service_result.sources,
+                            service_result.usage,
+                        )
+                        service_sql = service_result.sql
                     
                     if result:
                         answer, sources, token_usage = result
+                        answer = answer or ""
+                        sources = list(sources or [])
+                        token_usage = token_usage or {}
+                        if service_sql:
+                            st.session_state.extracted_sql = service_sql
+                        search_method = token_usage.get('search_method', 'vector')
                         # Update step-by-step status details based on token usage
                         if advanced_mode and status and token_usage:
                             try:
@@ -2579,7 +2698,8 @@ def main():
                             st.warning("No relevant sources found")
                             
                     else:
-                        st.error("❌ Failed to generate answer")
+                        error_message = service_error or "Failed to generate answer"
+                        st.error(f"❌ {error_message}")
                         
                 except Exception as e:
                     st.error(f"❌ Error: {e}")

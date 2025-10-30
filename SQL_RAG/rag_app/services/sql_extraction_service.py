@@ -35,6 +35,26 @@ class SQLExtractionService:
             logger.warning(f"⚠️ SQL Extraction Service: Could not initialize LLM client: {e}")
             self.llm_client = None
     
+    @staticmethod
+    def _normalize_sql(sql: str) -> Optional[str]:
+        """Trim code fences and surrounding whitespace."""
+        if not sql:
+            return None
+
+        stripped = sql.strip()
+
+        if stripped.startswith("```"):
+            stripped = stripped[3:]
+            stripped = stripped.lstrip()
+            if stripped.lower().startswith("sql"):
+                stripped = stripped[3:]
+                stripped = stripped.lstrip()
+
+        if "```" in stripped:
+            stripped = stripped.split("```", 1)[0].strip()
+
+        return stripped or None
+
     def extract_sql_simple(self, text: str, debug: bool = True) -> Optional[str]:
         """Simple SQL extraction - no LLM, just basic patterns"""
         if not text or len(text.strip()) < 10:
@@ -61,6 +81,8 @@ class SQLExtractionService:
                     else:
                         result = match.group(0).strip()
                     
+                    result = self._normalize_sql(result)
+
                     if result and len(result) > 10:
                         # Basic validation
                         result_upper = result.upper()
@@ -110,6 +132,7 @@ SQL:"""
                     return None
                 
                 # Validate basic SQL structure
+                result = self._normalize_sql(result)
                 result_upper = result.upper()
                 if any(keyword in result_upper for keyword in ['SELECT', 'WITH', 'INSERT', 'UPDATE']):
                     logger.info(f"✅ LLM extraction found SQL ({len(result)} chars)")
