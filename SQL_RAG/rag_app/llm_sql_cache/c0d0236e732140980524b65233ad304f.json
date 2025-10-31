@@ -1,0 +1,41 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.order_items",
+      "bigquery-public-data.thelook_ecommerce.products",
+      "bigquery-public-data.thelook_ecommerce.distribution_centers",
+      "bigquery-public-data.thelook_ecommerce.events"
+    ],
+    "cte_tables": [
+      "dc_revenue",
+      "dc_events"
+    ],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "bigquery-public-data.thelook_ecommerce.order_items"
+      },
+      {
+        "alias": "p",
+        "table": "bigquery-public-data.thelook_ecommerce.products"
+      },
+      {
+        "alias": "dc",
+        "table": "bigquery-public-data.thelook_ecommerce.distribution_centers"
+      },
+      {
+        "alias": "dr",
+        "table": "dc_revenue"
+      },
+      {
+        "alias": "de",
+        "table": "dc_events"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 1.5142059326171875,
+  "tokens_used": 577,
+  "cost_estimate": 4.3275e-05
+}

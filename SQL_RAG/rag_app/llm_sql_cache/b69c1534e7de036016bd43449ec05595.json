@@ -1,0 +1,19 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "your_table",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "year_month"
+    ]
+  },
+  "analysis_time": 0.7982878684997559,
+  "tokens_used": 240,
+  "cost_estimate": 1.8e-05
+}

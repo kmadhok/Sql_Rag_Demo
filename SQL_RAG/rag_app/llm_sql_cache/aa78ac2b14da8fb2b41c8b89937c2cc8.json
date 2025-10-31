@@ -1,0 +1,34 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`",
+        "column": "created_at"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`",
+        "column": "sale_price"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "year_month",
+        "column": "FORMAT_TIMESTAMP('%Y-%m', created_at)"
+      },
+      {
+        "alias": "monthly_revenue",
+        "column": "SUM(sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(sale_price)"
+    ],
+    "computed_columns": [
+      "FORMAT_TIMESTAMP('%Y-%m', created_at)"
+    ]
+  },
+  "analysis_time": 0.9938831329345703,
+  "tokens_used": 383,
+  "cost_estimate": 2.8724999999999997e-05
+}

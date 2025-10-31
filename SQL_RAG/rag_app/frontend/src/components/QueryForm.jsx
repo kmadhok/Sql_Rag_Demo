@@ -44,6 +44,7 @@ function QueryForm({
       question: question.trim(),
       ...form,
     });
+    setQuestion("");
   };
 
   const resetForm = () => {

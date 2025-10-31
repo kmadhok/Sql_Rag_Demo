@@ -1,0 +1,24 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "your_table",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "year_month"
+    ]
+  },
+  "analysis_time": 1.3832929134368896,
+  "tokens_used": 415,
+  "cost_estimate": 3.1125e-05
+}

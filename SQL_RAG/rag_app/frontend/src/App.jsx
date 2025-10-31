@@ -4,127 +4,220 @@ import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
-import Link from "@mui/material/Link";
-import Grid from "@mui/material/Grid2";
 
-import QueryForm from "./components/QueryForm.jsx";
-import SqlPreview from "./components/SqlPreview.jsx";
-import SourcesList from "./components/SourcesList.jsx";
-import ExecutionPanel from "./components/ExecutionPanel.jsx";
-import UsageSummary from "./components/UsageSummary.jsx";
-import { useQuerySearch } from "./hooks/useQuerySearch.js";
-import { useSqlExecution } from "./hooks/useSqlExecution.js";
+import ChatHistory from "./components/ChatHistory.jsx";
+import ChatInput from "./components/ChatInput.jsx";
+import Introduction from "./components/Introduction.jsx";
+import DataOverview from "./components/DataOverview.jsx";
+import { runQuerySearch, executeSql } from "./services/ragClient.js";
 
-function TabPanel({ value, current, children }) {
-  if (value !== current) {
-    return null;
-  }
-  return <Box sx={{ pt: 2 }}>{children}</Box>;
+const DEFAULT_OPTIONS = {
+  k: 20,
+  gemini_mode: false,
+  hybrid_search: false,
+  auto_adjust_weights: true,
+  query_rewriting: false,
+  sql_validation: true,
+};
+
+function serializeHistory(messages) {
+  return messages
+    .map((msg) => {
+      const prefix = msg.role === "assistant" ? "Assistant" : "User";
+      return `${prefix}: ${msg.content.replace(/\s+/g, " ").trim()}`;
+    })
+    .join("\n");
+}
+
+function TabPanel({ value, current, children, sx }) {
+  return (
+    <Box
+      role="tabpanel"
+      hidden={value !== current}
+      sx={{
+        display: value === current ? "flex" : "none",
+        flexDirection: "column",
+        flexGrow: 1,
+        ...sx,
+      }}
+    >
+      {value === current && children}
+    </Box>
+  );
 }
 
 function App() {
-  const [tab, setTab] = useState(0);
-  const {
-    state: queryState,
-    submitQuery,
-    resetQuery,
-  } = useQuerySearch();
-  const {
-    state: execState,
-    executeSql,
-    resetExecution,
-  } = useSqlExecution();
+  const [conversation, setConversation] = useState([]);
+  const [options, setOptions] = useState(DEFAULT_OPTIONS);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [tab, setTab] = useState("intro");
 
-  const handleQuestionSubmit = async (payload) => {
-    resetExecution();
-    await submitQuery(payload);
+  const handleSend = async (question, overrides) => {
+    const trimmed = question.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const userMessage = {
+      id: `${Date.now()}-user`,
+      role: "user",
+      content: trimmed,
+    };
+
+    const conversationWithUser = [...conversation, userMessage];
+    setConversation(conversationWithUser);
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const payload = {
+        question: trimmed,
+        ...DEFAULT_OPTIONS,
+        ...options,
+        ...overrides,
+        agent_type: "chat",
+        conversation_context: serializeHistory(conversationWithUser),
+      };
+
+      const result = await runQuerySearch(payload);
+
+      const assistantMessage = {
+        id: `${Date.now()}-assistant`,
+        role: "assistant",
+        content: result.answer || "(No answer returned)",
+        sql: result.sql || null,
+        usage: result.usage || null,
+        sources: result.sources || [],
+        payload,
+      };
+
+      setConversation((prev) => [...prev, assistantMessage]);
+    } catch (err) {
+      setError(err.message || "Failed to generate response.");
+      setConversation((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-error`,
+          role: "assistant",
+          content: `⚠️ ${err.message || "Generation failed."}`,
+        },
+      ]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleExecute = async ({ sql, dryRun, maxBytesBilled }) => {
-    await executeSql({ sql, dryRun, maxBytesBilled });
+  const handleExecute = async (messageId, { dryRun }) => {
+    const message = conversation.find((msg) => msg.id === messageId);
+    if (!message || !message.sql) {
+      return;
+    }
+
+    setConversation((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId
+          ? {
+              ...msg,
+              execution: { status: "loading", dryRun },
+            }
+          : msg
+      )
+    );
+
+    try {
+      const result = await executeSql({
+        sql: message.sql,
+        dry_run: dryRun,
+        max_bytes_billed: 100_000_000,
+      });
+
+      setConversation((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                execution: {
+                  status: "success",
+                  result,
+                },
+              }
+            : msg
+        )
+      );
+    } catch (err) {
+      setConversation((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId
+            ? {
+                ...msg,
+                execution: {
+                  status: "error",
+                  error: err.message || "Execution failed.",
+                },
+              }
+            : msg
+        )
+      );
+    }
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Box sx={{ mb: 4 }}>
+    <Container
+      maxWidth="md"
+      sx={{
+        minHeight: "100vh",
+        py: 4,
+        display: "flex",
+        flexDirection: "column",
+        gap: 3,
+      }}
+    >
+      <Box>
         <Typography variant="h4" component="h1" gutterBottom>
           SQL RAG Demo
         </Typography>
         <Typography variant="body1" color="text.secondary">
-          Ask natural-language questions, review the generated SQL, and execute
-          safely against BigQuery. This UI talks to the FastAPI service you just
-          deployed.
+          Explore the dataset, ask questions in natural language, and review or
+          execute the generated SQL.
         </Typography>
       </Box>
 
       <Tabs
         value={tab}
         onChange={(_, value) => setTab(value)}
-        aria-label="query tabs"
+        aria-label="SQL RAG sections"
+        textColor="primary"
+        indicatorColor="primary"
       >
-        <Tab label="Query Search" />
-        <Tab label="Settings" />
+        <Tab value="intro" label="Introduction" />
+        <Tab value="data" label="Data" />
+        <Tab value="chat" label="Chat" />
       </Tabs>
 
-      <TabPanel value={tab} current={0}>
-        <Grid container spacing={3}>
-          <Grid size={{ xs: 12, md: 5 }}>
-            <QueryForm
-              isLoading={queryState.isLoading}
-              defaultQuestion="Show top customers by lifetime spend"
-              defaults={queryState.lastPayload}
-              onSubmit={handleQuestionSubmit}
-              onReset={() => {
-                resetQuery();
-                resetExecution();
-              }}
-            />
-
-            <UsageSummary usage={queryState.data?.usage} />
-          </Grid>
-
-          <Grid size={{ xs: 12, md: 7 }}>
-            <SqlPreview
-              answer={queryState.data?.answer}
-              sql={queryState.data?.sql}
-              error={queryState.error}
-              isLoading={queryState.isLoading}
-            />
-
-            <ExecutionPanel
-              sql={queryState.data?.sql}
-              onExecute={handleExecute}
-              executionState={execState}
-            />
-
-            <SourcesList sources={queryState.data?.sources} />
-          </Grid>
-        </Grid>
+      <TabPanel value="intro" current={tab} sx={{ gap: 2 }}>
+        <Introduction />
       </TabPanel>
 
-      <TabPanel value={tab} current={1}>
-        <Typography variant="body1" paragraph>
-          This demo currently uses a single FAISS index (
-          <code>{import.meta.env.VITE_VECTOR_STORE_NAME || "default"}</code>) and
-          calls the API at{" "}
-          <code>{import.meta.env.VITE_API_BASE_URL || "http://localhost:8080"}</code>.
-          Edit <code>frontend/.env.local</code> to point at another deployment
-          without rebuilding.
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Need more controls (hybrid search, rewriting weights, table
-          exclusions)? Wire them into <code>QueryForm</code> — the FastAPI
-          endpoint already supports the same payloads Streamlit does.
-        </Typography>
-        <Box sx={{ mt: 3 }}>
-          <Link
-            href="http://localhost:8080/docs"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Open FastAPI docs
-          </Link>
+      <TabPanel value="data" current={tab} sx={{ gap: 2 }}>
+        <DataOverview />
+      </TabPanel>
+
+      <TabPanel value="chat" current={tab} sx={{ gap: 2, flexGrow: 1 }}>
+        <Box sx={{ flexGrow: 1, overflow: "hidden" }}>
+          <ChatHistory
+            conversation={conversation}
+            error={error}
+            onExecute={handleExecute}
+          />
         </Box>
+
+        <ChatInput
+          onSend={handleSend}
+          isLoading={isLoading}
+          options={options}
+          onOptionsChange={setOptions}
+        />
       </TabPanel>
     </Container>
   );

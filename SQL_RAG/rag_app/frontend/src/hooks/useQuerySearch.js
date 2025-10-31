@@ -44,6 +44,7 @@ export function useQuerySearch() {
     try {
       const data = await runQuerySearch(payload);
       dispatch({ type: "SUCCESS", data });
+      return data;
     } catch (error) {
       dispatch({
         type: "FAILURE",
@@ -51,6 +52,7 @@ export function useQuerySearch() {
           error?.message ||
           "Failed to run query search. Check server logs for details.",
       });
+      throw error;
     }
   };
 
