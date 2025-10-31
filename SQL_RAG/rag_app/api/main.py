@@ -29,6 +29,12 @@ from services.sql_execution_service import (
     initialize_executor,
     run_sql_execution,
 )
+from services.saved_query_store import (
+    save_query,
+    list_saved_queries,
+    load_saved_query,
+    SavedQuery as StoredQuery,
+)
 from data.app_data_loader import (
     load_vector_store,
     load_schema_manager,
@@ -65,6 +71,9 @@ class SearchRequest(BaseModel):
     conversation_context: Optional[str] = ""
     agent_type: Optional[str] = None
     search_weights: Optional[Dict[str, float]] = None
+    llm_model: Optional[str] = Field(
+        None, description="Override the default generation model"
+    )
 
 
 class SourceDocument(BaseModel):
@@ -100,6 +109,37 @@ class ExecuteResponse(BaseModel):
     execution_time: Optional[float] = None
     cache_hit: Optional[bool] = None
     dry_run: Optional[bool] = None
+
+
+class QuickRequest(BaseModel):
+    question: str = Field(..., min_length=2)
+    conversation_context: Optional[str] = ""
+    k: int = Field(6, ge=1, le=50)
+    llm_model: Optional[str] = None
+
+
+class QuickResponse(BaseModel):
+    answer: Optional[str]
+    usage: Dict[str, Any] = {}
+    sources: List[SourceDocument] = []
+
+
+class SavedQuerySummary(BaseModel):
+    id: str
+    question: str
+    created_at: str
+    row_count: int
+
+
+class SavedQueryDetail(SavedQuerySummary):
+    sql: str
+    data_preview: List[Dict[str, Any]]
+
+
+class SaveQueryRequest(BaseModel):
+    question: str
+    sql: str
+    data: Optional[List[Dict[str, Any]]] = None
 
 
 # Application state ----------------------------------------------------------------
@@ -204,6 +244,7 @@ def query_search(
         conversation_context=payload.conversation_context or "",
         agent_type=payload.agent_type,
         search_weights=search_weights,
+        llm_model=payload.llm_model,
     )
 
     result: QuerySearchResult = run_query_search(
@@ -281,3 +322,100 @@ def execute_sql(
         data=data,
         **result_fields,
     )
+
+
+@app.post("/query/quick", response_model=QuickResponse)
+def quick_answer(
+    payload: QuickRequest,
+    vector_store: FAISS = Depends(get_vector_store),
+    schema_manager=Depends(get_schema_manager),
+    lookml=Depends(get_lookml_safe_join_map),
+):
+    settings = QuerySearchSettings(
+        k=payload.k,
+        gemini_mode=False,
+        hybrid_search=False,
+        auto_adjust_weights=True,
+        query_rewriting=False,
+        sql_validation=False,
+        user_context="",
+        conversation_context=payload.conversation_context or "",
+        agent_type=None,
+        llm_model=payload.llm_model,
+    )
+
+    result = run_query_search(
+        payload.question,
+        vector_store=vector_store,
+        schema_manager=schema_manager,
+        lookml_safe_join_map=lookml,
+        settings=settings,
+    )
+
+    if result.error:
+        raise HTTPException(status_code=500, detail=result.error)
+
+    sources = [
+        SourceDocument(
+            content=getattr(doc, "page_content", ""),
+            metadata=getattr(doc, "metadata", {}) or {},
+        )
+        for doc in (result.sources or [])
+    ][:5]
+
+    return QuickResponse(
+        answer=result.answer_text,
+        usage=result.usage,
+        sources=sources,
+    )
+
+
+@app.post("/saved_queries", response_model=SavedQueryDetail)
+def create_saved_query(payload: SaveQueryRequest):
+    saved = save_query(payload.question, payload.sql, payload.data)
+    return SavedQueryDetail(
+        id=saved.id,
+        question=saved.question,
+        sql=saved.sql,
+        created_at=saved.created_at,
+        row_count=saved.row_count,
+        data_preview=saved.data_preview,
+    )
+
+
+@app.get("/saved_queries", response_model=List[SavedQuerySummary])
+def get_saved_queries():
+    return [
+        SavedQuerySummary(
+            id=sq.id,
+            question=sq.question,
+            created_at=sq.created_at,
+            row_count=sq.row_count,
+        )
+        for sq in list_saved_queries()
+    ]
+
+
+@app.get("/saved_queries/{query_id}", response_model=SavedQueryDetail)
+def get_saved_query(query_id: str):
+    saved = load_saved_query(query_id)
+    if not saved:
+        raise HTTPException(status_code=404, detail="Saved query not found")
+    return SavedQueryDetail(
+        id=saved.id,
+        question=saved.question,
+        sql=saved.sql,
+        created_at=saved.created_at,
+        row_count=saved.row_count,
+        data_preview=saved.data_preview,
+    )
+class QuickRequest(BaseModel):
+    question: str = Field(..., min_length=2)
+    conversation_context: Optional[str] = ""
+    k: int = Field(6, ge=1, le=50)
+
+
+class QuickResponse(BaseModel):
+    answer: Optional[str]
+    usage: Dict[str, Any] = {}
+    sources: List[SourceDocument] = []

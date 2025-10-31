@@ -1,0 +1,15 @@
+{
+  "id": "2224eb4bb38a416fb8f8ff0c05ab1486",
+  "question": "@create create the query to do this",
+  "sql": "SELECT\n    id,\n    first_name,\n    last_name,\n    age\n  FROM\n    `bigquery-public-data.thelook_ecommerce.users`\n  ORDER BY\n    age DESC\n  LIMIT 1;",
+  "created_at": "2025-10-31T03:11:13.067501Z",
+  "data_preview": [
+    {
+      "id": 8111,
+      "first_name": "Andrea",
+      "last_name": "Young",
+      "age": 70
+    }
+  ],
+  "row_count": 1
+}

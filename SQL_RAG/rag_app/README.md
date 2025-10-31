@@ -65,7 +65,7 @@ sql-rag-app/
 
 ### Prerequisites
 - Node.js 18+ and npm
-- Python 3.9+
+- Python 3.10+
 - Docker and Docker Compose
 - Google Cloud credentials for BigQuery
 - Gemini API key
@@ -75,7 +75,7 @@ sql-rag-app/
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd sql-rag-app
+   cd SQL_RAG/rag_app
    ```
 
 2. **Set up environment variables**:
@@ -90,9 +90,17 @@ sql-rag-app/
    Required environment variables:
    ```env
    GEMINI_API_KEY=your_gemini_api_key
+   GENAI_CLIENT_MODE=api
+   GOOGLE_CLOUD_PROJECT=your_project_id
    BIGQUERY_PROJECT_ID=your_project_id
+   BIGQUERY_DATASET=your_default_dataset
+   VECTOR_STORE_NAME=index_sample_queries_with_metadata_recovered
    GOOGLE_APPLICATION_CREDENTIALS=path/to/credentials.json
    ```
+
+   Set `GENAI_CLIENT_MODE=sdk` to route requests through the Vertex AI Gen AI SDK using
+   Application Default Credentials instead of an API key. Update `GOOGLE_GENAI_USE_VERTEXAI`
+   if you need to force embeddings through a specific path.
 
 ### Development Mode
 
@@ -109,17 +117,22 @@ sql-rag-app/
    
    **Backend**:
    ```bash
-   cd backend
-   pip install -r requirements.txt
-   python app.py
+   python3 -m venv .venv
+   source .venv/bin/activate  # Windows: .venv\Scripts\activate
+   pip install -e .
+   uvicorn api.main:app --host 0.0.0.0 --port 8080 --reload
    ```
    
    **Frontend**:
    ```bash
    cd frontend
    npm install
-   npm start
+   echo "VITE_API_BASE_URL=http://localhost:8080" > .env.local
+   npm run dev -- --host 127.0.0.1 --port 5173
    ```
+
+For a detailed walkthrough of the full workstation setup (including vector store generation),
+see `docs/WORKSTATION_SETUP.md`.
 
 ## 📖 Usage
 

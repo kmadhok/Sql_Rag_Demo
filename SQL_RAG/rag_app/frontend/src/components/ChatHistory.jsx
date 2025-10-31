@@ -3,7 +3,7 @@ import Stack from "@mui/material/Stack";
 import Alert from "@mui/material/Alert";
 import ChatMessage from "./ChatMessage.jsx";
 
-function ChatHistory({ conversation, error, onExecute }) {
+function ChatHistory({ conversation, error, onExecute, onSave }) {
   const bottomRef = useRef(null);
   const previousLengthRef = useRef(conversation.length);
 
@@ -28,6 +28,7 @@ function ChatHistory({ conversation, error, onExecute }) {
           key={message.id}
           message={message}
           onExecute={onExecute}
+          onSave={onSave}
         />
       ))}
       {error && <Alert severity="error">{error}</Alert>}

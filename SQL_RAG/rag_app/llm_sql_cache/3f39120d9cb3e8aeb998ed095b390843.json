@@ -1,0 +1,61 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.users`",
+      "`bigquery-public-data.thelook_ecommerce.orders`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "t1",
+        "table": "`bigquery-public-data.thelook_ecommerce.users`"
+      },
+      {
+        "alias": "t2",
+        "table": "`bigquery-public-data.thelook_ecommerce.orders`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "first_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "last_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.orders",
+        "column": "user_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "user_id",
+        "column": "id"
+      },
+      {
+        "alias": "number_of_purchases",
+        "column": "count(t2.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "count(t2.order_id)"
+    ],
+    "computed_columns": []
+  },
+  "analysis_time": 1.964822769165039,
+  "tokens_used": 694,
+  "cost_estimate": 5.205e-05
+}

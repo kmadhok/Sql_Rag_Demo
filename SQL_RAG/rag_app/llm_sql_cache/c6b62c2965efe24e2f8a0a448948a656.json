@@ -1,0 +1,64 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.users`",
+      "`bigquery-public-data.thelook_ecommerce.order_items`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "t1",
+        "table": "`bigquery-public-data.thelook_ecommerce.users`"
+      },
+      {
+        "alias": "t2",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "first_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "last_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "user_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "user_id",
+        "column": "t1.id"
+      },
+      {
+        "alias": "total_order_amount",
+        "column": "SUM(t2.sale_price)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(t2.sale_price)"
+    ],
+    "computed_columns": [
+      "t1.id AS user_id",
+      "SUM(t2.sale_price) AS total_order_amount"
+    ]
+  },
+  "analysis_time": 2.7790098190307617,
+  "tokens_used": 924,
+  "cost_estimate": 6.93e-05
+}

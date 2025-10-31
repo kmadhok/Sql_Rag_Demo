@@ -16,7 +16,8 @@ Configuration (environment variables):
 - OPENAI_EMBEDDING_MODEL: defaults to "text-embedding-3-small" (cost-effective, high quality)
 - GOOGLE_CLOUD_PROJECT: required for Gemini embeddings (your GCP project ID)
 - GOOGLE_CLOUD_LOCATION: defaults to "global" for Gemini embeddings
-- GOOGLE_GENAI_USE_VERTEXAI: defaults to "True" for production use
+- GENAI_CLIENT_MODE: "api" (default) uses API key auth, "sdk" uses Vertex AI with ADC
+- GOOGLE_GENAI_USE_VERTEXAI: override to force Vertex AI usage (otherwise inferred from GENAI_CLIENT_MODE)
 - OPENAI_API_KEY: required when using OpenAI (store in Google Secret Manager for Cloud Run)
 - OLLAMA_EMBEDDING_MODEL: defaults to "nomic-embed-text" (local development only)
 
@@ -165,32 +166,58 @@ def _create_gemini_embeddings(model: str | None = None) -> Any:
         logger.error(error_msg)
         raise RuntimeError(error_msg) from e
 
-    # Check for required environment variables
+    raw_mode = os.getenv("GENAI_CLIENT_MODE")
+    if not raw_mode:
+        raw_mode = "api"
+    client_mode = raw_mode.strip().lower()
+    use_vertexai_env = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+    if use_vertexai_env is None:
+        use_vertexai = client_mode == "sdk"
+    else:
+        use_vertexai = use_vertexai_env.lower() in ("true", "1", "yes")
+
     project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-    if not project_id:
+    location = (
+        os.getenv("GOOGLE_CLOUD_LOCATION")
+        or os.getenv("GOOGLE_CLOUD_REGION")
+        or "global"
+    )
+    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+    if use_vertexai and not project_id:
         error_msg = (
             "GOOGLE_CLOUD_PROJECT environment variable not set. "
-            "For local development: export GOOGLE_CLOUD_PROJECT='your-project-id' "
-            "For Cloud Run: ensure the service account has the right project access"
+            "Required when using Vertex AI for embeddings. "
+            "Configure gcloud or set GOOGLE_APPLICATION_CREDENTIALS."
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+    if not use_vertexai and not api_key:
+        error_msg = (
+            "GEMINI_API_KEY (or GOOGLE_API_KEY) is required when using the public Gemini API "
+            "for embeddings. Set GENAI_CLIENT_MODE=sdk to use Vertex AI credentials instead."
         )
         logger.error(error_msg)
         raise RuntimeError(error_msg)
 
-    # Configure Gen AI SDK for Vertex AI
-    location = os.getenv("GOOGLE_CLOUD_LOCATION", "global")
-    use_vertexai = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True").lower() in ("true", "1", "yes")
     model_name = model or os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
     
     logger.info(f"Using Gemini embedding model: {model_name}")
-    logger.info(f"Using Vertex AI: {use_vertexai}, Project: {project_id}, Location: {location}")
+    if use_vertexai:
+        logger.info("Initializing Gemini embeddings via Vertex AI SDK (project=%s, location=%s)", project_id, location)
+    else:
+        logger.info("Initializing Gemini embeddings via public Gemini API key")
 
     try:
         # Initialize Gen AI client
-        client = genai.Client(
-            vertexai=use_vertexai,
-            project=project_id,
-            location=location
-        )
+        if use_vertexai:
+            client = genai.Client(
+                vertexai=True,
+                project=project_id,
+                location=location
+            )
+        else:
+            client = genai.Client(api_key=api_key)
         
         # Create a LangChain-compatible wrapper for Gemini embeddings
         class GeminiEmbeddings:
@@ -342,13 +369,23 @@ def get_provider_info() -> dict[str, Any]:
     if provider == "gemini":
         model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
         project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
-        use_vertexai = os.getenv("GOOGLE_GENAI_USE_VERTEXAI", "True").lower() in ("true", "1", "yes")
+        raw_mode = os.getenv("GENAI_CLIENT_MODE")
+        if not raw_mode:
+            raw_mode = "api"
+        client_mode = raw_mode.strip().lower()
+        use_vertexai_env = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+        if use_vertexai_env is None:
+            use_vertexai = client_mode == "sdk"
+        else:
+            use_vertexai = use_vertexai_env.lower() in ("true", "1", "yes")
+        api_key_set = bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY"))
         return {
             "provider": "gemini",
             "model": model,
             "project_id": project_id or "NOT_SET",
             "use_vertexai": use_vertexai,
-            "api_key_configured": bool(project_id),  # Uses GCP authentication
+            "client_mode": client_mode,
+            "api_key_configured": api_key_set,
             "cloud_ready": True,
             "dimensions": 768,  # Gemini embedding standard dimensions
         }
@@ -377,4 +414,3 @@ def get_provider_info() -> dict[str, Any]:
             "error": f"Unknown provider: {provider}",
             "cloud_ready": False,
         }
-

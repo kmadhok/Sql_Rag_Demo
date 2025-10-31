@@ -7,7 +7,7 @@ as the previous Vertex AI implementation but uses the simpler google.genai appro
 from gemini_quick_start.py.
 
 Features:
-- Simple API key authentication (no Google Cloud project required)
+- Configurable authentication via API key or Vertex AI Gen AI SDK
 - Support for multiple Gemini models
 - Robust error handling and connection testing
 - Drop-in replacement for VertexGeminiLLM
@@ -50,6 +50,7 @@ class GeminiClient:
         self, 
         model: str = DEFAULT_MODEL,
         api_key: Optional[str] = None,
+        client_mode: Optional[str] = None,
         max_retries: int = MAX_RETRIES,
         retry_delay: float = RETRY_DELAY
     ):
@@ -58,13 +59,20 @@ class GeminiClient:
         
         Args:
             model: Gemini model name (e.g., "gemini-2.5-flash", "gemini-2.5-flash-lite")
-            api_key: Gemini API key (defaults to GEMINI_API_KEY env var)
+            api_key: Gemini API key for API mode (defaults to GEMINI_API_KEY env var)
+            client_mode: Override authentication mode ("api" or "sdk"); defaults to GENAI_CLIENT_MODE env var
             max_retries: Maximum number of retries for failed requests
             retry_delay: Delay between retries in seconds
         """
         self.model_name = model
+        raw_mode = client_mode if client_mode is not None else os.getenv("GENAI_CLIENT_MODE")
+        if not raw_mode:
+            raw_mode = "api"
+        self.client_mode = raw_mode.strip().lower()
+        if self.client_mode not in {"api", "sdk"}:
+            raise ValueError("GENAI_CLIENT_MODE must be 'api' or 'sdk'")
         # Attempt to load from .env if not already present
-        if not api_key and not os.getenv('GEMINI_API_KEY'):
+        if self.client_mode == "api" and not api_key and not os.getenv('GEMINI_API_KEY'):
             try:
                 from dotenv import load_dotenv, find_dotenv
                 _env_path = find_dotenv(usecwd=True)
@@ -75,17 +83,36 @@ class GeminiClient:
                 logger.debug(f"dotenv not loaded in GeminiClient: {_e}")
 
         # Accept both GEMINI_API_KEY and GOOGLE_API_KEY for convenience
-        self.api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+        if self.client_mode == "api":
+            self.api_key = api_key or os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY')
+        else:
+            self.api_key = None
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.client = None
+        self.project_id: Optional[str] = None
+        self.location: Optional[str] = None
         self._initialized = False
         
         # Validate required parameters
-        if not self.api_key:
-            raise ValueError(
-                "Gemini API key is required. Set GEMINI_API_KEY environment variable "
-                "or pass api_key parameter. Get your API key from: https://makersuite.google.com/app/apikey"
+        if self.client_mode == "api":
+            if not self.api_key:
+                raise ValueError(
+                    "Gemini API key is required in API mode. Set GEMINI_API_KEY environment variable "
+                    "or pass api_key parameter. Get your API key from: https://makersuite.google.com/app/apikey"
+                )
+        else:
+            project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
+            if not project_id:
+                raise ValueError(
+                    "GOOGLE_CLOUD_PROJECT is required when GENAI_CLIENT_MODE=sdk. "
+                    "Ensure Application Default Credentials are available (e.g. set GOOGLE_APPLICATION_CREDENTIALS)."
+                )
+            self.project_id = project_id
+            self.location = (
+                os.getenv("GOOGLE_CLOUD_LOCATION")
+                or os.getenv("GOOGLE_CLOUD_REGION")
+                or "global"
             )
         
         if not GENAI_AVAILABLE:
@@ -98,13 +125,25 @@ class GeminiClient:
         self._setup_gemini()
     
     def _setup_gemini(self):
-        """Initialize Gemini client with API key"""
+        """Initialize Gemini client using the configured authentication mode."""
         try:
-            # Initialize the client with API key
-            self.client = genai.Client(api_key=self.api_key)
+            if self.client_mode == "sdk":
+                self.client = genai.Client(
+                    vertexai=True,
+                    project=self.project_id,
+                    location=self.location,
+                )
+                logger.info(
+                    "✅ Gemini client initialized in Vertex SDK mode: %s (project=%s, location=%s)",
+                    self.model_name,
+                    self.project_id,
+                    self.location,
+                )
+            else:
+                # Initialize the client with API key
+                self.client = genai.Client(api_key=self.api_key)
+                logger.info("✅ Gemini client initialized in API mode: %s", self.model_name)
             self._initialized = True
-            
-            logger.info(f"✅ Gemini client initialized: {self.model_name}")
             
         except Exception as e:
             logger.error(f"Failed to initialize Gemini client: {e}")

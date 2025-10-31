@@ -656,7 +656,8 @@ def answer_question_simple_gemini(
     sql_validation: bool = False,
     validation_level: ValidationLevel = ValidationLevel.SCHEMA_STRICT,
     excluded_tables: Optional[List[str]] = None,
-    user_context: str = ""
+    user_context: str = "",
+    llm_model: Optional[str] = None,
 ) -> Optional[Tuple[str, List[Document], Dict[str, Any]]]:
     """
     Enhanced RAG function optimized for Gemini's 1M context window with hybrid search and query rewriting support
@@ -678,6 +679,7 @@ def answer_question_simple_gemini(
         validation_level: Validation strictness level (SYNTAX_ONLY, SCHEMA_BASIC, SCHEMA_STRICT)
         excluded_tables: Optional list of table names to exclude from schema and discourage in SQL
         user_context: Optional user-provided context to prepend to prompt context
+        llm_model: Optional override for the Gemini generation model
         
     Returns:
         Tuple of (answer, source_documents, enhanced_token_usage) or None if failed
@@ -954,17 +956,20 @@ def answer_question_simple_gemini(
             "full_prompt": prompt[:2000] + "..." if len(prompt) > 2000 else prompt
         })
         
-        # Initialize LLM and generate response (use registry generation model)
+        # Initialize LLM and generate response (allow explicit override)
         try:
-            from llm_registry import get_llm_registry
-            _llm_reg = get_llm_registry()
-            llm = _llm_reg.get_generator()
-            # Keep GEMINI_MODEL in logs consistent with actual model used
-            GEMINI_MODEL_LOG = _llm_reg.gen_model
+            if llm_model:
+                llm = GeminiClient(model=llm_model)
+                GEMINI_MODEL_LOG = llm_model
+            else:
+                from llm_registry import get_llm_registry
+                _llm_reg = get_llm_registry()
+                llm = _llm_reg.get_generator()
+                GEMINI_MODEL_LOG = _llm_reg.gen_model
         except Exception:
-            # Fallback to env value if registry import fails
-            llm = GeminiClient(model=GEMINI_MODEL)
-            GEMINI_MODEL_LOG = GEMINI_MODEL
+            fallback_model = llm_model or GEMINI_MODEL
+            llm = GeminiClient(model=fallback_model)
+            GEMINI_MODEL_LOG = fallback_model
         
         generation_start = time.time()
         answer = llm.invoke(prompt)

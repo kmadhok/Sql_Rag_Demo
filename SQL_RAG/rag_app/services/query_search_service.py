@@ -48,6 +48,7 @@ class QuerySearchSettings:
     user_context: str = ""
     conversation_context: str = ""
     agent_type: Optional[str] = None
+    llm_model: Optional[str] = None
 
 
 @dataclass
@@ -116,6 +117,7 @@ def run_query_search(
         sql_validation=settings.sql_validation,
         excluded_tables=settings.excluded_tables,
         user_context=settings.user_context,
+        llm_model=settings.llm_model,
     )
 
     if settings.sql_validation:
