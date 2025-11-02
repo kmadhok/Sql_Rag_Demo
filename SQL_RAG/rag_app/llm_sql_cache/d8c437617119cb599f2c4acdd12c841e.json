@@ -1,0 +1,52 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "oi",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "items_sold_count",
+        "column": "COUNT(oi.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "COUNT(oi.id) AS items_sold_count"
+    ]
+  },
+  "analysis_time": 0.9224720001220703,
+  "tokens_used": 509,
+  "cost_estimate": 3.8175e-05
+}

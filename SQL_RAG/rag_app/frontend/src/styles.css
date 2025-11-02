@@ -674,3 +674,553 @@ pre code {
 .max-h-32 { max-height: 8rem; }
 .max-h-48 { max-height: 12rem; }
 .max-h-64 { max-height: 16rem; }
+
+/* ========================================================================
+   DASHBOARD DRAG-AND-DROP GRID LAYOUT
+   ======================================================================== */
+
+/* React Grid Layout overrides */
+.react-grid-layout {
+  position: relative;
+  transition: height var(--transition-normal);
+}
+
+.react-grid-item {
+  transition: all var(--transition-normal);
+  background: transparent;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.2);
+  border: 2px dashed rgba(59, 130, 246, 0.6);
+  border-radius: var(--radius-lg);
+  opacity: 0.5;
+  transition-duration: 100ms;
+  z-index: 2;
+}
+
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  background: none;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  content: "";
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(148, 163, 184, 0.5);
+  border-bottom: 2px solid rgba(148, 163, 184, 0.5);
+  transition: border-color var(--transition-fast);
+}
+
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-color: rgba(59, 130, 246, 0.8);
+}
+
+.react-grid-item.react-dragging {
+  z-index: 100;
+  opacity: 0.9;
+  cursor: grabbing !important;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: rgba(59, 130, 246, 0.15);
+  opacity: 0.3;
+  transition-duration: 100ms;
+  z-index: 2;
+}
+
+/* ========================================================================
+   CHART CARDS
+   ======================================================================== */
+
+.chart-card-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(51, 65, 85, 0.5);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: all var(--transition-normal);
+}
+
+.chart-card-wrapper:hover {
+  border-color: rgba(71, 85, 105, 0.7);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.chart-card-wrapper.dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.chart-card-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.chart-card-content {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* Icon buttons for chart cards */
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: rgba(148, 163, 184, 0.7);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.icon-button:hover {
+  background: rgba(71, 85, 105, 0.3);
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.icon-button:active {
+  transform: scale(0.95);
+}
+
+.icon-button-danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: rgb(239, 68, 68);
+}
+
+/* ========================================================================
+   MODALS
+   ======================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-lg);
+  animation: fadeIn 200ms ease-out;
+}
+
+.modal-content {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-xl);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3),
+              0 10px 10px -5px rgba(0, 0, 0, 0.2);
+  animation: slideUp 250ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  flex-shrink: 0;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-body {
+  flex: 1;
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+
+.modal-footer {
+  flex-shrink: 0;
+  padding: var(--space-lg);
+  border-top: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-md);
+}
+
+/* ========================================================================
+   FORM ELEMENTS FOR CHART CONFIGURATION
+   ======================================================================== */
+
+.input-field {
+  width: 100%;
+  padding: 10px 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: var(--radius-md);
+  color: rgba(226, 232, 240, 0.9);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all var(--transition-fast);
+}
+
+.input-field:hover {
+  border-color: rgba(71, 85, 105, 0.7);
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(15, 23, 42, 0.8);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.input-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input-field option {
+  background: var(--bg-primary);
+  color: rgba(226, 232, 240, 0.9);
+}
+
+/* Chart type selector buttons */
+.chart-type-button {
+  padding: var(--space-md) var(--space-lg);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: var(--radius-md);
+  color: rgba(226, 232, 240, 0.7);
+  font-size: 0.9rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+}
+
+.chart-type-button:hover {
+  border-color: rgba(71, 85, 105, 0.7);
+  background: rgba(30, 41, 59, 0.6);
+  transform: translateY(-1px);
+}
+
+.chart-type-button.active {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(59, 130, 246, 0.15);
+  color: rgba(96, 165, 250, 0.95);
+}
+
+.chart-type-button:active {
+  transform: translateY(0);
+}
+
+/* ========================================================================
+   LAYOUT UTILITIES
+   ======================================================================== */
+
+.space-y-lg > * + * {
+  margin-top: var(--space-lg);
+}
+
+.space-y-md > * + * {
+  margin-top: var(--space-md);
+}
+
+.space-y-sm > * + * {
+  margin-top: var(--space-sm);
+}
+
+.gap-3 {
+  gap: 12px;
+}
+
+/* ========================================================================
+   DASHBOARD SELECTOR
+   ======================================================================== */
+
+.dashboard-selector-wrapper {
+  position: relative;
+}
+
+.dashboard-selector-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(71, 85, 105, 0.5);
+  border-radius: var(--radius-md);
+  color: rgba(226, 232, 240, 0.9);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.dashboard-selector-button:hover {
+  border-color: rgba(71, 85, 105, 0.7);
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.dashboard-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 320px;
+  max-width: 400px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3),
+              0 4px 6px -2px rgba(0, 0, 0, 0.2);
+  z-index: 50;
+  animation: slideDown 200ms ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dashboard-selector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+.dashboard-selector-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.dashboard-selector-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  transition: background var(--transition-fast);
+}
+
+.dashboard-selector-item .typography-body {
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.dashboard-selector-item .typography-caption {
+  color: rgba(203, 213, 225, 0.85);
+}
+
+.dashboard-selector-item:hover {
+  background: rgba(30, 41, 59, 0.4);
+}
+
+.dashboard-selector-item:hover .typography-body {
+  color: rgb(248, 250, 252);
+}
+
+.dashboard-selector-item.active {
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid rgba(59, 130, 246, 0.6);
+}
+
+.dashboard-selector-item.active .typography-body {
+  color: rgb(248, 250, 252);
+  font-weight: 500;
+}
+
+.dashboard-selector-item:last-child {
+  border-bottom: none;
+}
+
+/* ===== Template Picker Modal ===== */
+
+.template-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: var(--space-lg);
+  background: rgba(30, 41, 59, 0.4);
+  border: 2px solid rgba(51, 65, 85, 0.5);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.template-card:hover {
+  background: rgba(30, 41, 59, 0.6);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.template-card.active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.8);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.template-icon {
+  font-size: 2.5rem;
+  margin-bottom: var(--space-sm);
+}
+
+.template-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.template-description {
+  font-size: 0.8rem;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.template-selected-badge {
+  position: absolute;
+  top: var(--space-sm);
+  right: var(--space-sm);
+  padding: 2px 8px;
+  background: var(--accent-primary);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+
+/* ===== Export Menu ===== */
+
+.export-menu-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.export-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+  z-index: 50;
+  padding: var(--space-xs);
+  animation: slideDown 200ms ease-out;
+}
+
+.export-menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  width: 100%;
+  padding: var(--space-md);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--transition-fast);
+  color: inherit;
+}
+
+.export-menu-item:hover:not(:disabled) {
+  background: rgba(30, 41, 59, 0.6);
+}
+
+.export-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-menu-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.export-menu-content {
+  flex: 1;
+}
+
+.export-menu-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.export-menu-description {
+  font-size: 0.75rem;
+  color: var(--text-tertiary);
+}
+
+/* ===== Theme Toggle ===== */
+
+.theme-toggle-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+}
+
+.theme-toggle-button:hover {
+  background: var(--bg-surface-alt);
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+  transform: rotate(15deg);
+}
+
+.theme-toggle-button:active {
+  transform: rotate(15deg) scale(0.95);
+}

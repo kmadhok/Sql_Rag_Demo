@@ -1,0 +1,43 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_name",
+        "column": "t2.name"
+      },
+      {
+        "alias": "products_bought",
+        "column": "count(t1.product_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "count(t1.product_id)"
+    ],
+    "computed_columns": [
+      "t2.name",
+      "count(t1.product_id)"
+    ]
+  },
+  "analysis_time": 1.1483840942382812,
+  "tokens_used": 507,
+  "cost_estimate": 3.8024999999999996e-05
+}

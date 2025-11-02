@@ -1,0 +1,51 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [
+      "ranked_spending"
+    ],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "ranked_spending",
+        "column": "user_id"
+      },
+      {
+        "table": "ranked_spending",
+        "column": "first_name"
+      },
+      {
+        "table": "ranked_spending",
+        "column": "last_name"
+      },
+      {
+        "table": "ranked_spending",
+        "column": "total_spent"
+      },
+      {
+        "table": "ranked_spending",
+        "column": "rank_most_spent"
+      },
+      {
+        "table": "ranked_spending",
+        "column": "rank_least_spent"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "spending_category",
+        "column": "CASE WHEN rank_most_spent = 1 THEN 'Most Spent' WHEN rank_least_spent = 1 THEN 'Least Spent' END"
+      }
+    ],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "CASE WHEN rank_most_spent = 1 THEN 'Most Spent' WHEN rank_least_spent = 1 THEN 'Least Spent' END"
+    ]
+  },
+  "analysis_time": 1.3454651832580566,
+  "tokens_used": 626,
+  "cost_estimate": 4.695e-05
+}

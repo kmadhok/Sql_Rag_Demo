@@ -1,0 +1,69 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.order_items`",
+      "`bigquery-public-data.thelook_ecommerce.products`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "oi",
+        "table": "`bigquery-public-data.thelook_ecommerce.order_items`"
+      },
+      {
+        "alias": "p",
+        "table": "`bigquery-public-data.thelook_ecommerce.products`"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "items_sold_count",
+        "column": "COUNT(oi.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "COUNT(oi.id) AS items_sold_count"
+    ]
+  },
+  "analysis_time": 2.032194137573242,
+  "tokens_used": 804,
+  "cost_estimate": 6.03e-05
+}

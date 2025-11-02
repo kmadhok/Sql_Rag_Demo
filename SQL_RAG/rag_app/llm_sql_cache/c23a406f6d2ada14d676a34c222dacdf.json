@@ -1,0 +1,90 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "products",
+        "column": "id"
+      },
+      {
+        "table": "products",
+        "column": "name"
+      },
+      {
+        "table": "products",
+        "column": "category"
+      },
+      {
+        "table": "products",
+        "column": "brand"
+      },
+      {
+        "table": "order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "order_items",
+        "column": "id"
+      },
+      {
+        "table": "order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "order_items",
+        "column": "product_id"
+      },
+      {
+        "table": "products",
+        "column": "id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "product_category",
+        "column": "p.category"
+      },
+      {
+        "alias": "product_brand",
+        "column": "p.brand"
+      },
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "total_items_sold",
+        "column": "COUNT(oi.id)"
+      },
+      {
+        "alias": "total_unique_orders",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)",
+      "COUNT(oi.id)",
+      "COUNT(DISTINCT oi.order_id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name",
+      "p.category AS product_category",
+      "p.brand AS product_brand",
+      "SUM(oi.sale_price) AS total_revenue",
+      "COUNT(oi.id) AS total_items_sold",
+      "COUNT(DISTINCT oi.order_id) AS total_unique_orders"
+    ]
+  },
+  "analysis_time": 1.4346070289611816,
+  "tokens_used": 725,
+  "cost_estimate": 5.4374999999999994e-05
+}

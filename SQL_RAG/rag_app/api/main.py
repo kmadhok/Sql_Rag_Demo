@@ -35,6 +35,15 @@ from services.saved_query_store import (
     load_saved_query,
     SavedQuery as StoredQuery,
 )
+from services.dashboard_store import (
+    create_dashboard,
+    update_dashboard,
+    list_dashboards,
+    load_dashboard,
+    delete_dashboard,
+    duplicate_dashboard,
+    Dashboard as StoredDashboard,
+)
 from data.app_data_loader import (
     load_vector_store,
     load_schema_manager,
@@ -84,6 +93,7 @@ class SourceDocument(BaseModel):
 class SearchResponse(BaseModel):
     answer: Optional[str]
     sql: Optional[str]
+    cleaned_sql: Optional[str] = None
     sources: List[SourceDocument]
     usage: Dict[str, Any]
 
@@ -140,6 +150,32 @@ class SaveQueryRequest(BaseModel):
     question: str
     sql: str
     data: Optional[List[Dict[str, Any]]] = None
+
+
+class DashboardSummary(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+    chart_count: int
+
+
+class DashboardDetail(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+    layout_items: List[Dict[str, Any]]
+
+
+class CreateDashboardRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    layout_items: Optional[List[Dict[str, Any]]] = None
+
+
+class UpdateDashboardRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    layout_items: Optional[List[Dict[str, Any]]] = None
 
 
 # Application state ----------------------------------------------------------------
@@ -258,6 +294,22 @@ def query_search(
     if result.error:
         raise HTTPException(status_code=500, detail=result.error)
 
+    # Extract clean SQL using LLM for better formatting
+    cleaned_sql = None
+    if result.sql or result.answer_text:
+        try:
+            from services.sql_extraction_service import get_sql_extraction_service
+            sql_service = get_sql_extraction_service()
+            # Extract from answer text first (may contain formatted SQL in markdown)
+            text_to_extract = result.answer_text or ""
+            cleaned_sql = sql_service.extract_sql(text_to_extract, prefer_llm=True, debug=False)
+            # Fallback to result.sql if extraction fails
+            if not cleaned_sql:
+                cleaned_sql = result.sql
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"SQL extraction failed: {e}")
+            cleaned_sql = result.sql
+
     sources = []
     for doc in result.sources:
         sources.append(
@@ -270,6 +322,7 @@ def query_search(
     return SearchResponse(
         answer=result.answer_text,
         sql=result.sql,
+        cleaned_sql=cleaned_sql,
         sources=sources,
         usage=result.usage,
     )
@@ -409,6 +462,87 @@ def get_saved_query(query_id: str):
         row_count=saved.row_count,
         data_preview=saved.data_preview,
     )
+
+
+# Dashboard endpoints ---------------------------------------------------------------
+
+
+@app.post("/dashboards", response_model=DashboardDetail)
+def create_new_dashboard(payload: CreateDashboardRequest):
+    dashboard = create_dashboard(payload.name, payload.layout_items)
+    return DashboardDetail(
+        id=dashboard.id,
+        name=dashboard.name,
+        created_at=dashboard.created_at,
+        updated_at=dashboard.updated_at,
+        layout_items=dashboard.layout_items,
+    )
+
+
+@app.get("/dashboards", response_model=List[DashboardSummary])
+def get_dashboards():
+    return [
+        DashboardSummary(
+            id=d.id,
+            name=d.name,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+            chart_count=len(d.layout_items),
+        )
+        for d in list_dashboards()
+    ]
+
+
+@app.get("/dashboards/{dashboard_id}", response_model=DashboardDetail)
+def get_dashboard(dashboard_id: str):
+    dashboard = load_dashboard(dashboard_id)
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return DashboardDetail(
+        id=dashboard.id,
+        name=dashboard.name,
+        created_at=dashboard.created_at,
+        updated_at=dashboard.updated_at,
+        layout_items=dashboard.layout_items,
+    )
+
+
+@app.patch("/dashboards/{dashboard_id}", response_model=DashboardDetail)
+def update_existing_dashboard(dashboard_id: str, payload: UpdateDashboardRequest):
+    dashboard = update_dashboard(dashboard_id, payload.name, payload.layout_items)
+    if not dashboard:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return DashboardDetail(
+        id=dashboard.id,
+        name=dashboard.name,
+        created_at=dashboard.created_at,
+        updated_at=dashboard.updated_at,
+        layout_items=dashboard.layout_items,
+    )
+
+
+@app.post("/dashboards/{dashboard_id}/duplicate", response_model=DashboardDetail)
+def duplicate_existing_dashboard(dashboard_id: str):
+    duplicated = duplicate_dashboard(dashboard_id)
+    if not duplicated:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return DashboardDetail(
+        id=duplicated.id,
+        name=duplicated.name,
+        created_at=duplicated.created_at,
+        updated_at=duplicated.updated_at,
+        layout_items=duplicated.layout_items,
+    )
+
+
+@app.delete("/dashboards/{dashboard_id}")
+def delete_existing_dashboard(dashboard_id: str):
+    success = delete_dashboard(dashboard_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Dashboard not found")
+    return {"message": "Dashboard deleted successfully"}
+
+
 class QuickRequest(BaseModel):
     question: str = Field(..., min_length=2)
     conversation_context: Optional[str] = ""

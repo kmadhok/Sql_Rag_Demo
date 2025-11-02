@@ -1,267 +1,301 @@
-import { useEffect, useMemo, useState } from "react";
-import Button from "./Button.jsx";
-import Card, { StatCard } from "./Card.jsx";
-import {
-  getSavedQuery,
-} from "../services/ragClient.js";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Cell,
-} from "recharts";
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { Responsive, WidthProvider } from 'react-grid-layout';
+import Button from './Button.jsx';
+import Card, { StatCard } from './Card.jsx';
+import ChartCard from './ChartCard.jsx';
+import AddVisualizationModal from './AddVisualizationModal.jsx';
+import ChartConfigPanel from './ChartConfigPanel.jsx';
+import DashboardSelector from './DashboardSelector.jsx';
+import ExportMenu from './ExportMenu.jsx';
+import { exportAsPNG, exportAsPDF, exportAsJSON } from '../utils/exportDashboard.js';
+import 'react-grid-layout/css/styles.css';
+import 'react-resizable/css/styles.css';
 
-function SavedQueryCard({ query, onSelect, isSelected }) {
-  const [loading, setLoading] = useState(false);
-  
-  const handleSelect = async () => {
-    if (!onSelect) return;
-    
-    setLoading(true);
-    try {
-      await onSelect(query.id);
-    } finally {
-      setLoading(false);
-    }
-  };
+const ResponsiveGridLayout = WidthProvider(Responsive);
 
+/* Empty State */
+function EmptyDashboardState({ onAddChart }) {
   return (
-    <Card 
-      hover 
-      className={`cursor-pointer transition-all duration-200 ${isSelected ? 'card-active' : 'card-muted'}`}
-      onClick={handleSelect}
-    >
-      <div className="space-y-md">
-        {/* Header */}
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <h3 className="typography-subheading text-sm line-clamp-2">
-              {query.question}
-            </h3>
-            <p className="typography-caption mt-1">
-              {query.row_count != null ? `${query.row_count.toLocaleString()} rows` : 'Rows unknown'}
-            </p>
-          </div>
-          
-          {isSelected && (
-            <span className="badge-soft">Active</span>
-          )}
-        </div>
-        
-        {/* SQL Preview */}
-        {query.sql && (
-          <div className="card-muted rounded-lg p-3 border border-transparent">
-            <p className="typography-caption font-mono text-xs text-blue-100 line-clamp-3">
-              {query.sql}
-            </p>
-          </div>
-        )}
-        
-        {/* Footer */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <span className="badge-soft">
-              {(query.row_count ?? query.data_preview?.length ?? 0).toLocaleString()} rows
-            </span>
-            {query.created_at && (
-              <span className="badge-soft">
-                {new Date(query.created_at).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-          
-          <Button variant="secondary" size="sm" onClick={handleSelect} disabled={loading}>
-            {loading ? "Loading..." : "View"}
-          </Button>
-        </div>
+    <div className="text-center py-16 surface-panel-light rounded-lg border border-gray-700 border-dashed">
+      <div className="max-w-md mx-auto">
+        <svg
+          width="64"
+          height="64"
+          viewBox="0 0 64 64"
+          fill="none"
+          className="mx-auto mb-4 opacity-30"
+        >
+          <rect x="8" y="8" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="2" />
+          <rect x="36" y="8" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="2" />
+          <rect x="8" y="36" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="2" />
+          <rect x="36" y="36" width="20" height="20" rx="4" stroke="currentColor" strokeWidth="2" />
+        </svg>
+        <h3 className="typography-heading mb-3">Your Dashboard is Empty</h3>
+        <p className="typography-body text-gray-400 mb-6">
+          Add your first visualization to get started. You can create charts from saved queries.
+        </p>
+        <Button variant="primary" onClick={onAddChart}>
+          + Add Visualization
+        </Button>
       </div>
-    </Card>
-  );
-}
-
-/* Chart Components - Clean */
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-gray-900 border border-gray-700 rounded-lg p-3 shadow-xl">
-        <p className="typography-caption text-blue-400">{label}</p>
-        <p className="typography-body">{payload[0].value}</p>
-      </div>
-    );
-  }
-  return null;
-};
-
-const COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444'];
-
-function BarChartVisualization({ data, title }) {
-  if (!data || data.length === 0) {
-    return (
-      <Card className="h-64 flex items-center justify-center">
-        <div className="text-center">
-          <h3 className="typography-body text-gray-500 mb-2">No Data Available</h3>
-          <p className="typography-caption text-gray-600">Select a column to visualize</p>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <h3 className="typography-subheading mb-4">{title}</h3>
-      <ResponsiveContainer width="100%" height={250}>
-        <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis 
-            dataKey="name" 
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF', fontSize: 12 }}
-          />
-          <YAxis 
-            stroke="#9CA3AF"
-            tick={{ fill: '#9CA3AF', fontSize: 12 }}
-          />
-          <Tooltip content={<CustomTooltip />} />
-          <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-            {data.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </Card>
-  );
-}
-
-/* Empty State - Clean */
-function EmptyState({ onGoToChat }) {
-  return (
-    <div className="text-center py-16 surface-panel-light">
-      <h3 className="typography-heading mb-3">No Saved Queries Yet</h3>
-      <p className="typography-body max-w-md mx-auto mb-6">
-        Start by asking questions in the chat interface and save successful queries to your dashboard.
-      </p>
-      <Button variant="primary" onClick={onGoToChat}>
-        Ask a question
-      </Button>
     </div>
   );
 }
 
-/* Main Dashboard Component - Clean */
-export default function Dashboard({ savedQueries, onRefresh, onGoToChat }) {
-  const [selectedQuery, setSelectedQuery] = useState(null);
-  const [selectedQueryData, setSelectedQueryData] = useState(null);
-  const [viewMode, setViewMode] = useState('grid');
-  const [loading, setLoading] = useState(false);
-  const [chartColumn, setChartColumn] = useState('');
+/* Main Dashboard Component */
+export default function Dashboard({
+  savedQueries,
+  onRefresh,
+  onGoToChat,
+  currentDashboard,
+  onSaveDashboard,
+  dashboards,
+  activeDashboardId,
+  onSelectDashboard,
+  onCreateDashboard,
+  onRenameDashboard,
+  onDuplicateDashboard,
+  onDeleteDashboard,
+}) {
+  // Layout state
+  const [layout, setLayout] = useState([]);
+  const [chartItems, setChartItems] = useState([]);
 
-  // Auto-select the first query when list changes
+  // Modal states
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isConfigPanelOpen, setIsConfigPanelOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState(null);
+
+  // Auto-save debounce
+  const [saveTimeout, setSaveTimeout] = useState(null);
+
+  // Export state
+  const [isExporting, setIsExporting] = useState(false);
+  const dashboardRef = useRef(null);
+
+  // Load dashboard from currentDashboard prop
   useEffect(() => {
-    if (savedQueries?.length && !selectedQuery) {
-      setSelectedQuery(savedQueries[0].id);
+    if (currentDashboard && currentDashboard.layout_items) {
+      const items = currentDashboard.layout_items.map((item) => ({
+        i: item.i,
+        savedQueryId: item.saved_query_id || item.savedQueryId,
+        queryQuestion: item.query_question || item.queryQuestion,
+        chartConfig: item.chart_config || item.chartConfig,
+      }));
+
+      setChartItems(items);
+
+      const gridLayout = currentDashboard.layout_items.map((item) => ({
+        i: item.i,
+        x: item.x,
+        y: item.y,
+        w: item.w,
+        h: item.h,
+      }));
+
+      setLayout(gridLayout);
     }
-  }, [savedQueries, selectedQuery]);
-
-  // Load selected query details
-  useEffect(() => {
-    if (!selectedQuery) {
-      setSelectedQueryData(null);
-      return;
-    }
-
-    const loadQuery = async () => {
-      setLoading(true);
-      try {
-        const queryData = await getSavedQuery(selectedQuery);
-        const normalized = {
-          ...queryData,
-          data: queryData.data_preview || [],
-          columns: (queryData.data_preview && queryData.data_preview.length > 0)
-            ? Object.keys(queryData.data_preview[0])
-            : [],
-        };
-        setSelectedQueryData(normalized);
-        setChartColumn((prev) => {
-          if (prev && normalized.columns.includes(prev)) {
-            return prev;
-          }
-          return normalized.columns[0] || '';
-        });
-      } catch (error) {
-        console.error('Failed to load query:', error);
-        setSelectedQueryData(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadQuery();
-  }, [selectedQuery]);
-
-  // Prepare chart data from selected query
-  const chartData = useMemo(() => {
-    if (!selectedQueryData?.data?.length || !chartColumn) {
-      return null;
-    }
-
-    try {
-      // Simple aggregation for the selected column
-      const counts = {};
-      selectedQueryData.data.forEach(row => {
-        const value = String(row[chartColumn] || 'Unknown');
-        counts[value] = (counts[value] || 0) + 1;
-      });
-
-      return Object.entries(counts)
-        .map(([name, value]) => ({ name, value }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10); // Top 10
-    } catch (error) {
-      console.error('Error processing chart data:', error);
-      return null;
-    }
-  }, [selectedQueryData, chartColumn]);
-
-  // Get available columns for chart
-  const availableColumns = useMemo(() => {
-    if (!selectedQueryData?.columns) return [];
-    return selectedQueryData.columns;
-  }, [selectedQueryData]);
+  }, [currentDashboard]);
 
   // Stats calculations
   const stats = useMemo(() => {
     const totalQueries = savedQueries?.length || 0;
-    const totalRows = savedQueries?.reduce((sum, q) => sum + (q.row_count ?? q.data_preview?.length ?? 0), 0) || 0;
-    const recentQueries = savedQueries?.filter(q => {
-      const createdAt = new Date(q.created_at);
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      return createdAt > weekAgo;
-    }).length || 0;
+    const totalRows =
+      savedQueries?.reduce((sum, q) => sum + (q.row_count ?? 0), 0) || 0;
+    const recentQueries =
+      savedQueries?.filter((q) => {
+        const createdAt = new Date(q.created_at);
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        return createdAt > weekAgo;
+      }).length || 0;
 
     return { totalQueries, totalRows, recentQueries };
   }, [savedQueries]);
 
-  if (!savedQueries?.length) {
-    return <EmptyState onGoToChat={onGoToChat} />;
-  }
+  // Handle layout change (drag/resize)
+  const handleLayoutChange = useCallback((newLayout) => {
+    setLayout(newLayout);
+
+    // Auto-save after 500ms of inactivity
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+
+    const timeout = setTimeout(() => {
+      saveDashboard(newLayout);
+    }, 500);
+
+    setSaveTimeout(timeout);
+  }, [saveTimeout]);
+
+  // Save dashboard
+  const saveDashboard = useCallback((layoutToSave = layout) => {
+    if (!layoutToSave || layoutToSave.length === 0) {
+      return;
+    }
+
+    const layoutItems = layoutToSave.map((gridItem) => {
+      const chartItem = chartItems.find((c) => c.i === gridItem.i);
+      return {
+        i: gridItem.i,
+        x: gridItem.x,
+        y: gridItem.y,
+        w: gridItem.w,
+        h: gridItem.h,
+        saved_query_id: chartItem?.savedQueryId || '',
+        query_question: chartItem?.queryQuestion || '',
+        chart_config: chartItem?.chartConfig || {},
+      };
+    });
+
+    if (onSaveDashboard) {
+      onSaveDashboard({ layout_items: layoutItems });
+    }
+  }, [layout, chartItems, onSaveDashboard]);
+
+  // Add new chart
+  const handleAddChart = useCallback((chartData) => {
+    const itemId = `chart-${Date.now()}`;
+
+    // Find next available Y position
+    const maxY = layout.reduce((max, item) => Math.max(max, item.y + item.h), 0);
+
+    const newChartItem = {
+      i: itemId,
+      savedQueryId: chartData.savedQueryId,
+      queryQuestion: chartData.queryQuestion,
+      chartConfig: chartData.chartConfig,
+    };
+
+    const newLayoutItem = {
+      i: itemId,
+      x: 0,
+      y: maxY,
+      w: 6,
+      h: 2,
+      minW: 3,
+      minH: 2,
+    };
+
+    setChartItems((prev) => [...prev, newChartItem]);
+    setLayout((prev) => [...prev, newLayoutItem]);
+
+    // Save immediately
+    setTimeout(() => {
+      saveDashboard([...layout, newLayoutItem]);
+    }, 100);
+  }, [layout, saveDashboard]);
+
+  // Remove chart
+  const handleRemoveChart = useCallback((itemId) => {
+    setChartItems((prev) => prev.filter((item) => item.i !== itemId));
+    setLayout((prev) => prev.filter((item) => item.i !== itemId));
+
+    // Save immediately
+    setTimeout(() => {
+      const newLayout = layout.filter((item) => item.i !== itemId);
+      saveDashboard(newLayout);
+    }, 100);
+  }, [layout, saveDashboard]);
+
+  // Configure chart
+  const handleConfigureChart = useCallback((itemId) => {
+    const item = chartItems.find((c) => c.i === itemId);
+    if (item) {
+      setEditingItem(item);
+      setIsConfigPanelOpen(true);
+    }
+  }, [chartItems]);
+
+  // Save chart configuration
+  const handleSaveChartConfig = useCallback((newConfig) => {
+    if (!editingItem) return;
+
+    setChartItems((prev) =>
+      prev.map((item) =>
+        item.i === editingItem.i
+          ? { ...item, chartConfig: newConfig }
+          : item
+      )
+    );
+
+    // Save immediately
+    setTimeout(() => {
+      saveDashboard();
+    }, 100);
+
+    setEditingItem(null);
+  }, [editingItem, saveDashboard]);
+
+  // Export handlers
+  const handleExportPNG = useCallback(async () => {
+    if (!dashboardRef.current) return;
+
+    setIsExporting(true);
+    const dashboardName = currentDashboard?.name || 'dashboard';
+    const result = await exportAsPNG(dashboardRef.current, dashboardName);
+    setIsExporting(false);
+
+    if (!result.success) {
+      alert(`Failed to export as PNG: ${result.error}`);
+    }
+  }, [currentDashboard]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!dashboardRef.current) return;
+
+    setIsExporting(true);
+    const dashboardName = currentDashboard?.name || 'dashboard';
+    const result = await exportAsPDF(dashboardRef.current, dashboardName, 'landscape');
+    setIsExporting(false);
+
+    if (!result.success) {
+      alert(`Failed to export as PDF: ${result.error}`);
+    }
+  }, [currentDashboard]);
+
+  const handleExportJSON = useCallback(async () => {
+    const dashboardName = currentDashboard?.name || 'dashboard';
+    const result = exportAsJSON(currentDashboard, dashboardName);
+
+    if (!result.success) {
+      alert(`Failed to export as JSON: ${result.error}`);
+    }
+  }, [currentDashboard]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
-      {/* Header - Clean */}
+    <div ref={dashboardRef} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="typography-heading">Query Dashboard</h2>
-          <p className="typography-caption">Manage and visualize your saved SQL queries</p>
+          <DashboardSelector
+            dashboards={dashboards || []}
+            activeDashboardId={activeDashboardId}
+            onSelect={onSelectDashboard}
+            onCreate={onCreateDashboard}
+            onRename={onRenameDashboard}
+            onDuplicate={onDuplicateDashboard}
+            onDelete={onDeleteDashboard}
+          />
+          <p className="typography-caption" style={{ marginTop: 'var(--space-sm)' }}>
+            Drag and resize charts to customize your view
+          </p>
         </div>
-        <Button variant="secondary" onClick={onRefresh}>
-          Refresh
-        </Button>
+        <div className="flex gap-3">
+          <ExportMenu
+            onExportPNG={handleExportPNG}
+            onExportPDF={handleExportPDF}
+            onExportJSON={handleExportJSON}
+            isExporting={isExporting}
+          />
+          <Button variant="secondary" onClick={onRefresh}>
+            Refresh
+          </Button>
+          <Button variant="primary" onClick={() => setIsAddModalOpen(true)}>
+            + Add Visualization
+          </Button>
+        </div>
       </div>
 
       {/* Stats Grid */}
@@ -269,7 +303,9 @@ export default function Dashboard({ savedQueries, onRefresh, onGoToChat }) {
         <StatCard
           title="Total Queries"
           value={stats.totalQueries.toString()}
-          change={stats.recentQueries > 0 ? `+${stats.recentQueries} this week` : undefined}
+          change={
+            stats.recentQueries > 0 ? `+${stats.recentQueries} this week` : undefined
+          }
           changeType={stats.recentQueries > 0 ? 'positive' : 'neutral'}
         />
         <StatCard
@@ -278,154 +314,67 @@ export default function Dashboard({ savedQueries, onRefresh, onGoToChat }) {
           change={stats.totalRows > 0 ? 'Across all queries' : undefined}
         />
         <StatCard
-          title="Recent Activity"
-          value={stats.recentQueries.toString()}
-          change="Last 7 days"
-          changeType={stats.recentQueries > 0 ? 'positive' : 'neutral'}
+          title="Charts"
+          value={chartItems.length.toString()}
+          change="Active visualizations"
+          changeType={chartItems.length > 0 ? 'positive' : 'neutral'}
         />
       </div>
 
-      {/* View Mode Toggle */}
-      <div className="flex items-center justify-between">
-        <p className="typography-body">{savedQueries.length} saved queries</p>
-        <div className="tab-nav" style={{ padding: '4px 6px' }}>
-          <div className="flex space-x-sm">
-            {['grid', 'list'].map((mode) => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={`tab-button ${viewMode === mode ? "active" : ""}`}
-              >
-                {mode === 'grid' ? 'Grid' : 'List'}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-layout">
-        {/* Queries List */}
-        <div className="lg:col-span-2">
-          <div className={viewMode === 'grid' ? 'dashboard-grid' : 'space-y-lg'}>
-            {savedQueries.map((query) => (
-              <SavedQueryCard
-                key={query.id}
-                query={query}
-                onSelect={setSelectedQuery}
-                isSelected={selectedQuery === query.id}
+      {/* Chart Grid */}
+      {chartItems.length === 0 ? (
+        <EmptyDashboardState onAddChart={() => setIsAddModalOpen(true)} />
+      ) : (
+        <ResponsiveGridLayout
+          className="layout"
+          layouts={{ lg: layout }}
+          breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
+          cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+          rowHeight={100}
+          onLayoutChange={handleLayoutChange}
+          draggableHandle=".drag-handle"
+          isDraggable
+          isResizable
+          compactType="vertical"
+          preventCollision={false}
+        >
+          {chartItems.map((item) => (
+            <div key={item.i} data-grid={layout.find((l) => l.i === item.i)}>
+              <ChartCard
+                itemId={item.i}
+                savedQueryId={item.savedQueryId}
+                queryQuestion={item.queryQuestion}
+                chartConfig={item.chartConfig}
+                onConfigure={handleConfigureChart}
+                onRemove={handleRemoveChart}
               />
-            ))}
-          </div>
-        </div>
+            </div>
+          ))}
+        </ResponsiveGridLayout>
+      )}
 
-        {/* Selected Query Details */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-lg)' }}>
-          {loading ? (
-            <Card className="animate-pulse card-muted">
-              <div className="space-y-md">
-                <div className="h-4 card-muted rounded w-3/4"></div>
-                <div className="h-32 card-muted rounded"></div>
-                <div className="h-4 card-muted rounded w-1/2"></div>
-              </div>
-            </Card>
-          ) : selectedQueryData ? (
-            <>
-              {/* Query Info */}
-              <Card className="card-muted">
-                <h3 className="typography-subheading mb-4">Query Details</h3>
-                <div className="space-y-md">
-                  <div>
-                    <p className="typography-label">Question</p>
-                    <p className="typography-body">{selectedQueryData.question}</p>
-                  </div>
-                  <div>
-                    <p className="typography-label">Rows Returned</p>
-                    <p className="typography-body">{selectedQueryData.data?.length || 0}</p>
-                  </div>
-                  {selectedQueryData.created_at && (
-                    <div>
-                      <p className="typography-label">Created</p>
-                      <p className="typography-body">
-                        {new Date(selectedQueryData.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </Card>
+      {/* Add Visualization Modal */}
+      <AddVisualizationModal
+        isOpen={isAddModalOpen}
+        savedQueries={savedQueries || []}
+        onAdd={handleAddChart}
+        onClose={() => setIsAddModalOpen(false)}
+      />
 
-              {/* Chart Controls */}
-              {availableColumns.length > 0 && (
-                <Card className="card-muted">
-                  <h3 className="typography-subheading mb-4">Visualization</h3>
-                  <div className="space-y-md">
-                    <div>
-                      <label className="typography-label">Column for Chart</label>
-                      <select
-                        value={chartColumn}
-                        onChange={(e) => setChartColumn(e.target.value)}
-                        className="input mt-1"
-                      >
-                        <option value="">Select a column</option>
-                        {availableColumns.map((col) => (
-                          <option key={col} value={col}>{col}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                </Card>
-              )}
-
-              {/* Chart */}
-              {chartData && (
-                <BarChartVisualization 
-                  data={chartData} 
-                  title={`${chartColumn} Distribution`}
-                />
-              )}
-
-              {/* Data Table */}
-              {selectedQueryData.data?.length > 0 && (
-                <Card className="card-muted">
-                  <h3 className="typography-subheading mb-4">Data Preview</h3>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="table-header">
-                          {(selectedQueryData.columns || []).map((col) => (
-                            <th key={col} className="text-left table-cell">
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedQueryData.data.slice(0, 5).map((row, idx) => (
-                          <tr key={idx} className="table-row">
-                            {(selectedQueryData.columns || []).map((col) => (
-                              <td key={col} className="table-cell">
-                                {row[col]}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {selectedQueryData.data.length > 5 && (
-                      <p className="typography-caption text-center mt-3">
-                        ... and {selectedQueryData.data.length - 5} more rows
-                      </p>
-                    )}
-                  </div>
-                </Card>
-              )}
-            </>
-          ) : (
-            <Card className="text-center py-8 card-muted">
-              <p className="typography-body">Select a query to view details</p>
-            </Card>
-          )}
-        </div>
-      </div>
+      {/* Chart Configuration Panel */}
+      {editingItem && (
+        <ChartConfigPanel
+          isOpen={isConfigPanelOpen}
+          savedQueryId={editingItem.savedQueryId}
+          queryQuestion={editingItem.queryQuestion}
+          chartConfig={editingItem.chartConfig}
+          onSave={handleSaveChartConfig}
+          onClose={() => {
+            setIsConfigPanelOpen(false);
+            setEditingItem(null);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,12 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": []
+  },
+  "analysis_time": 0.5783600807189941,
+  "tokens_used": 221,
+  "cost_estimate": 1.6575e-05
+}

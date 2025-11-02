@@ -1,0 +1,60 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "first_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.users",
+        "column": "last_name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "user_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "user_id",
+        "column": "t1.id"
+      },
+      {
+        "alias": "total_spent",
+        "column": "SUM(t2.sale_price)"
+      },
+      {
+        "alias": "rank_most_spent",
+        "column": "RANK() OVER (ORDER BY total_spent DESC)"
+      },
+      {
+        "alias": "rank_least_spent",
+        "column": "RANK() OVER (ORDER BY total_spent ASC)"
+      },
+      {
+        "alias": "spending_category",
+        "column": "CASE WHEN rank_most_spent = 1 THEN 'Most Spent' WHEN rank_least_spent = 1 THEN 'Least Spent' END"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(t2.sale_price)"
+    ],
+    "computed_columns": [
+      "RANK() OVER (ORDER BY total_spent DESC)",
+      "RANK() OVER (ORDER BY total_spent ASC)",
+      "CASE WHEN rank_most_spent = 1 THEN 'Most Spent' WHEN rank_least_spent = 1 THEN 'Least Spent' END"
+    ]
+  },
+  "analysis_time": 1.4314780235290527,
+  "tokens_used": 918,
+  "cost_estimate": 6.884999999999999e-05
+}

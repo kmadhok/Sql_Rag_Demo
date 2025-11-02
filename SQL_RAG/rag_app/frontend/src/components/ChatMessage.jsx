@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import Button from "./Button.jsx";
 import Card from "./Card.jsx";
+import { extractSql } from "../utils/sqlExtractor.js";
 
 function MessageContainer({ align, children }) {
   return (
@@ -263,6 +264,15 @@ function ExecutionPanel({ execution, onExecute, onSave }) {
 export default function ChatMessage({ message, onExecute, onSave }) {
   const isUser = message.role === "user";
 
+  // Extract SQL from message content if not already present
+  const extractedSql = useMemo(() => {
+    if (message.sql) return message.sql;
+    if (!isUser && message.content) {
+      return extractSql(message.content);
+    }
+    return null;
+  }, [message.sql, message.content, isUser]);
+
   const messageBubble = useMemo(() => {
     return (
       <div className={`
@@ -315,11 +325,53 @@ export default function ChatMessage({ message, onExecute, onSave }) {
             <>
               <UsageChips usage={message.usage} />
               <SourceList sources={message.sources} />
-              <ExecutionPanel 
-                execution={message.execution} 
-                onExecute={() => onExecute?.(message.id, { dryRun: false })}
-                onSave={() => onSave?.(message.id)}
-              />
+
+              {/* Always show SQL if extracted (PERSISTENT) */}
+              {extractedSql && (
+                <Card className="mt-3 card-muted" padding="md">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="typography-subheading text-xs">SQL Query</h4>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(extractedSql)}
+                      className="typography-caption text-blue-400 hover:text-blue-300 transition-colors text-xs"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <pre className="text-xs font-mono surface-item overflow-x-auto whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    <code className="text-green-200">{extractedSql}</code>
+                  </pre>
+                </Card>
+              )}
+
+              {/* Show execute buttons only if SQL exists and not yet executed */}
+              {extractedSql && !message.execution && (
+                <div className="mt-3 flex gap-2">
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => onExecute?.(message.id, { dryRun: false, sql: extractedSql })}
+                  >
+                    Execute
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => onExecute?.(message.id, { dryRun: true, sql: extractedSql })}
+                  >
+                    Dry Run
+                  </Button>
+                </div>
+              )}
+
+              {/* Show execution results if executed */}
+              {message.execution && (
+                <ExecutionPanel
+                  execution={message.execution}
+                  onExecute={() => onExecute?.(message.id, { dryRun: false, sql: extractedSql })}
+                  onSave={() => onSave?.(message.id)}
+                />
+              )}
             </>
           )}
         </div>

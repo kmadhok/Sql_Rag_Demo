@@ -1,0 +1,14 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [
+      "ranked_spending"
+    ],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.5188751220703125,
+  "tokens_used": 218,
+  "cost_estimate": 1.635e-05
+}

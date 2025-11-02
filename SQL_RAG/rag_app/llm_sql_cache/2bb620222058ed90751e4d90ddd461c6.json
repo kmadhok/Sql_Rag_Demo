@@ -1,0 +1,19 @@
+{
+  "table_analysis": {
+    "actual_tables": [],
+    "cte_tables": [
+      "user_spending"
+    ],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": {
+    "columns": [],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": []
+  },
+  "analysis_time": 1.1578760147094727,
+  "tokens_used": 405,
+  "cost_estimate": 3.0375e-05
+}

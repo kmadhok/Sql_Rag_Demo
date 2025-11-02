@@ -1,0 +1,95 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "name"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "category"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.products",
+        "column": "brand"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "sale_price"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "order_id"
+      },
+      {
+        "table": "bigquery-public-data.thelook_ecommerce.order_items",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "product_category",
+        "column": "p.category"
+      },
+      {
+        "alias": "product_brand",
+        "column": "p.brand"
+      },
+      {
+        "alias": "total_revenue",
+        "column": "SUM(oi.sale_price)"
+      },
+      {
+        "alias": "total_items_sold",
+        "column": "COUNT(oi.id)"
+      },
+      {
+        "alias": "total_unique_orders",
+        "column": "COUNT(DISTINCT oi.order_id)"
+      },
+      {
+        "alias": "total_revenue",
+        "column": "total_revenue"
+      },
+      {
+        "alias": "total_items_sold",
+        "column": "total_items_sold"
+      },
+      {
+        "alias": "total_unique_orders",
+        "column": "total_unique_orders"
+      }
+    ],
+    "aggregate_columns": [
+      "SUM(oi.sale_price)",
+      "COUNT(oi.id)",
+      "COUNT(DISTINCT oi.order_id)"
+    ],
+    "computed_columns": [
+      "p.id",
+      "p.name",
+      "p.category",
+      "p.brand"
+    ]
+  },
+  "analysis_time": 1.6372308731079102,
+  "tokens_used": 906,
+  "cost_estimate": 6.795e-05
+}

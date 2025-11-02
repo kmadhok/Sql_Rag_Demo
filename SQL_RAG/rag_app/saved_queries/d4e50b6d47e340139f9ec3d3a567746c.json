@@ -1,0 +1,49 @@
+{
+  "id": "d4e50b6d47e340139f9ec3d3a567746c",
+  "question": "@create What are the top 10 products bought in the past 10 days",
+  "sql": "SELECT\n  t2.name AS product_name,\n  count(t1.product_id) AS products_bought\nFROM\n  `bigquery-public-data.thelook_ecommerce.order_items` AS t1\n  INNER JOIN `bigquery-public-data.thelook_ecommerce.products` AS t2 ON t1.product_id = t2.id\nWHERE\n  t1.created_at >= TIMESTAMP_SUB(\n    CURRENT_TIMESTAMP(),\n    INTERVAL 10 DAY\n  )\nGROUP BY\n  1\nORDER BY\n  products_bought DESC\nLIMIT\n  10;",
+  "created_at": "2025-11-02T00:39:10.307640Z",
+  "data_preview": [
+    {
+      "product_name": "Wrangler Men's Premium Performance Cowboy Cut Jean",
+      "products_bought": 6
+    },
+    {
+      "product_name": "Ray-Ban 0RB3491 Aviator Sunglasses",
+      "products_bought": 6
+    },
+    {
+      "product_name": "Ladies' Tie Dye Swimsuit Cover-up Sarong- by 1 World Sarongs in in your choice of color",
+      "products_bought": 5
+    },
+    {
+      "product_name": "Wrangler Men's Genuine Tampa Cargo Short",
+      "products_bought": 5
+    },
+    {
+      "product_name": "Muk Luks Men's Ragg Wool Slipper Sock",
+      "products_bought": 4
+    },
+    {
+      "product_name": "Match Men's Gray White Camo Cargo Shorts #S3596",
+      "products_bought": 4
+    },
+    {
+      "product_name": "American Apparel Solid Rib Oversized Pocket Cardigan",
+      "products_bought": 4
+    },
+    {
+      "product_name": "Glamorise Women's No Bounce Full Support Sport Bra",
+      "products_bought": 4
+    },
+    {
+      "product_name": "Black Fuchsia Seamless Shapewear High Waist Thigh Slimmer",
+      "products_bought": 4
+    },
+    {
+      "product_name": "Collection XIIX Women's Reflections Floral Scarf",
+      "products_bought": 4
+    }
+  ],
+  "row_count": 10
+}

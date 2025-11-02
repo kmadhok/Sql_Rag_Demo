@@ -1,0 +1,33 @@
+{
+  "id": "51a6abc75b1a44e8b98ed403a681008c",
+  "name": "My Dashboard Test",
+  "created_at": "2025-11-01T00:38:24.897739Z",
+  "updated_at": "2025-11-02T00:39:43.960107Z",
+  "layout_items": [
+    {
+      "i": "chart-1762030199712",
+      "x": 0,
+      "y": 0,
+      "w": 6,
+      "h": 2,
+      "saved_query_id": "",
+      "query_question": "",
+      "chart_config": {}
+    },
+    {
+      "i": "chart-1762043983332",
+      "x": 0,
+      "y": 2,
+      "w": 6,
+      "h": 2,
+      "saved_query_id": "0b3f5af069314d268ac1c4549a90c357",
+      "query_question": "@create What are the top 10 products bought in the past 10 days",
+      "chart_config": {
+        "chartType": "pie",
+        "xColumn": "product_name",
+        "yColumn": "products_bought",
+        "aggregation": "sum"
+      }
+    }
+  ]
+}

@@ -56,6 +56,49 @@ export async function getSavedQuery(id) {
   return handleResponse(response);
 }
 
+// Dashboard API methods
+export async function createDashboard(payload) {
+  const response = await fetch(`${API_BASE}/dashboards`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function listDashboards() {
+  const response = await fetch(`${API_BASE}/dashboards`);
+  return handleResponse(response);
+}
+
+export async function getDashboard(id) {
+  const response = await fetch(`${API_BASE}/dashboards/${id}`);
+  return handleResponse(response);
+}
+
+export async function updateDashboard(id, payload) {
+  const response = await fetch(`${API_BASE}/dashboards/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function duplicateDashboard(id) {
+  const response = await fetch(`${API_BASE}/dashboards/${id}/duplicate`, {
+    method: "POST",
+  });
+  return handleResponse(response);
+}
+
+export async function deleteDashboard(id) {
+  const response = await fetch(`${API_BASE}/dashboards/${id}`, {
+    method: "DELETE",
+  });
+  return handleResponse(response);
+}
+
 export const configInfo = {
   apiBase: API_BASE,
 };

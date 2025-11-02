@@ -1,0 +1,51 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "name"
+      },
+      {
+        "table": "oi",
+        "column": "id"
+      },
+      {
+        "table": "p",
+        "column": "id"
+      },
+      {
+        "table": "oi",
+        "column": "product_id"
+      }
+    ],
+    "column_aliases": [
+      {
+        "alias": "product_id",
+        "column": "p.id"
+      },
+      {
+        "alias": "product_name",
+        "column": "p.name"
+      },
+      {
+        "alias": "total_purchase_items",
+        "column": "COUNT(oi.id)"
+      }
+    ],
+    "aggregate_columns": [
+      "COUNT(oi.id)"
+    ],
+    "computed_columns": [
+      "p.id AS product_id",
+      "p.name AS product_name"
+    ]
+  },
+  "analysis_time": 1.018371820449829,
+  "tokens_used": 404,
+  "cost_estimate": 3.0299999999999998e-05
+}
