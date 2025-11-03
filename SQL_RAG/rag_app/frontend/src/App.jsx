@@ -4,6 +4,7 @@ import ChatInput from "./components/ChatInput.jsx";
 import Introduction from "./components/Introduction.jsx";
 import DataOverview from "./components/DataOverview.jsx";
 import Dashboard from "./components/Dashboard.jsx";
+import Playground from "./components/Playground.jsx";
 import Button from "./components/Button.jsx";
 import TemplatePickerModal from "./components/TemplatePickerModal.jsx";
 import ThemeToggle from "./components/ThemeToggle.jsx";
@@ -66,6 +67,7 @@ const TabNavigation = ({ activeTab, onTabChange }) => {
     { id: 'intro', label: 'Introduction' },
     { id: 'data', label: 'Data' },
     { id: 'chat', label: 'Chat' },
+    { id: 'playground', label: 'SQL Playground' },
     { id: 'dashboard', label: 'Dashboard' },
   ];
 
@@ -576,6 +578,12 @@ function App() {
                   onOptionsChange={setOptions}
                 />
               </div>
+            </div>
+          </TabPanel>
+
+          <TabPanel value="playground" current={tab} className="min-h-[600px]">
+            <div className="surface-panel flex flex-col h-full">
+              <Playground theme={currentTheme} />
             </div>
           </TabPanel>
 

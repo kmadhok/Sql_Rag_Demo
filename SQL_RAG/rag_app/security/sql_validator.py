@@ -12,8 +12,8 @@ class SafeSQLValidator:
     # Dangerous SQL patterns to block (UNION allowed for read-only operations)
     DANGEROUS_PATTERNS = [
         r'\b(DROP|DELETE|UPDATE|INSERT|TRUNCATE|ALTER|CREATE)\b',
-        r'\b(EXEC|EXECUTE)\b',  # Removed UNION as it's safe for read-only operations
-        r'(\-\-|\/\*|\*\/)',  # Comment delimiters (removed ; as it's valid SQL syntax)
+        # EXEC/EXECUTE removed - not applicable to BigQuery (SQL Server/PostgreSQL only)
+        # SQL comments (-- and /* */) removed - legitimate and safe in read-only BigQuery context
         r'(\<\?php|\<script)',  # Script injection
         r'\b(exec\(|system\(|shell_exec\()\b',  # Command execution
         r'\b(xp_cmdshell|sp_oacreate)\b',  # SQL Server specific

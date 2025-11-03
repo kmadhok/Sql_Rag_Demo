@@ -5,9 +5,17 @@ const API_BASE = rawBase.replace(/\/+$/, "");
 async function handleResponse(response) {
   if (!response.ok) {
     const text = await response.text();
+    console.error('⚠️ API Error Response:', {
+      status: response.status,
+      statusText: response.statusText,
+      body: text
+    });
     throw new Error(text || response.statusText);
   }
-  return response.json();
+
+  const data = await response.json();
+  console.log('✨ Parsed JSON response:', data);
+  return data;
 }
 
 export async function runQuerySearch(payload) {
@@ -20,12 +28,23 @@ export async function runQuerySearch(payload) {
 }
 
 export async function executeSql(payload) {
-  const response = await fetch(`${API_BASE}/sql/execute`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  return handleResponse(response);
+  try {
+    const url = `${API_BASE}/sql/execute`;
+    console.log('🌐 Fetch URL:', url);
+    console.log('📦 Payload:', payload);
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    console.log('📥 Response status:', response.status, response.statusText);
+    return handleResponse(response);
+  } catch (error) {
+    console.error('🔥 Network error in executeSql:', error);
+    throw new Error(`Network error: ${error.message}`);
+  }
 }
 
 export async function runQuickAnswer(payload) {

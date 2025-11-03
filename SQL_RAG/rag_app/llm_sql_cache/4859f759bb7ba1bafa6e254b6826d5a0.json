@@ -1,0 +1,14 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "`bigquery-public-data.thelook_ecommerce.events`"
+    ],
+    "cte_tables": [],
+    "table_aliases": [],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.6499199867248535,
+  "tokens_used": 251,
+  "cost_estimate": 1.8824999999999997e-05
+}

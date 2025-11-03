@@ -30,24 +30,26 @@ function ChatHistory({ conversation, error, onExecute, onSave }) {
   }, [conversation]);
 
   return (
-    <Stack spacing={2} ref={containerRef} sx={{ flexGrow: 1, overflowY: "auto", pb: 2 }}>
-      {conversation.length === 0 && !error && (
-        <Alert severity="info">
-          Ask a question to start the conversation. Follow-up questions will
-          automatically include previous context.
-        </Alert>
-      )}
-      {conversation.map((message) => (
-        <ChatMessage
-          key={message.id}
-          message={message}
-          onExecute={onExecute}
-          onSave={onSave}
-        />
-      ))}
-      {error && <Alert severity="error">{error}</Alert>}
-      <div ref={bottomRef} />
-    </Stack>
+    <div style={{ maxWidth: '56rem', margin: '0 auto', padding: '0 2rem', height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <Stack spacing={2} ref={containerRef} sx={{ flexGrow: 1, overflowY: "auto", pb: 2 }}>
+        {conversation.length === 0 && !error && (
+          <Alert severity="info">
+            Ask a question to start the conversation. Follow-up questions will
+            automatically include previous context.
+          </Alert>
+        )}
+        {conversation.map((message) => (
+          <ChatMessage
+            key={message.id}
+            message={message}
+            onExecute={onExecute}
+            onSave={onSave}
+          />
+        ))}
+        {error && <Alert severity="error">{error}</Alert>}
+        <div ref={bottomRef} />
+      </Stack>
+    </div>
   );
 }
 

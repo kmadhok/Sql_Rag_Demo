@@ -1,0 +1,20 @@
+{
+  "table_analysis": {
+    "actual_tables": [
+      "bigquery-public-data.thelook_ecommerce.events",
+      "bigquery-public-data.thelook_ecommerce.orders"
+    ],
+    "cte_tables": [],
+    "table_aliases": [
+      {
+        "alias": "o",
+        "table": "bigquery-public-data.thelook_ecommerce.orders"
+      }
+    ],
+    "subquery_tables": []
+  },
+  "column_analysis": null,
+  "analysis_time": 0.7319889068603516,
+  "tokens_used": 351,
+  "cost_estimate": 2.6325e-05
+}
