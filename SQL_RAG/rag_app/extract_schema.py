@@ -5,7 +5,7 @@ import pandas as pd
 PROJECT = "bigquery-public-data"
 DATASET = "thelook_ecommerce"
 DATASET_FQN = f"{PROJECT}.{DATASET}"
-CSV_OUT = "thelook_ecommerce_schema.csv"
+CSV_OUT = "data_new/thelook_ecommerce_schema.csv"
 
 client = bigquery.Client(project=PROJECT)
 
