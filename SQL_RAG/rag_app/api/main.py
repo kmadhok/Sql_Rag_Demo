@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 
 from langchain_community.vectorstores import FAISS
 
+logger = logging.getLogger(__name__)
+
 from services.query_search_service import (
     QuerySearchSettings,
     QuerySearchResult,
@@ -421,6 +423,87 @@ def quick_answer(
         usage=result.usage,
         sources=sources,
     )
+
+
+@app.get("/schema/tables")
+async def list_schema_tables(schema_manager=Depends(get_schema_manager)):
+    if schema_manager is None:
+        raise HTTPException(status_code=503, detail="Schema manager not initialized")
+
+    try:
+        if hasattr(schema_manager, "get_all_tables"):
+            tables = schema_manager.get_all_tables()
+        else:
+            tables = sorted(getattr(schema_manager, "schema_lookup", {}).keys())
+
+        return {
+            "success": True,
+            "tables": tables,
+            "table_count": len(tables),
+        }
+    except Exception as exc:
+        logger.error("Error fetching schema tables: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/schema/tables/{table_name}/columns")
+async def list_table_columns(table_name: str, schema_manager=Depends(get_schema_manager)):
+    if schema_manager is None:
+        raise HTTPException(status_code=503, detail="Schema manager not initialized")
+
+    try:
+        raw_columns = schema_manager.get_schema_for_table(table_name) if hasattr(schema_manager, "get_schema_for_table") else None
+        if not raw_columns and hasattr(schema_manager, "get_table_info"):
+            table_info = schema_manager.get_table_info(table_name)
+            if table_info and table_info.get("columns"):
+                datatypes = table_info.get("datatypes") or []
+                raw_columns = list(zip(table_info["columns"], datatypes))
+
+        if not raw_columns:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+
+        column_list = []
+        for column_entry in raw_columns:
+            name = ""
+            col_type = ""
+            description = ""
+
+            if isinstance(column_entry, (list, tuple)):
+                if len(column_entry) > 0:
+                    name = column_entry[0]
+                if len(column_entry) > 1:
+                    col_type = column_entry[1] or ""
+                if len(column_entry) > 2:
+                    description = column_entry[2] or ""
+            elif isinstance(column_entry, dict):
+                name = column_entry.get("name") or column_entry.get("column") or ""
+                col_type = column_entry.get("type") or column_entry.get("datatype") or ""
+                description = column_entry.get("description") or ""
+            else:
+                name = str(column_entry)
+
+            column_list.append(
+                {
+                    "name": name,
+                    "type": col_type,
+                    "description": description,
+                }
+            )
+
+        fqn = schema_manager.get_fqn(table_name) if hasattr(schema_manager, "get_fqn") else None
+
+        return {
+            "success": True,
+            "table": table_name,
+            "fully_qualified_name": fqn or table_name,
+            "columns": column_list,
+            "column_count": len(column_list),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error fetching columns for %s: %s", table_name, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.post("/saved_queries", response_model=SavedQueryDetail)

@@ -1,27 +1,41 @@
-import { useRef, useEffect } from 'react';
+import { useRef, forwardRef, useImperativeHandle } from 'react';
 import Editor from '@monaco-editor/react';
 
 /**
  * SQL Editor component using Monaco Editor
- * Provides syntax highlighting, keyboard shortcuts, and auto-completion
+ * Provides syntax highlighting, keyboard shortcuts, and auto-completion.
  */
-export default function SqlEditor({
-  value,
-  onChange,
-  onExecute,
-  theme = 'vs-dark',
-  readOnly = false,
-  height = '400px'
-}) {
+const SqlEditor = forwardRef(function SqlEditor(
+  {
+    value,
+    onChange,
+    onExecute,
+    theme = 'vs-dark',
+    readOnly = false,
+    height = '400px'
+  },
+  ref
+) {
   const editorRef = useRef(null);
 
-  /**
-   * Called when editor is mounted
-   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      getInstance: () => editorRef.current,
+      getValue: () => editorRef.current?.getValue(),
+      getModel: () => editorRef.current?.getModel(),
+      getPosition: () => editorRef.current?.getPosition(),
+      getSelection: () => editorRef.current?.getSelection?.(),
+      executeEdits: (...args) => editorRef.current?.executeEdits(...args),
+      focus: () => editorRef.current?.focus(),
+      setValue: (newValue) => editorRef.current?.setValue(newValue),
+    }),
+    []
+  );
+
   function handleEditorDidMount(editor, monaco) {
     editorRef.current = editor;
 
-    // Add Cmd/Ctrl+Enter keyboard shortcut to execute query
     editor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
       () => {
@@ -31,7 +45,6 @@ export default function SqlEditor({
       }
     );
 
-    // Add Cmd/Ctrl+K keyboard shortcut to format SQL (future enhancement)
     editor.addCommand(
       monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK,
       () => {
@@ -39,13 +52,9 @@ export default function SqlEditor({
       }
     );
 
-    // Focus editor on mount
     editor.focus();
   }
 
-  /**
-   * Editor configuration options
-   */
   const editorOptions = {
     selectOnLineNumbers: true,
     roundedSelection: false,
@@ -65,7 +74,6 @@ export default function SqlEditor({
       verticalScrollbarSize: 10,
       horizontalScrollbarSize: 10,
     },
-    // Enable suggestions (autocomplete)
     quickSuggestions: {
       other: true,
       comments: false,
@@ -90,4 +98,6 @@ export default function SqlEditor({
       />
     </div>
   );
-}
+});
+
+export default SqlEditor;

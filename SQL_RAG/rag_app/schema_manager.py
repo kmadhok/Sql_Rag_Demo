@@ -549,6 +549,15 @@ class SchemaManager:
         """
         return list(self.schema_lookup.keys())[:limit]
     
+    def get_all_tables(self) -> List[str]:
+        """
+        Return all table names available in the schema.
+        
+        Returns:
+            Alphabetically sorted list of table names
+        """
+        return sorted(self.schema_lookup.keys())
+    
     def get_table_info(self, table_name: str) -> Optional[Dict]:
         """
         Get table information for SQL validator compatibility.

@@ -118,6 +118,16 @@ export async function deleteDashboard(id) {
   return handleResponse(response);
 }
 
+export async function getTables() {
+  const response = await fetch(`${API_BASE}/schema/tables`);
+  return handleResponse(response);
+}
+
+export async function getTableColumns(tableName) {
+  const response = await fetch(`${API_BASE}/schema/tables/${encodeURIComponent(tableName)}/columns`);
+  return handleResponse(response);
+}
+
 export const configInfo = {
   apiBase: API_BASE,
 };
