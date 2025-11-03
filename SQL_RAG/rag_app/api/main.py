@@ -123,6 +123,49 @@ class ExecuteResponse(BaseModel):
     dry_run: Optional[bool] = None
 
 
+# AI Assistant Request/Response Models (Week 3)
+
+
+class ExplainSQLRequest(BaseModel):
+    sql: str = Field(..., min_length=1, description="SQL query to explain")
+
+
+class ExplainSQLResponse(BaseModel):
+    success: bool
+    explanation: Optional[str] = None
+    tables_analyzed: List[str] = []
+    error: Optional[str] = None
+
+
+class CompleteSQLRequest(BaseModel):
+    partial_sql: str = Field(..., description="Partial SQL query before cursor")
+    cursor_position: Dict[str, int] = Field(..., description="Cursor position {line, column}")
+
+
+class SQLCompletion(BaseModel):
+    completion: str
+    explanation: str
+
+
+class CompleteSQLResponse(BaseModel):
+    success: bool
+    suggestions: List[SQLCompletion] = []
+    error: Optional[str] = None
+
+
+class FixSQLRequest(BaseModel):
+    sql: str = Field(..., min_length=1, description="Broken SQL query")
+    error_message: str = Field(..., description="Error message from execution")
+
+
+class FixSQLResponse(BaseModel):
+    success: bool
+    diagnosis: Optional[str] = None
+    fixed_sql: Optional[str] = None
+    changes: Optional[str] = None
+    error: Optional[str] = None
+
+
 class QuickRequest(BaseModel):
     question: str = Field(..., min_length=2)
     conversation_context: Optional[str] = ""
@@ -187,11 +230,12 @@ VECTOR_STORE: Optional[FAISS] = None
 SCHEMA_MANAGER = None
 LOOKML_SAFE_JOIN_MAP = None
 BIGQUERY_EXECUTOR = None
+AI_ASSISTANT_SERVICE = None  # Week 3: AI-powered SQL assistance
 
 
 @app.on_event("startup")
 def startup_event() -> None:
-    global VECTOR_STORE, SCHEMA_MANAGER, LOOKML_SAFE_JOIN_MAP, BIGQUERY_EXECUTOR
+    global VECTOR_STORE, SCHEMA_MANAGER, LOOKML_SAFE_JOIN_MAP, BIGQUERY_EXECUTOR, AI_ASSISTANT_SERVICE
     if VECTOR_STORE is None:
         index_name = os.getenv("VECTOR_STORE_NAME") or DEFAULT_VECTOR_STORE
         logging.getLogger(__name__).info(f"Loading vector store index: {index_name}")
@@ -207,6 +251,16 @@ def startup_event() -> None:
             BIGQUERY_EXECUTOR = initialize_executor(SQLExecutionSettings())
         except Exception:
             BIGQUERY_EXECUTOR = None
+
+    # Initialize AI Assistant Service (Week 3)
+    if AI_ASSISTANT_SERVICE is None:
+        try:
+            from services.ai_assistant_service import get_ai_assistant_service
+            AI_ASSISTANT_SERVICE = get_ai_assistant_service()
+            logging.getLogger(__name__).info("✅ AI Assistant Service initialized")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"⚠️ AI Assistant Service not available: {e}")
+            AI_ASSISTANT_SERVICE = None
 
 
 def get_vector_store() -> FAISS:
@@ -225,6 +279,16 @@ def get_lookml_safe_join_map():
 
 def get_bigquery_executor():
     return BIGQUERY_EXECUTOR
+
+
+def get_ai_assistant_service():
+    """Get AI Assistant Service instance (Week 3)"""
+    if AI_ASSISTANT_SERVICE is None:
+        raise HTTPException(
+            status_code=503,
+            detail="AI Assistant Service not available. Check Gemini API configuration."
+        )
+    return AI_ASSISTANT_SERVICE
 
 
 # Routes ----------------------------------------------------------------------------
@@ -377,6 +441,150 @@ def execute_sql(
         data=data,
         **result_fields,
     )
+
+
+# AI-Powered SQL Assistance Endpoints (Week 3) --------------------------------
+
+
+@app.post("/sql/explain", response_model=ExplainSQLResponse)
+def explain_sql_query(
+    payload: ExplainSQLRequest,
+    ai_service=Depends(get_ai_assistant_service),
+    schema_manager=Depends(get_schema_manager),
+):
+    """
+    Generate human-readable explanation of SQL query using Gemini AI.
+
+    Week 3 Feature: AI-powered SQL explanations
+    """
+    try:
+        # Extract table names from SQL
+        table_names = schema_manager.extract_tables_from_content(payload.sql)
+
+        # Get schema context
+        schema_context = schema_manager.get_relevant_schema(
+            table_names,
+            max_tables=10,
+            include_bigquery_guidance=True
+        )
+
+        # Generate explanation
+        explanation = ai_service.explain_sql(payload.sql, schema_context)
+
+        return ExplainSQLResponse(
+            success=True,
+            explanation=explanation,
+            tables_analyzed=table_names,
+            error=None
+        )
+
+    except Exception as e:
+        logger.error(f"Error explaining SQL: {str(e)}")
+        return ExplainSQLResponse(
+            success=False,
+            explanation=None,
+            tables_analyzed=[],
+            error=str(e)
+        )
+
+
+@app.post("/sql/complete", response_model=CompleteSQLResponse)
+def complete_sql_query(
+    payload: CompleteSQLRequest,
+    ai_service=Depends(get_ai_assistant_service),
+    schema_manager=Depends(get_schema_manager),
+):
+    """
+    Suggest SQL completions using Gemini AI for autocomplete.
+
+    Week 3 Feature: AI-powered autocomplete
+    """
+    try:
+        # Get schema context for completions (use all tables, limited to 20)
+        all_tables = schema_manager.get_all_tables()
+        schema_context = schema_manager.get_relevant_schema(
+            all_tables[:20],
+            max_tables=20,
+            include_bigquery_guidance=False
+        )
+
+        # Generate completions
+        suggestions = ai_service.complete_sql(
+            payload.partial_sql,
+            payload.cursor_position,
+            schema_context
+        )
+
+        # Convert to Pydantic models
+        completions = [
+            SQLCompletion(
+                completion=s.get("completion", ""),
+                explanation=s.get("explanation", "")
+            )
+            for s in suggestions
+        ]
+
+        return CompleteSQLResponse(
+            success=True,
+            suggestions=completions,
+            error=None
+        )
+
+    except Exception as e:
+        logger.error(f"Error completing SQL: {str(e)}")
+        return CompleteSQLResponse(
+            success=False,
+            suggestions=[],
+            error=str(e)
+        )
+
+
+@app.post("/sql/fix", response_model=FixSQLResponse)
+def fix_sql_query(
+    payload: FixSQLRequest,
+    ai_service=Depends(get_ai_assistant_service),
+    schema_manager=Depends(get_schema_manager),
+):
+    """
+    Debug and fix broken SQL query using Gemini AI.
+
+    Week 3 Feature: AI-powered SQL debugging
+    """
+    try:
+        # Extract table names from SQL
+        table_names = schema_manager.extract_tables_from_content(payload.sql)
+
+        # Get schema context
+        schema_context = schema_manager.get_relevant_schema(
+            table_names,
+            max_tables=10,
+            include_bigquery_guidance=True
+        )
+
+        # Generate fix
+        fix_result = ai_service.fix_sql(
+            payload.sql,
+            payload.error_message,
+            schema_context
+        )
+
+        return FixSQLResponse(
+            success=True,
+            diagnosis=fix_result.get("diagnosis"),
+            fixed_sql=fix_result.get("fixed_sql"),
+            changes=fix_result.get("changes"),
+            error=None
+        )
+
+    except Exception as e:
+        logger.error(f"Error fixing SQL: {str(e)}")
+        return FixSQLResponse(
+            success=False,
+            diagnosis=None,
+            fixed_sql=None,
+            changes=None,
+            error=str(e)
+        )
 
 
 @app.post("/query/quick", response_model=QuickResponse)
