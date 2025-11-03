@@ -168,7 +168,16 @@ def _create_gemini_embeddings(model: str | None = None) -> Any:
 
     raw_mode = os.getenv("GENAI_CLIENT_MODE")
     if not raw_mode:
-        raw_mode = "api"
+        vertexai_override = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+        if vertexai_override is not None:
+            default_mode = "sdk" if vertexai_override.lower() in ("true", "1", "yes") else "api"
+        elif os.getenv("GOOGLE_CLOUD_PROJECT") and not (
+            os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        ):
+            default_mode = "sdk"
+        else:
+            default_mode = "api"
+        raw_mode = default_mode
     client_mode = raw_mode.strip().lower()
     use_vertexai_env = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
     if use_vertexai_env is None:
@@ -371,7 +380,16 @@ def get_provider_info() -> dict[str, Any]:
         project_id = os.getenv("GOOGLE_CLOUD_PROJECT")
         raw_mode = os.getenv("GENAI_CLIENT_MODE")
         if not raw_mode:
-            raw_mode = "api"
+            vertexai_override = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+            if vertexai_override is not None:
+                default_mode = "sdk" if vertexai_override.lower() in ("true", "1", "yes") else "api"
+            elif os.getenv("GOOGLE_CLOUD_PROJECT") and not (
+                os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            ):
+                default_mode = "sdk"
+            else:
+                default_mode = "api"
+            raw_mode = default_mode
         client_mode = raw_mode.strip().lower()
         use_vertexai_env = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
         if use_vertexai_env is None:

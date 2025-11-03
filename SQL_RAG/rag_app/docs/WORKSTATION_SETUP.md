@@ -28,14 +28,14 @@ dependencies in editable mode so local code changes take effect immediately.
    ```bash
    cp .env.example .env
    ```
-2. Provide the required credentials:
-   - `GEMINI_API_KEY`: API key for Google Gemini models.
-   - `GENAI_CLIENT_MODE`: `api` (default) for API key auth, `sdk` to use Vertex AI with Application Default Credentials.
+2. Provide the required credentials (Vertex AI SDK mode by default):
+   - `GENAI_CLIENT_MODE`: `sdk` to use the GenAI SDK with Application Default Credentials.
    - `GOOGLE_CLOUD_PROJECT`: Google Cloud project that hosts BigQuery and Vertex AI.
    - `GOOGLE_APPLICATION_CREDENTIALS`: Absolute path to a service-account JSON key
      (alternatively, authenticate with `gcloud auth application-default login`).
    - `BIGQUERY_PROJECT_ID` / `BIGQUERY_DATASET`: Defaults used for SQL execution.
    - `VECTOR_STORE_NAME`: Name of the FAISS index stored under `faiss_indices/`.
+   - Optional fallback: set `GENAI_CLIENT_MODE=api` and provide `GEMINI_API_KEY` if you must route through the public Gemini API.
 3. Optional toggles for embeddings, validation, and model overrides can remain at their defaults.
    Set `GOOGLE_GENAI_USE_VERTEXAI` if you need to override how embeddings authenticate.
 
@@ -43,7 +43,7 @@ dependencies in editable mode so local code changes take effect immediately.
 
 Make sure the FAISS index referenced by `VECTOR_STORE_NAME` exists under
 `faiss_indices/`. If you are onboarding a new environment, generate the index using
-the provided helper:
+the provided helper (ensure `GENAI_CLIENT_MODE=sdk` and your Vertex AI credentials are loaded):
 
 ```bash
 python standalone_embedding_generator.py --csv sample_queries_with_metadata.csv

@@ -67,7 +67,16 @@ class GeminiClient:
         self.model_name = model
         raw_mode = client_mode if client_mode is not None else os.getenv("GENAI_CLIENT_MODE")
         if not raw_mode:
-            raw_mode = "api"
+            vertexai_override = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+            if vertexai_override is not None:
+                default_mode = "sdk" if vertexai_override.lower() in ("true", "1", "yes") else "api"
+            elif os.getenv("GOOGLE_CLOUD_PROJECT") and not (
+                os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            ):
+                default_mode = "sdk"
+            else:
+                default_mode = "api"
+            raw_mode = default_mode
         self.client_mode = raw_mode.strip().lower()
         if self.client_mode not in {"api", "sdk"}:
             raise ValueError("GENAI_CLIENT_MODE must be 'api' or 'sdk'")

@@ -1,30 +1,87 @@
 import asyncio
-import google.generativeai as genai
-import base64
-import pandas as pd
-from google.cloud import bigquery
-from concurrent.futures import ThreadPoolExecutor
-from dotenv import load_dotenv
-import os
-from pathlib import Path
-import json
-import csv
-import time
 import logging
 import argparse
+import json
+import os
+from pathlib import Path
+from typing import Optional, Tuple, Dict, Any, List
+
+import pandas as pd
+from google import genai
+from google.cloud import bigquery
+from dotenv import load_dotenv
 from utils.rate_limiter import GEMINI_RATE_LIMITER, exponential_backoff_retry
 from utils.progress_tracker import ProgressTracker
 
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
 
-bq_client = os.getenv("bigquery_client")
-vertex_ai_client = os.getenv("vertex_ai_client")
-host_table_name=os.getenv("host_table")
-llm_model_name=os.getenv("llm_model_name")
+host_table_name = os.getenv("host_table")
 
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+def _resolve_default_model() -> str:
+    """Determine which Gemini model to use for metadata generation."""
+    return (
+        os.getenv("DESCRIPTION_GENERATOR_MODEL")
+        or os.getenv("GEMINI_DESCRIPTION_MODEL")
+        or os.getenv("LLM_CHAT_MODEL")
+        or "gemini-2.5-flash"
+    )
+
+
+MODEL_NAME = _resolve_default_model()
+
+_GENAI_CLIENT: Optional[genai.Client] = None
+
+
+def _infer_client_mode() -> str:
+    """Infer whether to use Vertex AI SDK or public API key auth."""
+    raw_mode = os.getenv("GENAI_CLIENT_MODE")
+    if not raw_mode:
+        vertexai_override = os.getenv("GOOGLE_GENAI_USE_VERTEXAI")
+        if vertexai_override is not None:
+            default_mode = "sdk" if vertexai_override.lower() in ("true", "1", "yes") else "api"
+        elif os.getenv("GOOGLE_CLOUD_PROJECT") and not (
+            os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        ):
+            default_mode = "sdk"
+        else:
+            default_mode = "api"
+        raw_mode = default_mode
+    mode = raw_mode.strip().lower()
+    if mode not in {"api", "sdk"}:
+        raise ValueError("GENAI_CLIENT_MODE must be 'api' or 'sdk'")
+    return mode
+
+
+def get_genai_client() -> genai.Client:
+    """Return a configured Google GenAI client honoring SDK/API settings."""
+    global _GENAI_CLIENT
+    if _GENAI_CLIENT is not None:
+        return _GENAI_CLIENT
+
+    client_mode = _infer_client_mode()
+    if client_mode == "sdk":
+        project = os.getenv("GOOGLE_CLOUD_PROJECT")
+        if not project:
+            raise ValueError(
+                "GOOGLE_CLOUD_PROJECT is required when using GENAI_CLIENT_MODE=sdk. "
+                "Set GENAI_CLIENT_MODE=api to authenticate with an API key instead."
+            )
+        location = (
+            os.getenv("GOOGLE_CLOUD_LOCATION")
+            or os.getenv("GOOGLE_CLOUD_REGION")
+            or "global"
+        )
+        _GENAI_CLIENT = genai.Client(vertexai=True, project=project, location=location)
+    else:
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "GEMINI_API_KEY (or GOOGLE_API_KEY) must be set when GENAI_CLIENT_MODE=api."
+            )
+        _GENAI_CLIENT = genai.Client(api_key=api_key)
+    return _GENAI_CLIENT
 
 
 # Update your generate_sql_metadata function's prompt to request more detailed join information
@@ -53,22 +110,28 @@ async def generate_sql_metadata(query_text, index=None, total=None, return_token
         "Return ONLY a JSON object with these three fields. Tables typically start with 'wmt'.\n\n"
         f"SQL Query:\n{query_text}"
     )
-    # Initialize model
-    model = genai.GenerativeModel("gemini-2.5-flash")
-    
-    # Count tokens before API call
-    token_count = model.count_tokens(prompt)
-    prompt_tokens = token_count.total_tokens
     try:
-        response = model.generate_content(prompt)
-        
+        client = get_genai_client()
+        response = await asyncio.to_thread(
+            client.models.generate_content,
+            model=MODEL_NAME,
+            contents=prompt,
+        )
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = getattr(usage, "prompt_token_count", estimated_tokens) if usage else estimated_tokens
+        completion_tokens = getattr(usage, "candidates_token_count", 0) if usage else 0
+        total_tokens = getattr(usage, "total_token_count", prompt_tokens + completion_tokens)
+
         # Record successful request with rate limiter
-        GEMINI_RATE_LIMITER.record_request(token_count.total_tokens)
-        result = response.text.strip()
+        GEMINI_RATE_LIMITER.record_request(total_tokens)
+        result_text = getattr(response, "text", "")
+        if not result_text:
+            raise ValueError("Empty response from Gemini model")
+        result = result_text.strip()
         token_usage = {
             "prompt_tokens": prompt_tokens,
-            "completion_tokens": getattr(response.usage_metadata, "candidates_token_count", 0) if hasattr(response, 'usage_metadata') else 0,
-            "total_tokens": getattr(response.usage_metadata, "total_token_count", 0) if hasattr(response, 'usage_metadata') else 0
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens
         }
         if index is not None:
             print(f"Completed query {index + 1} (tokens: {token_usage['total_tokens']})")
@@ -115,134 +178,177 @@ async def generate_metadata_async(query_text, index=None, total=None, return_tok
     """Async wrapper for generate_sql_metadata - now calls async function directly."""
     return await generate_sql_metadata(query_text, index, total, return_tokens)
 
-async def generate_metadata_parallel(query_texts, max_concurrent=None, return_tokens=False, progress_tracker=None):
+async def generate_metadata_parallel(
+    query_items: List[Tuple[int, str]],
+    max_concurrent: Optional[int] = None,
+    return_tokens: bool = False,
+    progress_tracker: Optional[ProgressTracker] = None,
+):
     """
     Generate metadata for multiple SQL queries in parallel with rate limiting.
+    
+    Args:
+        query_items: List of (original_index, query_text) tuples.
+        max_concurrent: Maximum number of in-flight LLM calls.
+        return_tokens: Whether to include token accounting in the response.
+        progress_tracker: Optional tracker to persist progress across runs.
     """
-    # Use adaptive concurrency from rate limiter if not specified
+    total = len(query_items)
+    if total == 0:
+        empty_df = pd.DataFrame(columns=["query", "description", "tables", "joins"])
+        if return_tokens:
+            empty_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+            return empty_df, empty_usage, []
+        return empty_df
+
     if max_concurrent is None:
-        max_concurrent = GEMINI_RATE_LIMITER.get_current_concurrency()
-    
-    total = len(query_texts)
-    print(f"Processing {total} queries with adaptive concurrency (starting with {max_concurrent})...")
-    
-    results = []
-    total_token_usage = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-    
-    # Initialize progress tracker if provided
+        max_concurrent = int(os.getenv("GENAI_MAX_CONCURRENT", "6"))
+    max_concurrent = max(1, max_concurrent)
+    if GEMINI_RATE_LIMITER.requests_per_minute:
+        max_concurrent = min(max_concurrent, GEMINI_RATE_LIMITER.requests_per_minute)
+    GEMINI_RATE_LIMITER.max_concurrency = max_concurrent
+    GEMINI_RATE_LIMITER.current_concurrency = max_concurrent
+
+    # Ensure the daily quota is not the bottleneck for large batches
+    desired_rpd = int(os.getenv("GENAI_REQUESTS_PER_DAY", str(total + 100)))
+    GEMINI_RATE_LIMITER.requests_per_day = max(GEMINI_RATE_LIMITER.requests_per_day, desired_rpd)
+
+    print(f"Processing {total} queries with up to {max_concurrent} concurrent requests...")
+
+    results: list[Dict[str, Any]] = []
+
+    # Initialize progress tracking
     if progress_tracker:
-        remaining_queries = progress_tracker.initialize(query_texts)
+        remaining_items = progress_tracker.initialize(query_items)
     else:
-        remaining_queries = query_texts
-    
-    if not remaining_queries:
+        remaining_items = query_items
+
+    if not remaining_items:
         print("All queries already processed according to checkpoint!")
-        return results if not progress_tracker else progress_tracker.get_results()
-    
-    print(f"Processing {len(remaining_queries)} remaining queries...")
-    
-    for i in range(0, len(remaining_queries), max_concurrent):
-        # Update concurrency based on rate limiter's adaptive algorithm
+        stored_results = progress_tracker.get_results() if progress_tracker else []
+        df = pd.DataFrame(stored_results)
+        if return_tokens:
+            usage_summary = {
+                "prompt_tokens": sum(r.get("prompt_tokens", 0) for r in stored_results),
+                "completion_tokens": sum(r.get("completion_tokens", 0) for r in stored_results),
+                "total_tokens": sum(r.get("total_tokens", 0) for r in stored_results),
+            }
+            return df, usage_summary, stored_results
+        return df
+
+    print(f"Processing {len(remaining_items)} remaining queries after checkpoint resume...")
+
+    batch_number = 1
+    start = 0
+    while start < len(remaining_items):
         current_concurrency = min(max_concurrent, GEMINI_RATE_LIMITER.get_current_concurrency())
-        batch = remaining_queries[i:i + current_concurrency]
-        
-        print(f"\nProcessing batch of {len(batch)} queries (batch {i//max_concurrent + 1})")
+        if current_concurrency < 1:
+            current_concurrency = 1
+        batch = remaining_items[start:start + current_concurrency]
+
+        print(f"\nProcessing batch {batch_number}: {len(batch)} queries")
         print(f"Current concurrency: {current_concurrency}")
-        
-        # Print rate limiter stats
         stats = GEMINI_RATE_LIMITER.get_stats()
-        print(f"Rate limiter stats - RPM: {stats['requests_last_minute']}/15, "
-              f"Success rate: {stats['success_rate']:.1f}%")
-        
+        print(
+            f"Rate limiter stats - RPM: {stats['requests_last_minute']}/"
+            f"{GEMINI_RATE_LIMITER.requests_per_minute}, "
+            f"Success rate: {stats['success_rate']:.1f}%"
+        )
+
         if progress_tracker:
             progress_tracker.print_progress()
-        
-        # Process batch with individual error handling
-        batch_tasks = []
-        for idx, query in enumerate(batch):
-            global_idx = query_texts.index(query) if query in query_texts else i + idx
-            batch_tasks.append(
-                generate_metadata_async(query, global_idx, total, return_tokens)
-            )
-        
-        # Use gather with return_exceptions to handle individual failures
+
+        batch_tasks = [
+            generate_metadata_async(query_text, original_index, total, return_tokens)
+            for original_index, query_text in batch
+        ]
         batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-        
-        # Process results and handle errors
+
         for idx, result in enumerate(batch_results):
-            query = batch[idx]
-            
+            original_index, query_text = batch[idx]
             if isinstance(result, Exception):
                 error_msg = f"Error processing query: {str(result)}"
-                print(f"Failed query {i + idx + 1}: {error_msg}")
-                
-                if progress_tracker:
-                    progress_tracker.record_failure(query, error_msg)
-                
-                # Add error result to maintain consistency
+                print(f"Failed query (index {original_index}): {error_msg}")
+
+                payload = {
+                    "query_index": original_index,
+                    "query": query_text,
+                    "description": error_msg,
+                    "tables": "[]",
+                    "joins": "[]",
+                }
                 if return_tokens:
-                    results.append({
-                        "query": query,
-                        "description": error_msg,
-                        "tables": "[]",
-                        "joins": "[]",
+                    payload.update({
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
-                        "total_tokens": 0
+                        "total_tokens": 0,
                     })
-                else:
-                    results.append({
-                        "query": query,
-                        "description": error_msg,
-                        "tables": "[]",
-                        "joins": "[]"
-                    })
+
+                results.append(payload)
+                if progress_tracker:
+                    progress_tracker.record_failure((original_index, query_text), error_msg)
             else:
-                # Successful result
                 if return_tokens:
                     desc, tables, joins, token_data = result
-                    query_result = {
-                        "query": query,
+                    payload = {
+                        "query_index": original_index,
+                        "query": query_text,
                         "description": desc,
                         "tables": tables,
                         "joins": joins,
                         "prompt_tokens": token_data.get("prompt_tokens", 0),
                         "completion_tokens": token_data.get("completion_tokens", 0),
-                        "total_tokens": token_data.get("total_tokens", 0)
+                        "total_tokens": token_data.get("total_tokens", 0),
                     }
-                    if "error" not in token_data:
-                        total_token_usage["prompt_tokens"] += token_data["prompt_tokens"]
-                        total_token_usage["completion_tokens"] += token_data["completion_tokens"]
-                        total_token_usage["total_tokens"] += token_data["total_tokens"]
                 else:
                     desc, tables, joins = result
-                    query_result = {
-                        "query": query,
+                    payload = {
+                        "query_index": original_index,
+                        "query": query_text,
                         "description": desc,
                         "tables": tables,
-                        "joins": joins
+                        "joins": joins,
                     }
-                
-                results.append(query_result)
-                
+
+                results.append(payload)
                 if progress_tracker:
-                    progress_tracker.record_success(query, query_result)
-        
-        # Small delay between batches to be respectful to the API
-        if i + current_concurrency < len(remaining_queries):
-            await asyncio.sleep(1.0)
-    
-    print(f"\n=== BATCH PROCESSING COMPLETE ===")
+                    progress_tracker.record_success((original_index, query_text), payload)
+
+        batch_number += 1
+        start += len(batch)
+        if start < len(remaining_items):
+            await asyncio.sleep(0.5)
+
+    print("\n=== BATCH PROCESSING COMPLETE ===")
     final_stats = GEMINI_RATE_LIMITER.get_stats()
     print(f"Final success rate: {final_stats['success_rate']:.1f}%")
     print(f"Total requests: {final_stats['total_processed']}")
     print(f"Total errors: {final_stats['total_errors']}")
-    df = pd.DataFrame(results)
+
+    aggregated_results = progress_tracker.get_results() if progress_tracker else results
+    if aggregated_results and any("query_index" in r for r in aggregated_results):
+        aggregated_results = sorted(aggregated_results, key=lambda r: r.get("query_index", 0))
+    df = pd.DataFrame(aggregated_results)
+
     if return_tokens:
-        return df, total_token_usage, results
+        if not aggregated_results:
+            usage_summary = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+        else:
+            usage_summary = {
+                "prompt_tokens": sum(r.get("prompt_tokens", 0) for r in aggregated_results),
+                "completion_tokens": sum(r.get("completion_tokens", 0) for r in aggregated_results),
+                "total_tokens": sum(r.get("total_tokens", 0) for r in aggregated_results),
+            }
+        return df, usage_summary, aggregated_results
     return df
 
-def generate_metadata_for_queries(query_texts, max_concurrent=None, return_tokens=False, resume_from_checkpoint=True):
+def generate_metadata_for_queries(
+    query_texts,
+    max_concurrent=None,
+    return_tokens=False,
+    resume_from_checkpoint=True,
+    tracker: Optional[ProgressTracker] = None,
+):
     """
     Generate metadata for queries and return as DataFrame with progress tracking.
     
@@ -251,12 +357,17 @@ def generate_metadata_for_queries(query_texts, max_concurrent=None, return_token
         max_concurrent: Maximum concurrent requests (None for adaptive)
         return_tokens: Whether to return token usage data
         resume_from_checkpoint: Whether to resume from previous checkpoint
+        tracker: Optional pre-initialized progress tracker
     """
+    query_items = list(enumerate(query_texts))
+    
     # Initialize progress tracker
-    tracker = ProgressTracker("sql_metadata_generation") if resume_from_checkpoint else None
+    effective_tracker = tracker if tracker is not None else (
+        ProgressTracker("sql_metadata_generation") if resume_from_checkpoint else None
+    )
     
     return asyncio.run(generate_metadata_parallel(
-        query_texts, max_concurrent, return_tokens, tracker
+        query_items, max_concurrent, return_tokens, effective_tracker
     ))
 
 def load_queries_from_csv(csv_path, query_column='queries'):
@@ -320,6 +431,10 @@ def save_results_to_csv(results, output_path, original_df=None, query_column='sq
     try:
         results_df = pd.DataFrame(results)
         print(f"📊 Generated metadata for {len(results_df)} queries")
+        
+        if "query_index" in results_df.columns:
+            results_df = results_df.sort_values("query_index").reset_index(drop=True)
+            results_df = results_df.drop(columns=["query_index"])
         
         if original_df is not None:
             print("🔗 Merging results with original data to preserve all columns...")
@@ -404,11 +519,71 @@ Examples:
         help='Maximum concurrent API requests (default: adaptive based on rate limiter)'
     )
     
+    parser.add_argument(
+        '--model',
+        default=MODEL_NAME,
+        help=f'Gemini model to use for metadata generation (default: {MODEL_NAME})'
+    )
+    
+    parser.add_argument(
+        '--requests-per-minute',
+        type=int,
+        help='Override rate limiter requests-per-minute (default: environment or 15)'
+    )
+    
+    parser.add_argument(
+        '--tokens-per-minute',
+        type=int,
+        help='Override rate limiter tokens-per-minute (default: environment or 250000)'
+    )
+    
+    parser.add_argument(
+        '--requests-per-day',
+        type=int,
+        help='Override rate limiter requests-per-day (default: environment or auto)'
+    )
+    
     args = parser.parse_args()
     
+    # Apply configuration overrides
+    if args.model:
+        MODEL_NAME = args.model
+    
+    env_rpm = os.getenv("GENAI_REQUESTS_PER_MINUTE")
+    if env_rpm and not args.requests_per_minute:
+        try:
+            GEMINI_RATE_LIMITER.requests_per_minute = int(env_rpm)
+        except ValueError:
+            print(f"⚠️  Ignoring invalid GENAI_REQUESTS_PER_MINUTE value: {env_rpm}")
+    if args.requests_per_minute:
+        GEMINI_RATE_LIMITER.requests_per_minute = args.requests_per_minute
+    
+    env_tpm = os.getenv("GENAI_TOKENS_PER_MINUTE")
+    if env_tpm and not args.tokens_per_minute:
+        try:
+            GEMINI_RATE_LIMITER.tokens_per_minute = int(env_tpm)
+        except ValueError:
+            print(f"⚠️  Ignoring invalid GENAI_TOKENS_PER_MINUTE value: {env_tpm}")
+    if args.tokens_per_minute:
+        GEMINI_RATE_LIMITER.tokens_per_minute = args.tokens_per_minute
+    
+    env_rpd = os.getenv("GENAI_REQUESTS_PER_DAY")
+    if env_rpd and not args.requests_per_day:
+        try:
+            GEMINI_RATE_LIMITER.requests_per_day = int(env_rpd)
+        except ValueError:
+            print(f"⚠️  Ignoring invalid GENAI_REQUESTS_PER_DAY value: {env_rpd}")
+    if args.requests_per_day:
+        GEMINI_RATE_LIMITER.requests_per_day = args.requests_per_day
+    
     print("=== SQL METADATA GENERATOR WITH RATE LIMITING ===")
-    print(f"Using model: gemini-2.5-flash-lite")
-    print(f"Rate limits: 15 RPM, 250K TPM, 1K RPD")
+    print(f"Using model: {MODEL_NAME}")
+    print(
+        "Rate limits: "
+        f"{GEMINI_RATE_LIMITER.requests_per_minute} RPM, "
+        f"{GEMINI_RATE_LIMITER.tokens_per_minute:,} TPM, "
+        f"{GEMINI_RATE_LIMITER.requests_per_day} RPD"
+    )
     
     if args.csv:
         print(f"\n🔧 CSV MODE: Processing file {args.csv}")
@@ -431,7 +606,14 @@ Examples:
     else:
         print(f"\n🔧 BIGQUERY MODE: Using environment configuration")
         # Initialize BigQuery client for traditional mode
-        bq_client = bigquery.Client(project=vertex_ai_client)
+        project_id = os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("bigquery_client")
+        if not project_id:
+            print("❌ GOOGLE_CLOUD_PROJECT (or legacy bigquery_client) must be set for BigQuery mode.")
+            exit(1)
+        if not host_table_name:
+            print("❌ 'host_table' environment variable must be set for BigQuery mode.")
+            exit(1)
+        bq_client = bigquery.Client(project=project_id)
     
     # Load queries based on mode
     if args.csv:
@@ -500,10 +682,16 @@ Examples:
     # Initialize progress tracker
     tracker = ProgressTracker("sql_metadata_generation")
     
+    try:
+        env_concurrency_default = int(os.getenv("GENAI_MAX_CONCURRENT", "6"))
+    except ValueError:
+        env_concurrency_default = 6
+    target_concurrency = args.max_concurrent or env_concurrency_default
+
     print("\n=== STARTING METADATA GENERATION ===")
     print("Features enabled:")
-    print("✅ Rate limiting (15 RPM)")
-    print("✅ Adaptive concurrency")
+    print(f"✅ Rate limiting ({GEMINI_RATE_LIMITER.requests_per_minute} RPM)")
+    print(f"✅ Adaptive concurrency (target {target_concurrency})")
     print("✅ Exponential backoff")
     print("✅ Progress checkpointing")
     print("✅ Error recovery")
@@ -513,7 +701,8 @@ Examples:
             query_list,
             max_concurrent=args.max_concurrent,  # Use user-specified or adaptive concurrency
             return_tokens=True,
-            resume_from_checkpoint=True
+            resume_from_checkpoint=True,
+            tracker=tracker
         )
         
         # Save results based on mode
@@ -541,10 +730,11 @@ Examples:
             print(f"\nResults dictionary exported to: {results_file}")
         
         # Save final progress
-        final_data = tracker.save_final_results({
-            "total_token_usage": total_token_usage,
-            "rate_limiter_stats": GEMINI_RATE_LIMITER.get_stats()
-        })
+        if tracker:
+            tracker.save_final_results({
+                "total_token_usage": total_token_usage,
+                "rate_limiter_stats": GEMINI_RATE_LIMITER.get_stats()
+            })
         
         print(f"\n=== PROCESSING SUMMARY ===")
         print(f"✅ Generated metadata for {len(df_results)} queries")
@@ -559,10 +749,12 @@ Examples:
     except KeyboardInterrupt:
         print("\n=== INTERRUPTED BY USER ===")
         print("Progress has been saved. You can resume by running the script again.")
-        tracker.print_progress()
+        if tracker:
+            tracker.print_progress()
     except Exception as e:
         print(f"\n=== ERROR OCCURRED ===")
         print(f"Error: {str(e)}")
         print("Progress has been saved. You can resume by running the script again.")
-        tracker.print_progress()
+        if tracker:
+            tracker.print_progress()
         raise
