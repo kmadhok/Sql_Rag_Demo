@@ -530,16 +530,18 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="container" style={{ padding: "32px 20px 48px" }}>
-        {/* Hero Section - Clean */}
-        <div className="hero-intro animate-fade-in-up">
-          <h2 className="typography-hero">
-            Explore Data with Natural Language
-          </h2>
-          <p className="typography-body" style={{ maxWidth: "580px", margin: "0 auto var(--space-lg)" }}>
-            Ask questions and get instant SQL queries. Your AI-powered data assistant.
-          </p>
-        </div>
+      <main className={tab === 'playground' ? 'w-full' : 'container'} style={{ padding: tab === 'playground' ? '20px' : '32px 20px 48px' }}>
+        {/* Hero Section - Clean (Hidden on Playground) */}
+        {tab !== 'playground' && (
+          <div className="hero-intro animate-fade-in-up">
+            <h2 className="typography-hero">
+              Explore Data with Natural Language
+            </h2>
+            <p className="typography-body" style={{ maxWidth: "580px", margin: "0 auto var(--space-lg)" }}>
+              Ask questions and get instant SQL queries. Your AI-powered data assistant.
+            </p>
+          </div>
+        )}
 
         {/* Navigation Tabs - Clean */}
         <div className="animate-fade-in-up stagger-1" style={{ marginBottom: "28px" }}>

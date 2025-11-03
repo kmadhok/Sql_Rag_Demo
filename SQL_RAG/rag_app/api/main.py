@@ -15,6 +15,7 @@ from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+import sqlparse
 
 from langchain_community.vectorstores import FAISS
 
@@ -163,6 +164,16 @@ class FixSQLResponse(BaseModel):
     diagnosis: Optional[str] = None
     fixed_sql: Optional[str] = None
     changes: Optional[str] = None
+    error: Optional[str] = None
+
+
+class FormatSQLRequest(BaseModel):
+    sql: str = Field(..., description="SQL query to format")
+
+
+class FormatSQLResponse(BaseModel):
+    success: bool
+    formatted_sql: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -583,6 +594,38 @@ def fix_sql_query(
             diagnosis=None,
             fixed_sql=None,
             changes=None,
+            error=str(e)
+        )
+
+
+@app.post("/sql/format", response_model=FormatSQLResponse)
+def format_sql_query(payload: FormatSQLRequest):
+    """
+    Format SQL query using sqlparse.
+
+    Week 5 Feature: SQL Formatting
+    """
+    try:
+        # Format SQL with standard options
+        formatted = sqlparse.format(
+            payload.sql,
+            reindent=True,
+            keyword_case='upper',
+            indent_width=2,
+            wrap_after=80
+        )
+
+        return FormatSQLResponse(
+            success=True,
+            formatted_sql=formatted,
+            error=None
+        )
+
+    except Exception as e:
+        logger.error(f"Error formatting SQL: {str(e)}")
+        return FormatSQLResponse(
+            success=False,
+            formatted_sql=None,
             error=str(e)
         )
 

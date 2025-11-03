@@ -1,23 +1,37 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import SqlEditor from './playground/SqlEditor.jsx';
 import ResultsDataGrid from './playground/ResultsDataGrid.jsx';
 import SchemaExplorerSidebar from './playground/SchemaExplorerSidebar.jsx';
 import AiSuggestionPanel from './playground/AiSuggestionPanel.jsx';
 import DiffViewModal from './playground/DiffViewModal.jsx';
+import QueryTabs from './playground/QueryTabs.jsx';
+import QueryHistoryPanel from './playground/QueryHistoryPanel.jsx';
 import Button from './Button.jsx';
 import Card from './Card.jsx';
-import { executeSql, explainSql, fixSql } from '../services/ragClient.js';
+import { executeSql, explainSql, fixSql, formatSql } from '../services/ragClient.js';
 
 /**
  * SQL Playground - Interactive SQL editor with AI assistance
  * Allows users to write, execute, and analyze SQL queries
  */
 export default function Playground({ theme }) {
-  const [sql, setSql] = useState('SELECT * FROM `bigquery-public-data.thelook_ecommerce.products` LIMIT 10;');
-  const [result, setResult] = useState(null);
+  // Week 5: Query Tabs State
+  const [tabs, setTabs] = useState([
+    {
+      id: '1',
+      name: 'Query 1',
+      sql: 'SELECT * FROM `bigquery-public-data.thelook_ecommerce.products` LIMIT 10;',
+      result: null
+    }
+  ]);
+  const [activeTabId, setActiveTabId] = useState('1');
   const [isExecuting, setIsExecuting] = useState(false);
   const [maxBytes, setMaxBytes] = useState(100_000_000); // 100MB default
   const [showSchema, setShowSchema] = useState(true);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Week 5: Query History State
+  const [queryHistory, setQueryHistory] = useState([]);
 
   // Week 4: AI Features State
   const [aiPanel, setAiPanel] = useState({
@@ -30,6 +44,106 @@ export default function Playground({ theme }) {
   const [diffData, setDiffData] = useState(null);
 
   const editorRef = useRef(null);
+
+  // Week 5: Session Persistence - Load tabs from localStorage on mount
+  useEffect(() => {
+    const savedTabs = localStorage.getItem('playground-tabs');
+    const savedActiveTabId = localStorage.getItem('playground-active-tab');
+
+    if (savedTabs) {
+      try {
+        const parsed = JSON.parse(savedTabs);
+        // Don't restore results (too large), only SQL and tab metadata
+        const tabsWithoutResults = parsed.map(tab => ({ ...tab, result: null }));
+        setTabs(tabsWithoutResults);
+        if (savedActiveTabId && tabsWithoutResults.find(t => t.id === savedActiveTabId)) {
+          setActiveTabId(savedActiveTabId);
+        } else {
+          setActiveTabId(tabsWithoutResults[0].id);
+        }
+      } catch (error) {
+        console.error('Failed to load saved tabs:', error);
+      }
+    }
+  }, []); // Run once on mount
+
+  // Week 5: Session Persistence - Save tabs to localStorage whenever they change
+  useEffect(() => {
+    // Save tabs without results (results can be very large)
+    const tabsToSave = tabs.map(tab => ({
+      id: tab.id,
+      name: tab.name,
+      sql: tab.sql
+      // Explicitly exclude result
+    }));
+    localStorage.setItem('playground-tabs', JSON.stringify(tabsToSave));
+    localStorage.setItem('playground-active-tab', activeTabId);
+  }, [tabs, activeTabId]);
+
+  // Week 5: Query History - Load from localStorage on mount
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('playground-history');
+    if (savedHistory) {
+      try {
+        const parsed = JSON.parse(savedHistory);
+        setQueryHistory(parsed);
+      } catch (error) {
+        console.error('Failed to load query history:', error);
+      }
+    }
+  }, []);
+
+  // Week 5: Query History - Save to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('playground-history', JSON.stringify(queryHistory));
+  }, [queryHistory]);
+
+  // Week 5: Tab Helpers
+  const currentTab = tabs.find(t => t.id === activeTabId) || tabs[0];
+  const sql = currentTab.sql;
+  const result = currentTab.result;
+
+  const updateCurrentTab = (updates) => {
+    setTabs(tabs.map(t =>
+      t.id === activeTabId ? { ...t, ...updates } : t
+    ));
+  };
+
+  const setSql = (newSql) => updateCurrentTab({ sql: newSql });
+  const setResult = (newResult) => updateCurrentTab({ result: newResult });
+
+  // Week 5: Tab Management Handlers
+  const handleTabAdd = () => {
+    const newTab = {
+      id: Date.now().toString(),
+      name: `Query ${tabs.length + 1}`,
+      sql: '',
+      result: null
+    };
+    setTabs([...tabs, newTab]);
+    setActiveTabId(newTab.id);
+  };
+
+  const handleTabClose = (tabId) => {
+    if (tabs.length === 1) return; // Keep at least one tab
+
+    const tabToClose = tabs.find(t => t.id === tabId);
+    if (tabToClose && tabToClose.sql && !window.confirm('Close tab without saving?')) {
+      return;
+    }
+
+    const newTabs = tabs.filter(t => t.id !== tabId);
+    setTabs(newTabs);
+
+    if (activeTabId === tabId) {
+      // Switch to the first remaining tab
+      setActiveTabId(newTabs[0].id);
+    }
+  };
+
+  const handleTabChange = (tabId) => {
+    setActiveTabId(tabId);
+  };
 
   const handleExecute = async (dryRun = false) => {
     console.log('🚀 Execute button clicked', { dryRun, sqlLength: sql.length });
@@ -77,16 +191,27 @@ export default function Playground({ theme }) {
 
       setResult(transformedResult);
 
+      // Week 5: Add to history (only for actual executions, not dry runs)
+      if (!dryRun) {
+        addToHistory(transformedResult);
+      }
+
       if (response.validation_message) {
         console.warn('Validation warning:', response.validation_message);
       }
     } catch (error) {
       console.error('❌ Execution failed:', error);
       console.error('Error details:', { message: error.message, stack: error.stack });
-      setResult({
+      const errorResult = {
         success: false,
         error_message: error.message || 'Failed to execute query'
-      });
+      };
+      setResult(errorResult);
+
+      // Week 5: Add to history (only for actual executions, not dry runs)
+      if (!dryRun) {
+        addToHistory(errorResult);
+      }
     } finally {
       setIsExecuting(false);
     }
@@ -226,6 +351,68 @@ export default function Playground({ theme }) {
     setResult(null); // Clear error so user can re-run
   };
 
+  // Week 5: Format SQL Handler
+  const handleFormat = async () => {
+    if (!sql.trim()) {
+      return;
+    }
+
+    try {
+      console.log('✨ Formatting SQL...');
+      const response = await formatSql({ sql });
+
+      if (response.success && response.formatted_sql) {
+        setSql(response.formatted_sql);
+        console.log('✅ SQL formatted successfully');
+      } else {
+        console.error('❌ Format failed:', response.error);
+        alert(`Failed to format SQL: ${response.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('❌ Format error:', error);
+      alert(`Failed to format SQL: ${error.message}`);
+    }
+  };
+
+  // Week 5: Query History Handlers
+  const addToHistory = (queryResult) => {
+    const historyItem = {
+      id: Date.now(),
+      sql: sql,
+      timestamp: new Date().toISOString(),
+      success: queryResult.success || false,
+      rowCount: queryResult.row_count || 0
+    };
+
+    // Add to beginning, keep only last 50
+    setQueryHistory([historyItem, ...queryHistory].slice(0, 50));
+  };
+
+  const handleLoadQuery = (querySql) => {
+    setSql(querySql);
+    setShowHistory(false);
+  };
+
+  const handleClearHistory = () => {
+    if (window.confirm('Clear all query history?')) {
+      setQueryHistory([]);
+    }
+  };
+
+  // Week 5: Copy SQL Handler
+  const handleCopySQL = async () => {
+    if (!sql.trim()) return;
+
+    try {
+      await navigator.clipboard.writeText(sql);
+      console.log('✅ SQL copied to clipboard');
+      // You could add a toast notification here
+    } catch (error) {
+      console.error('❌ Failed to copy SQL:', error);
+      alert('Failed to copy SQL to clipboard');
+    }
+  };
+
   return (
     <div className="flex flex-col h-full gap-4 p-4 overflow-hidden">
       <div className="flex justify-between items-center flex-shrink-0">
@@ -247,6 +434,18 @@ export default function Playground({ theme }) {
             }`}
           >
             {showSchema ? '📋 Hide Schema' : '📋 Show Schema'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowHistory((prev) => !prev)}
+            className={`px-3 py-2 text-sm rounded transition-colors ${
+              showHistory
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+            }`}
+          >
+            {showHistory ? '📜 Hide History' : '📜 Show History'}
           </button>
 
           <select
@@ -271,6 +470,15 @@ export default function Playground({ theme }) {
           </select>
         </div>
       </div>
+
+      {/* Week 5: Query Tabs */}
+      <QueryTabs
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onTabChange={handleTabChange}
+        onTabClose={handleTabClose}
+        onTabAdd={handleTabAdd}
+      />
 
       <div className="flex gap-4 flex-1 overflow-hidden">
         <SchemaExplorerSidebar
@@ -313,6 +521,22 @@ export default function Playground({ theme }) {
                 </div>
 
                 <div className="flex gap-2">
+                  <Button
+                    onClick={handleCopySQL}
+                    disabled={!sql.trim()}
+                    className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Copy SQL to clipboard"
+                  >
+                    📋 Copy
+                  </Button>
+                  <Button
+                    onClick={handleFormat}
+                    disabled={!sql.trim()}
+                    className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Format SQL (Cmd+K)"
+                  >
+                    🎨 Format SQL
+                  </Button>
                   <Button
                     onClick={handleExplain}
                     disabled={!sql.trim() || aiPanel.isLoading}
@@ -416,6 +640,15 @@ export default function Playground({ theme }) {
             onClose={() => setAiPanel({ visible: false, explanation: null, isLoading: false })}
           />
         )}
+
+        {/* Week 5: Query History Panel */}
+        <QueryHistoryPanel
+          history={queryHistory}
+          onLoadQuery={handleLoadQuery}
+          onClearHistory={handleClearHistory}
+          isVisible={showHistory}
+          onToggle={() => setShowHistory(false)}
+        />
       </div>
 
       {/* Week 4: Diff View Modal */}

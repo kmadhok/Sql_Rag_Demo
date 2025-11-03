@@ -156,6 +156,15 @@ export async function fixSql(payload) {
   return handleResponse(response);
 }
 
+export async function formatSql(payload) {
+  const response = await fetch(`${API_BASE}/sql/format`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
 export const configInfo = {
   apiBase: API_BASE,
 };
