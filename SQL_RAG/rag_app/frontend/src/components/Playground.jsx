@@ -2,9 +2,11 @@ import { useState, useRef } from 'react';
 import SqlEditor from './playground/SqlEditor.jsx';
 import ResultsDataGrid from './playground/ResultsDataGrid.jsx';
 import SchemaExplorerSidebar from './playground/SchemaExplorerSidebar.jsx';
+import AiSuggestionPanel from './playground/AiSuggestionPanel.jsx';
+import DiffViewModal from './playground/DiffViewModal.jsx';
 import Button from './Button.jsx';
 import Card from './Card.jsx';
-import { executeSql } from '../services/ragClient.js';
+import { executeSql, explainSql, fixSql } from '../services/ragClient.js';
 
 /**
  * SQL Playground - Interactive SQL editor with AI assistance
@@ -16,6 +18,16 @@ export default function Playground({ theme }) {
   const [isExecuting, setIsExecuting] = useState(false);
   const [maxBytes, setMaxBytes] = useState(100_000_000); // 100MB default
   const [showSchema, setShowSchema] = useState(true);
+
+  // Week 4: AI Features State
+  const [aiPanel, setAiPanel] = useState({
+    visible: false,
+    explanation: null,
+    isLoading: false
+  });
+  const [isFixing, setIsFixing] = useState(false);
+  const [showDiffModal, setShowDiffModal] = useState(false);
+  const [diffData, setDiffData] = useState(null);
 
   const editorRef = useRef(null);
 
@@ -123,6 +135,97 @@ export default function Playground({ theme }) {
     setResult(null);
   };
 
+  // Week 4: AI Feature Handlers
+  const handleExplain = async () => {
+    console.log('✨ Explain with AI clicked');
+
+    // Get selected text or full SQL
+    const selection = editorRef.current?.getSelection?.();
+    const model = editorRef.current?.getModel?.();
+    let sqlToExplain = sql;
+
+    if (selection && model) {
+      const selectedText = model.getValueInRange(selection);
+      if (selectedText && selectedText.trim()) {
+        sqlToExplain = selectedText.trim();
+      }
+    }
+
+    if (!sqlToExplain.trim()) {
+      alert('No SQL to explain');
+      return;
+    }
+
+    // Show AI panel with loading state
+    setAiPanel({ visible: true, explanation: null, isLoading: true });
+
+    try {
+      console.log('🤖 Calling explainSql API...');
+      const response = await explainSql({ sql: sqlToExplain });
+
+      if (response.success) {
+        setAiPanel({
+          visible: true,
+          explanation: response.explanation,
+          isLoading: false
+        });
+        console.log('✅ Explanation generated');
+      } else {
+        throw new Error(response.error || 'Failed to generate explanation');
+      }
+    } catch (error) {
+      console.error('❌ Explain failed:', error);
+      setAiPanel({
+        visible: true,
+        explanation: `Error: ${error.message}`,
+        isLoading: false
+      });
+    }
+  };
+
+  const handleFixWithAI = async () => {
+    if (!result || result.success || !result.error_message) {
+      return;
+    }
+
+    console.log('🤖 Fix with AI clicked');
+    setIsFixing(true);
+
+    try {
+      console.log('🔧 Calling fixSql API...');
+      const response = await fixSql({
+        sql: sql,
+        error_message: result.error_message
+      });
+
+      if (response.success) {
+        setDiffData({
+          original: sql,
+          fixed: response.fixed_sql,
+          diagnosis: response.diagnosis,
+          changes: response.changes
+        });
+        setShowDiffModal(true);
+        console.log('✅ Fix generated');
+      } else {
+        throw new Error(response.error || 'Failed to fix SQL');
+      }
+    } catch (error) {
+      console.error('❌ Fix failed:', error);
+      alert(`AI fix failed: ${error.message}`);
+    } finally {
+      setIsFixing(false);
+    }
+  };
+
+  const handleApplyFix = (fixedSql) => {
+    console.log('✅ Applying fix');
+    setSql(fixedSql);
+    setShowDiffModal(false);
+    setDiffData(null);
+    setResult(null); // Clear error so user can re-run
+  };
+
   return (
     <div className="flex flex-col h-full gap-4 p-4 overflow-hidden">
       <div className="flex justify-between items-center flex-shrink-0">
@@ -211,6 +314,14 @@ export default function Playground({ theme }) {
 
                 <div className="flex gap-2">
                   <Button
+                    onClick={handleExplain}
+                    disabled={!sql.trim() || aiPanel.isLoading}
+                    className="px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Explain SQL with AI"
+                  >
+                    ✨ Explain with AI
+                  </Button>
+                  <Button
                     onClick={() => handleExecute(true)}
                     disabled={isExecuting || !sql.trim()}
                     className="px-4 py-2 text-sm bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -248,7 +359,29 @@ export default function Playground({ theme }) {
             </Card>
           )}
 
-          {result && (
+          {/* Week 4: Error Card with Fix with AI Button */}
+          {result && !result.success && result.error_message && (
+            <Card className="border-l-4 border-red-500 bg-red-900/20">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">⚠️</span>
+                <div className="flex-1">
+                  <h4 className="text-lg font-semibold text-red-400 mb-2">Query Error</h4>
+                  <pre className="text-sm text-gray-300 whitespace-pre-wrap mb-3 font-mono bg-gray-800/50 p-3 rounded">
+                    {result.error_message}
+                  </pre>
+                  <Button
+                    onClick={handleFixWithAI}
+                    disabled={isFixing}
+                    className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isFixing ? '🤖 Analyzing...' : '🤖 Fix with AI'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {result && result.success && (
             <Card className="flex-1 flex flex-col overflow-hidden">
               <div className="mb-2 flex justify-between items-center">
                 <h3 className="text-lg font-semibold text-gray-200">
@@ -273,7 +406,29 @@ export default function Playground({ theme }) {
             </Card>
           )}
         </div>
+
+        {/* Week 4: AI Suggestion Panel */}
+        {aiPanel.visible && (
+          <AiSuggestionPanel
+            explanation={aiPanel.explanation}
+            suggestions={[]}
+            isLoading={aiPanel.isLoading}
+            onClose={() => setAiPanel({ visible: false, explanation: null, isLoading: false })}
+          />
+        )}
       </div>
+
+      {/* Week 4: Diff View Modal */}
+      {showDiffModal && diffData && (
+        <DiffViewModal
+          diffData={diffData}
+          onApply={handleApplyFix}
+          onClose={() => {
+            setShowDiffModal(false);
+            setDiffData(null);
+          }}
+        />
+      )}
     </div>
   );
 }

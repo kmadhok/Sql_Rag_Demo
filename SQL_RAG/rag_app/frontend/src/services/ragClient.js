@@ -128,6 +128,34 @@ export async function getTableColumns(tableName) {
   return handleResponse(response);
 }
 
+// Week 4: AI-Powered SQL Assistance API methods
+export async function explainSql(payload) {
+  const response = await fetch(`${API_BASE}/sql/explain`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function completeSql(payload) {
+  const response = await fetch(`${API_BASE}/sql/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function fixSql(payload) {
+  const response = await fetch(`${API_BASE}/sql/fix`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
 export const configInfo = {
   apiBase: API_BASE,
 };
