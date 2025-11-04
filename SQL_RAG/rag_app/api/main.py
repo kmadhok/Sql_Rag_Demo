@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 import logging
-from typing import List, Optional, Any, Dict
+from typing import List, Optional, Any, Dict, Literal
 
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -188,6 +188,25 @@ class QuickResponse(BaseModel):
     answer: Optional[str]
     usage: Dict[str, Any] = {}
     sources: List[SourceDocument] = []
+
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"] = "user"
+    content: str = Field(..., min_length=1, description="Message content")
+
+
+class ChatSQLRequest(BaseModel):
+    sql: str = Field(..., min_length=1, description="SQL context for the conversation")
+    messages: List[ChatMessage] = Field(
+        ..., description="Ordered conversation history ending with the latest user message"
+    )
+
+
+class ChatSQLResponse(BaseModel):
+    success: bool
+    reply: Optional[str] = None
+    tables: List[str] = []
+    error: Optional[str] = None
 
 
 class SavedQuerySummary(BaseModel):
@@ -630,6 +649,42 @@ def format_sql_query(payload: FormatSQLRequest):
         )
 
 
+@app.post("/sql/chat", response_model=ChatSQLResponse)
+def chat_with_ai(
+    payload: ChatSQLRequest,
+    ai_service=Depends(get_ai_assistant_service),
+):
+    """
+    Provide conversational assistance grounded in the current SQL query.
+    """
+    try:
+        chat_payload = [message.dict() for message in payload.messages]
+        result = ai_service.chat_with_sql_context(payload.sql, chat_payload)
+
+        return ChatSQLResponse(
+            success=True,
+            reply=result.get("reply"),
+            tables=result.get("tables_analyzed", []),
+            error=None,
+        )
+    except ValueError as ve:
+        logger.warning(f"Validation error in chat endpoint: {ve}")
+        return ChatSQLResponse(
+            success=False,
+            reply=None,
+            tables=[],
+            error=str(ve),
+        )
+    except Exception as e:
+        logger.error(f"Error during chat generation: {e}")
+        return ChatSQLResponse(
+            success=False,
+            reply=None,
+            tables=[],
+            error="Failed to generate chat response.",
+        )
+
+
 @app.post("/query/quick", response_model=QuickResponse)
 def quick_answer(
     payload: QuickRequest,
@@ -754,6 +809,67 @@ async def list_table_columns(table_name: str, schema_manager=Depends(get_schema_
         raise
     except Exception as exc:
         logger.error("Error fetching columns for %s: %s", table_name, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/schema/tables/{table_name}/description")
+async def get_table_description(table_name: str, schema_manager=Depends(get_schema_manager)):
+    """
+    Generate an AI-powered description of a table based on its schema.
+
+    Uses Gemini LLM to create a concise description based on the table's columns and data types.
+    """
+    if schema_manager is None:
+        raise HTTPException(status_code=503, detail="Schema manager not initialized")
+
+    try:
+        # Get column information for the table
+        raw_columns = schema_manager.get_schema_for_table(table_name) if hasattr(schema_manager, "get_schema_for_table") else None
+        if not raw_columns and hasattr(schema_manager, "get_table_info"):
+            table_info = schema_manager.get_table_info(table_name)
+            if table_info and table_info.get("columns"):
+                datatypes = table_info.get("datatypes") or []
+                raw_columns = list(zip(table_info["columns"], datatypes))
+
+        if not raw_columns:
+            raise HTTPException(status_code=404, detail=f"Table '{table_name}' not found")
+
+        # Format columns for the LLM prompt
+        column_list = []
+        for col_entry in raw_columns:
+            if isinstance(col_entry, (list, tuple)) and len(col_entry) >= 2:
+                column_list.append(f"{col_entry[0]} ({col_entry[1]})")
+            elif isinstance(col_entry, dict):
+                name = col_entry.get("name") or col_entry.get("column", "")
+                dtype = col_entry.get("type") or col_entry.get("datatype", "")
+                column_list.append(f"{name} ({dtype})")
+
+        # Create prompt for LLM
+        columns_str = ", ".join(column_list[:15])  # Limit to first 15 columns to keep prompt concise
+        if len(column_list) > 15:
+            columns_str += f", and {len(column_list) - 15} more columns"
+
+        prompt = f"""Based on the following columns for the database table '{table_name}', write a single concise sentence (10-20 words) describing what this table contains and its primary purpose.
+
+Columns: {columns_str}
+
+Write only the description, nothing else. Make it informative and business-focused."""
+
+        # Generate description using LLM
+        from llm_registry import get_llm_registry
+        llm_client = get_llm_registry().get_chat()
+        description = llm_client.invoke(prompt)
+
+        return {
+            "success": True,
+            "table": table_name,
+            "description": description,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error generating description for %s: %s", table_name, exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

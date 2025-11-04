@@ -1,0 +1,309 @@
+{
+  "id": "a865a7d2de45469c9015d94615f84ea7",
+  "question": "Use @create find the users",
+  "sql": "SELECT\n  t1.id,\n  t1.first_name,\n  t1.last_name,\n  t1.created_at\nFROM\n  `bigquery-public-data.thelook_ecommerce.users` AS t1\nWHERE\n  t1.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)\nORDER BY\n  t1.created_at DESC;",
+  "created_at": "2025-11-04T02:05:07.726806Z",
+  "data_preview": [
+    {
+      "id": 99266,
+      "first_name": "Rachel",
+      "last_name": "Mccormick",
+      "created_at": "2025-11-02T19:36:37.097463Z"
+    },
+    {
+      "id": 79968,
+      "first_name": "Angela",
+      "last_name": "Klein",
+      "created_at": "2025-11-02T19:31:56.077851Z"
+    },
+    {
+      "id": 37900,
+      "first_name": "Laura",
+      "last_name": "Andrade",
+      "created_at": "2025-11-02T19:25:40.129170Z"
+    },
+    {
+      "id": 25056,
+      "first_name": "David",
+      "last_name": "Collins",
+      "created_at": "2025-11-02T19:25:32.835663Z"
+    },
+    {
+      "id": 57120,
+      "first_name": "Anna",
+      "last_name": "King",
+      "created_at": "2025-11-02T19:22:21.071657Z"
+    },
+    {
+      "id": 77858,
+      "first_name": "Debra",
+      "last_name": "Garner",
+      "created_at": "2025-11-02T19:20:24.653235Z"
+    },
+    {
+      "id": 87023,
+      "first_name": "Blake",
+      "last_name": "Abbott",
+      "created_at": "2025-11-02T19:17:38.984401Z"
+    },
+    {
+      "id": 90472,
+      "first_name": "Michael",
+      "last_name": "Rubio",
+      "created_at": "2025-11-02T19:14:30.076043Z"
+    },
+    {
+      "id": 25548,
+      "first_name": "Kari",
+      "last_name": "Williams",
+      "created_at": "2025-11-02T19:09:40.046370Z"
+    },
+    {
+      "id": 11285,
+      "first_name": "Wesley",
+      "last_name": "Contreras",
+      "created_at": "2025-11-02T19:07:10.246147Z"
+    },
+    {
+      "id": 32749,
+      "first_name": "Jessica",
+      "last_name": "Wang",
+      "created_at": "2025-11-02T19:06:23.490927Z"
+    },
+    {
+      "id": 46512,
+      "first_name": "Guy",
+      "last_name": "Sherman",
+      "created_at": "2025-11-02T19:05:46.683214Z"
+    },
+    {
+      "id": 5476,
+      "first_name": "Phillip",
+      "last_name": "Larsen",
+      "created_at": "2025-11-02T19:01:47.044869Z"
+    },
+    {
+      "id": 16299,
+      "first_name": "Julie",
+      "last_name": "May",
+      "created_at": "2025-11-02T18:59:24.971719Z"
+    },
+    {
+      "id": 48001,
+      "first_name": "Tina",
+      "last_name": "Collins",
+      "created_at": "2025-11-02T18:59:08.608759Z"
+    },
+    {
+      "id": 81545,
+      "first_name": "John",
+      "last_name": "Tanner",
+      "created_at": "2025-11-02T18:57:19.256520Z"
+    },
+    {
+      "id": 8157,
+      "first_name": "David",
+      "last_name": "Ramirez",
+      "created_at": "2025-11-02T18:54:25.621702Z"
+    },
+    {
+      "id": 722,
+      "first_name": "Johnny",
+      "last_name": "Rivers",
+      "created_at": "2025-11-02T18:52:37.224892Z"
+    },
+    {
+      "id": 8520,
+      "first_name": "Cindy",
+      "last_name": "Reynolds",
+      "created_at": "2025-11-02T18:51:30.784085Z"
+    },
+    {
+      "id": 31715,
+      "first_name": "Antonio",
+      "last_name": "Baker",
+      "created_at": "2025-11-02T18:51:08.294530Z"
+    },
+    {
+      "id": 45344,
+      "first_name": "Heather",
+      "last_name": "Chavez",
+      "created_at": "2025-11-02T18:45:29.575993Z"
+    },
+    {
+      "id": 6448,
+      "first_name": "Terri",
+      "last_name": "Williams",
+      "created_at": "2025-11-02T18:45:01.215398Z"
+    },
+    {
+      "id": 90548,
+      "first_name": "Samantha",
+      "last_name": "Burns",
+      "created_at": "2025-11-02T18:41:31.161248Z"
+    },
+    {
+      "id": 27215,
+      "first_name": "Stacey",
+      "last_name": "Cortez",
+      "created_at": "2025-11-02T18:36:03.885418Z"
+    },
+    {
+      "id": 18390,
+      "first_name": "Patricia",
+      "last_name": "Jones",
+      "created_at": "2025-11-02T18:33:55.945555Z"
+    },
+    {
+      "id": 70799,
+      "first_name": "Ronnie",
+      "last_name": "Moore",
+      "created_at": "2025-11-02T18:31:42.007406Z"
+    },
+    {
+      "id": 59460,
+      "first_name": "Johnny",
+      "last_name": "Lambert",
+      "created_at": "2025-11-02T18:28:54.755297Z"
+    },
+    {
+      "id": 74850,
+      "first_name": "Donald",
+      "last_name": "Jones",
+      "created_at": "2025-11-02T18:27:40.677903Z"
+    },
+    {
+      "id": 19985,
+      "first_name": "Jennifer",
+      "last_name": "Fields",
+      "created_at": "2025-11-02T18:27:19.000448Z"
+    },
+    {
+      "id": 64187,
+      "first_name": "Kara",
+      "last_name": "Lee",
+      "created_at": "2025-11-02T18:23:04.937562Z"
+    },
+    {
+      "id": 98244,
+      "first_name": "Adriana",
+      "last_name": "Taylor",
+      "created_at": "2025-11-02T18:22:22.457116Z"
+    },
+    {
+      "id": 37527,
+      "first_name": "Ronald",
+      "last_name": "Adams",
+      "created_at": "2025-11-02T18:18:34.384668Z"
+    },
+    {
+      "id": 61329,
+      "first_name": "Savannah",
+      "last_name": "Mitchell",
+      "created_at": "2025-11-02T18:17:00Z"
+    },
+    {
+      "id": 18048,
+      "first_name": "Cindy",
+      "last_name": "Buck",
+      "created_at": "2025-11-02T18:06:50.850839Z"
+    },
+    {
+      "id": 42254,
+      "first_name": "Megan",
+      "last_name": "Olsen",
+      "created_at": "2025-11-02T18:06:44.290622Z"
+    },
+    {
+      "id": 3626,
+      "first_name": "Randy",
+      "last_name": "Smith",
+      "created_at": "2025-11-02T18:06:20.086498Z"
+    },
+    {
+      "id": 70053,
+      "first_name": "Jennifer",
+      "last_name": "Kim",
+      "created_at": "2025-11-02T18:02:31.304132Z"
+    },
+    {
+      "id": 51710,
+      "first_name": "Antonio",
+      "last_name": "Evans",
+      "created_at": "2025-11-02T18:02:02.649987Z"
+    },
+    {
+      "id": 38870,
+      "first_name": "Lauren",
+      "last_name": "Trevino",
+      "created_at": "2025-11-02T17:57:54.353535Z"
+    },
+    {
+      "id": 70741,
+      "first_name": "Steven",
+      "last_name": "Perez",
+      "created_at": "2025-11-02T17:52:41.188198Z"
+    },
+    {
+      "id": 31502,
+      "first_name": "David",
+      "last_name": "Gamble",
+      "created_at": "2025-11-02T17:52:05.133027Z"
+    },
+    {
+      "id": 33073,
+      "first_name": "Stephanie",
+      "last_name": "Jones",
+      "created_at": "2025-11-02T17:49:28.278163Z"
+    },
+    {
+      "id": 95425,
+      "first_name": "Kevin",
+      "last_name": "Riley",
+      "created_at": "2025-11-02T17:48:41.400506Z"
+    },
+    {
+      "id": 52323,
+      "first_name": "James",
+      "last_name": "Garrett",
+      "created_at": "2025-11-02T17:39:11.770374Z"
+    },
+    {
+      "id": 10660,
+      "first_name": "Lisa",
+      "last_name": "Merritt",
+      "created_at": "2025-11-02T17:35:01.336337Z"
+    },
+    {
+      "id": 23285,
+      "first_name": "Stephanie",
+      "last_name": "Jenkins",
+      "created_at": "2025-11-02T17:30:07.643309Z"
+    },
+    {
+      "id": 11942,
+      "first_name": "Robert",
+      "last_name": "Houston",
+      "created_at": "2025-11-02T17:29:19.884683Z"
+    },
+    {
+      "id": 90889,
+      "first_name": "Brian",
+      "last_name": "Hinton",
+      "created_at": "2025-11-02T17:28:36.095608Z"
+    },
+    {
+      "id": 40659,
+      "first_name": "Stephanie",
+      "last_name": "Gray",
+      "created_at": "2025-11-02T17:27:21.058439Z"
+    },
+    {
+      "id": 44665,
+      "first_name": "Anthony",
+      "last_name": "Ruiz",
+      "created_at": "2025-11-02T17:25:19.472465Z"
+    }
+  ],
+  "row_count": 2698
+}

@@ -7,7 +7,7 @@ Provides optimized prompts for:
 - SQL Fix: Debug and fix broken queries
 """
 
-from typing import Optional
+from typing import List, Optional, Dict
 
 
 def get_explain_prompt(sql: str, schema_context: str) -> str:
@@ -132,6 +132,54 @@ Return ONLY valid JSON in this exact format (no markdown, no extra text):
 }}
 
 JSON RESPONSE:"""
+
+
+def get_chat_prompt(
+    sql: str,
+    schema_context: str,
+    conversation: List[Dict[str, str]],
+) -> str:
+    """
+    Generate prompt for conversational AI responses grounded in the current SQL query.
+
+    Args:
+        sql: SQL currently in the playground editor
+        schema_context: Relevant database schema information
+        conversation: List of chat messages [{"role": "user"|"assistant", "content": "..."}]
+
+    Returns:
+        Formatted prompt for Gemini chat completion
+    """
+    formatted_history = []
+    for message in conversation:
+        role = message.get("role", "user").strip().lower()
+        content = (message.get("content") or "").strip()
+        if not content:
+            continue
+        speaker = "User" if role == "user" else "Assistant"
+        formatted_history.append(f"{speaker}: {content}")
+
+    history_text = "\n".join(formatted_history[-10:]) if formatted_history else "User: No prior conversation."
+
+    return f"""You are an expert BigQuery SQL assistant helping a data analyst refine and understand SQL.
+
+CURRENT SQL QUERY (treat as authoritative context):
+{sql}
+
+RELEVANT SCHEMA DETAILS:
+{schema_context}
+
+CONVERSATION SO FAR:
+{history_text}
+
+Provide a concise, actionable reply that helps the user reason about the SQL.
+- Stay focused on the SQL and schema provided above.
+- Offer clarifications, improvements, and best practices.
+- Suggest alternative approaches only if helpful.
+- Keep the tone collaborative and professional.
+- Use bullet points sparingly and only when they improve clarity.
+
+Assistant:"""
 
 
 def get_schema_guidance() -> str:

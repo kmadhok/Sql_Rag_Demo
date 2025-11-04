@@ -18,7 +18,8 @@ from llm_registry import get_llm_registry
 from prompt_templates.sql_assistant import (
     get_explain_prompt,
     get_complete_prompt,
-    get_fix_prompt
+    get_fix_prompt,
+    get_chat_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,12 @@ logger = logging.getLogger(__name__)
 class AIAssistantService:
     """AI-powered SQL assistance using Gemini"""
 
-    def __init__(self, gemini_client: GeminiClient, schema_manager: SchemaManager):
+    def __init__(
+        self,
+        gemini_client: GeminiClient,
+        schema_manager: SchemaManager,
+        chat_client: Optional[GeminiClient] = None
+    ):
         """
         Initialize AI Assistant Service.
 
@@ -37,7 +43,9 @@ class AIAssistantService:
         """
         self.gemini = gemini_client
         self.schema = schema_manager
+        self.chat_client = chat_client or gemini_client
         logger.info("✅ AI Assistant Service initialized")
+
 
     def explain_sql(self, sql: str, schema_context: Optional[str] = None) -> str:
         """
@@ -270,6 +278,70 @@ class AIAssistantService:
                 {"completion": "GROUP BY", "explanation": "Group results by columns"}
             ]
 
+    def chat_with_sql_context(
+        self,
+        sql: str,
+        messages: List[Dict[str, str]],
+        schema_context: Optional[str] = None
+    ) -> Dict[str, Optional[str]]:
+        """
+        Provide conversational response grounded in the current SQL query.
+
+        Args:
+            sql: SQL content from the playground editor
+            messages: Conversation history (list of {"role": "...", "content": "..."})
+            schema_context: Optional pre-generated schema context
+
+        Returns:
+            Dict with keys: "reply", "tables_analyzed", "schema_context"
+
+        Raises:
+            ValueError: If SQL or messages are invalid
+            Exception: If Gemini call fails
+        """
+        normalized_sql = (sql or "").strip()
+        if not normalized_sql:
+            raise ValueError("SQL context is required to start a chat.")
+
+        if not messages or all(not (m.get("content") or "").strip() for m in messages):
+            raise ValueError("At least one user message is required.")
+
+        try:
+            # Ensure schema context is available
+            table_names: List[str] = []
+            if schema_context is None:
+                table_names = self.schema.extract_tables_from_content(normalized_sql)
+                schema_context = self.schema.get_relevant_schema(
+                    table_names,
+                    max_tables=10,
+                    include_bigquery_guidance=True
+                )
+            else:
+                table_names = self.schema.extract_tables_from_content(normalized_sql)
+
+            prompt = get_chat_prompt(
+                normalized_sql,
+                schema_context or "",
+                messages,
+            )
+
+            response_text = self.chat_client.invoke(prompt)
+            reply = response_text.strip() if response_text else ""
+
+            if not reply:
+                logger.warning("⚠️ Chat response from Gemini was empty")
+                reply = "I couldn't generate a response. Please try rephrasing your request."
+
+            return {
+                "reply": reply,
+                "tables_analyzed": table_names,
+                "schema_context": schema_context,
+            }
+
+        except Exception as exc:
+            logger.error(f"❌ Error during chat generation: {exc}")
+            raise
+
 
 # Global instance for singleton pattern
 _ai_assistant_service: Optional[AIAssistantService] = None
@@ -292,6 +364,7 @@ def get_ai_assistant_service() -> AIAssistantService:
             # Get LLM client from registry (uses generator model - gemini-2.5-pro by default)
             registry = get_llm_registry()
             gemini_client = registry.get_generator()
+            chat_client = registry.get_chat()
 
             # Get schema manager
             # Import here to avoid circular imports
@@ -299,7 +372,11 @@ def get_ai_assistant_service() -> AIAssistantService:
             schema_manager = load_schema_manager()
 
             # Create service
-            _ai_assistant_service = AIAssistantService(gemini_client, schema_manager)
+            _ai_assistant_service = AIAssistantService(
+                gemini_client,
+                schema_manager,
+                chat_client=chat_client
+            )
             logger.info("✅ AI Assistant Service singleton initialized")
 
         except Exception as e:

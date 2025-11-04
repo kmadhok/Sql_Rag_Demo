@@ -128,6 +128,11 @@ export async function getTableColumns(tableName) {
   return handleResponse(response);
 }
 
+export async function getTableDescription(tableName) {
+  const response = await fetch(`${API_BASE}/schema/tables/${encodeURIComponent(tableName)}/description`);
+  return handleResponse(response);
+}
+
 // Week 4: AI-Powered SQL Assistance API methods
 export async function explainSql(payload) {
   const response = await fetch(`${API_BASE}/sql/explain`, {
@@ -158,6 +163,15 @@ export async function fixSql(payload) {
 
 export async function formatSql(payload) {
   const response = await fetch(`${API_BASE}/sql/format`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse(response);
+}
+
+export async function chatSql(payload) {
+  const response = await fetch(`${API_BASE}/sql/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

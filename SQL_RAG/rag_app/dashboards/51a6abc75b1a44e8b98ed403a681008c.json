@@ -2,31 +2,36 @@
   "id": "51a6abc75b1a44e8b98ed403a681008c",
   "name": "My Dashboard Test",
   "created_at": "2025-11-01T00:38:24.897739Z",
-  "updated_at": "2025-11-02T00:39:43.960107Z",
+  "updated_at": "2025-11-04T03:22:49.064280Z",
   "layout_items": [
     {
-      "i": "chart-1762030199712",
+      "i": "chart-1762226494950",
       "x": 0,
       "y": 0,
       "w": 6,
-      "h": 2,
-      "saved_query_id": "",
-      "query_question": "",
-      "chart_config": {}
+      "h": 3,
+      "saved_query_id": "9a7fcc27808346bba9fdaf81021eeab6",
+      "query_question": "Use @create find the users",
+      "chart_config": {
+        "chartType": "column",
+        "xColumn": "id",
+        "yColumn": "",
+        "aggregation": "count"
+      }
     },
     {
-      "i": "chart-1762043983332",
+      "i": "chart-1762226527870",
       "x": 0,
-      "y": 2,
+      "y": 3,
       "w": 6,
       "h": 2,
-      "saved_query_id": "0b3f5af069314d268ac1c4549a90c357",
-      "query_question": "@create What are the top 10 products bought in the past 10 days",
+      "saved_query_id": "a865a7d2de45469c9015d94615f84ea7",
+      "query_question": "Use @create find the users",
       "chart_config": {
         "chartType": "pie",
-        "xColumn": "product_name",
-        "yColumn": "products_bought",
-        "aggregation": "sum"
+        "xColumn": "last_name",
+        "yColumn": "",
+        "aggregation": "count"
       }
     }
   ]

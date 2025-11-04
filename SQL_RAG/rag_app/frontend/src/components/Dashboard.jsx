@@ -123,20 +123,20 @@ export default function Dashboard({
     }
 
     const timeout = setTimeout(() => {
-      saveDashboard(newLayout);
+      saveDashboard(newLayout, chartItems);
     }, 500);
 
     setSaveTimeout(timeout);
-  }, [saveTimeout]);
+  }, [saveTimeout, chartItems]);
 
   // Save dashboard
-  const saveDashboard = useCallback((layoutToSave = layout) => {
+  const saveDashboard = useCallback((layoutToSave = layout, chartItemsToSave = chartItems) => {
     if (!layoutToSave || layoutToSave.length === 0) {
       return;
     }
 
     const layoutItems = layoutToSave.map((gridItem) => {
-      const chartItem = chartItems.find((c) => c.i === gridItem.i);
+      const chartItem = chartItemsToSave.find((c) => c.i === gridItem.i);
       return {
         i: gridItem.i,
         x: gridItem.x,
@@ -178,26 +178,33 @@ export default function Dashboard({
       minH: 2,
     };
 
-    setChartItems((prev) => [...prev, newChartItem]);
-    setLayout((prev) => [...prev, newLayoutItem]);
+    // Calculate updated arrays before setting state
+    const updatedChartItems = [...chartItems, newChartItem];
+    const updatedLayout = [...layout, newLayoutItem];
 
-    // Save immediately
+    setChartItems(updatedChartItems);
+    setLayout(updatedLayout);
+
+    // Save immediately with the updated arrays
     setTimeout(() => {
-      saveDashboard([...layout, newLayoutItem]);
+      saveDashboard(updatedLayout, updatedChartItems);
     }, 100);
-  }, [layout, saveDashboard]);
+  }, [layout, chartItems, saveDashboard]);
 
   // Remove chart
   const handleRemoveChart = useCallback((itemId) => {
-    setChartItems((prev) => prev.filter((item) => item.i !== itemId));
-    setLayout((prev) => prev.filter((item) => item.i !== itemId));
+    // Calculate updated arrays before setting state
+    const updatedChartItems = chartItems.filter((item) => item.i !== itemId);
+    const updatedLayout = layout.filter((item) => item.i !== itemId);
 
-    // Save immediately
+    setChartItems(updatedChartItems);
+    setLayout(updatedLayout);
+
+    // Save immediately with the updated arrays
     setTimeout(() => {
-      const newLayout = layout.filter((item) => item.i !== itemId);
-      saveDashboard(newLayout);
+      saveDashboard(updatedLayout, updatedChartItems);
     }, 100);
-  }, [layout, saveDashboard]);
+  }, [layout, chartItems, saveDashboard]);
 
   // Configure chart
   const handleConfigureChart = useCallback((itemId) => {
@@ -212,21 +219,22 @@ export default function Dashboard({
   const handleSaveChartConfig = useCallback((newConfig) => {
     if (!editingItem) return;
 
-    setChartItems((prev) =>
-      prev.map((item) =>
-        item.i === editingItem.i
-          ? { ...item, chartConfig: newConfig }
-          : item
-      )
+    // Calculate updated chartItems before setting state
+    const updatedChartItems = chartItems.map((item) =>
+      item.i === editingItem.i
+        ? { ...item, chartConfig: newConfig }
+        : item
     );
 
-    // Save immediately
+    setChartItems(updatedChartItems);
+
+    // Save immediately with updated chartItems
     setTimeout(() => {
-      saveDashboard();
+      saveDashboard(layout, updatedChartItems);
     }, 100);
 
     setEditingItem(null);
-  }, [editingItem, saveDashboard]);
+  }, [editingItem, chartItems, layout, saveDashboard]);
 
   // Export handlers
   const handleExportPNG = useCallback(async () => {

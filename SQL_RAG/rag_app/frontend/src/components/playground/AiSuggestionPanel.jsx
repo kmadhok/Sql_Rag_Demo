@@ -1,12 +1,89 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 export default function AiSuggestionPanel({
   explanation,
   suggestions,
   isLoading,
-  onClose
+  onClose,
+  initialTab = 'explain',
+  onTabChange,
+  chatMessages = [],
+  onSendChat,
+  isChatLoading = false,
+  chatError = null
 }) {
-  const [activeTab, setActiveTab] = useState('explain');
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [chatInput, setChatInput] = useState('');
+  const [localError, setLocalError] = useState(null);
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
+
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      setLocalError(null);
+    }
+  }, [activeTab]);
+
+  const handleTabSelect = (tab) => {
+    setActiveTab(tab);
+    if (onTabChange) {
+      onTabChange(tab);
+    }
+  };
+
+  const handleChatSubmit = async (event) => {
+    event.preventDefault();
+    if (!onSendChat) {
+      return;
+    }
+
+    const trimmed = chatInput.trim();
+    if (!trimmed) {
+      setLocalError('Type a message to start chatting.');
+      return;
+    }
+
+    try {
+      setLocalError(null);
+      await onSendChat(trimmed);
+      setChatInput('');
+    } catch (error) {
+      setLocalError(error.message || 'Failed to send message.');
+    }
+  };
+
+  const renderedMessages = useMemo(() => {
+    if (!chatMessages || chatMessages.length === 0) {
+      return null;
+    }
+
+    return [
+      ...chatMessages.map((message) => (
+        <div
+          key={message.id}
+          style={{
+            ...styles.chatMessage,
+            ...(message.role === 'assistant' ? styles.chatMessageAssistant : styles.chatMessageUser),
+          }}
+        >
+          <div style={styles.chatMessageRole}>
+            {message.role === 'assistant' ? 'Assistant' : 'You'}
+          </div>
+          <div style={styles.chatMessageContent}>{message.content}</div>
+        </div>
+      )),
+      <div key="chat-end-marker" ref={messagesEndRef} />,
+    ];
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [chatMessages, isChatLoading]);
 
   return (
     <div className="ai-panel" style={styles.panel}>
@@ -30,7 +107,7 @@ export default function AiSuggestionPanel({
             ...styles.tab,
             ...(activeTab === 'explain' ? styles.tabActive : styles.tabInactive)
           }}
-          onClick={() => setActiveTab('explain')}
+          onClick={() => handleTabSelect('explain')}
         >
           Explanation
         </button>
@@ -40,15 +117,25 @@ export default function AiSuggestionPanel({
             ...styles.tab,
             ...(activeTab === 'suggestions' ? styles.tabActive : styles.tabInactive)
           }}
-          onClick={() => setActiveTab('suggestions')}
+          onClick={() => handleTabSelect('suggestions')}
         >
           Suggestions
+        </button>
+        <button
+          className={activeTab === 'chat' ? 'tab-active' : 'tab-inactive'}
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'chat' ? styles.tabActive : styles.tabInactive)
+          }}
+          onClick={() => handleTabSelect('chat')}
+        >
+          Chat
         </button>
       </div>
 
       {/* Content */}
       <div style={styles.content}>
-        {isLoading ? (
+        {isLoading && activeTab !== 'chat' ? (
           <div style={styles.loadingContainer}>
             <div style={styles.spinner}></div>
             <p style={styles.loadingText}>AI is thinking...</p>
@@ -84,6 +171,49 @@ export default function AiSuggestionPanel({
                     <p>💡 AI suggestions will appear here during autocomplete</p>
                   </div>
                 )}
+              </div>
+            )}
+            {activeTab === 'chat' && (
+              <div style={styles.chatTab}>
+                <div style={styles.chatMessagesContainer}>
+                  {renderedMessages || (
+                    <div style={styles.emptyState}>
+                      <p>💬 Ask a question about your SQL to get started.</p>
+                    </div>
+                  )}
+                  {isChatLoading && (
+                    <div style={styles.chatLoader}>
+                      <div style={styles.spinnerSmall}></div>
+                      <span style={styles.loadingText}>Assistant is typing…</span>
+                    </div>
+                  )}
+                </div>
+
+                {(localError || chatError) && (
+                  <div style={styles.chatError}>{localError || chatError}</div>
+                )}
+
+                <form style={styles.chatComposer} onSubmit={handleChatSubmit}>
+                  <textarea
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    placeholder="Ask a question about this SQL..."
+                    style={styles.chatTextarea}
+                    rows={2}
+                    disabled={isChatLoading}
+                  />
+                  <button
+                    type="submit"
+                    style={{
+                      ...styles.chatSendButton,
+                      opacity: isChatLoading ? 0.6 : 1,
+                      cursor: isChatLoading ? 'not-allowed' : 'pointer'
+                    }}
+                    disabled={isChatLoading}
+                  >
+                    {isChatLoading ? 'Sending…' : 'Send'}
+                  </button>
+                </form>
               </div>
             )}
           </>
@@ -173,6 +303,14 @@ const styles = {
     borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
+  spinnerSmall: {
+    width: '18px',
+    height: '18px',
+    border: '3px solid var(--surface-border)',
+    borderTop: '3px solid var(--primary-color)',
+    borderRadius: '50%',
+    animation: 'spin 0.8s linear infinite',
+  },
   loadingText: {
     marginTop: '1rem',
     color: 'var(--text-color-secondary)',
@@ -222,6 +360,98 @@ const styles = {
     textAlign: 'center',
     padding: '2rem 1rem',
     color: 'var(--text-color-secondary)',
+  },
+  chatTab: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    gap: '0.75rem',
+  },
+  chatMessagesContainer: {
+    flex: 1,
+    minHeight: '0',
+    overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  chatMessage: {
+    padding: '0.75rem',
+    borderRadius: '6px',
+    border: '1px solid var(--surface-border)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.35rem',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  },
+  chatMessageUser: {
+    alignSelf: 'flex-end',
+    backgroundColor: 'rgba(79, 70, 229, 0.15)',
+    borderColor: 'rgba(79, 70, 229, 0.35)',
+    maxWidth: '90%',
+  },
+  chatMessageAssistant: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(17, 94, 89, 0.15)',
+    borderColor: 'rgba(17, 94, 89, 0.35)',
+    maxWidth: '90%',
+  },
+  chatMessageRole: {
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    color: 'var(--text-color-secondary)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  chatMessageContent: {
+    fontSize: '0.9rem',
+    color: 'var(--text-color)',
+    lineHeight: 1.5,
+  },
+  chatLoader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.5rem 0.75rem',
+    backgroundColor: 'var(--surface-section)',
+    borderRadius: '4px',
+    alignSelf: 'flex-start',
+  },
+  chatError: {
+    padding: '0.5rem 0.75rem',
+    borderRadius: '4px',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    border: '1px solid rgba(239, 68, 68, 0.35)',
+    color: 'rgb(248, 113, 113)',
+    fontSize: '0.85rem',
+  },
+  chatComposer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
+  },
+  chatTextarea: {
+    width: '100%',
+    padding: '0.75rem',
+    borderRadius: '6px',
+    border: '1px solid var(--surface-border)',
+    backgroundColor: 'var(--surface-ground)',
+    color: 'var(--text-color)',
+    fontSize: '0.9rem',
+    resize: 'none',
+    fontFamily: 'inherit',
+  },
+  chatSendButton: {
+    alignSelf: 'flex-end',
+    padding: '0.5rem 1rem',
+    borderRadius: '4px',
+    border: 'none',
+    backgroundColor: 'var(--primary-color)',
+    color: 'white',
+    fontWeight: 600,
+    cursor: 'pointer',
+    transition: 'opacity 0.2s ease',
   },
 };
 

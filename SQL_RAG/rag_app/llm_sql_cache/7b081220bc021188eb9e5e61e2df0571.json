@@ -1,0 +1,35 @@
+{
+  "table_analysis": null,
+  "column_analysis": {
+    "columns": [
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "id"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "first_name"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "last_name"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "created_at"
+      },
+      {
+        "table": "`bigquery-public-data.thelook_ecommerce.users`",
+        "column": "created_at"
+      }
+    ],
+    "column_aliases": [],
+    "aggregate_columns": [],
+    "computed_columns": [
+      "TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)"
+    ]
+  },
+  "analysis_time": 0.8829460144042969,
+  "tokens_used": 455,
+  "cost_estimate": 3.4124999999999996e-05
+}

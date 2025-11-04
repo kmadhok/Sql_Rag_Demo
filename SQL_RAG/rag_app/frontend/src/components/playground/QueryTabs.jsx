@@ -1,8 +1,43 @@
+import { useState } from 'react';
+
 /**
  * Query Tabs Component
  * Manages multiple query tabs like browser tabs
+ * Double-click tab name to rename
  */
-export default function QueryTabs({ tabs, activeTabId, onTabChange, onTabClose, onTabAdd }) {
+export default function QueryTabs({ tabs, activeTabId, onTabChange, onTabClose, onTabAdd, onTabRename }) {
+  const [editingTabId, setEditingTabId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+
+  const startEditing = (tab) => {
+    setEditingTabId(tab.id);
+    setEditingName(tab.name);
+  };
+
+  const saveEdit = (tabId) => {
+    const newName = editingName.trim();
+    if (newName && newName !== tabs.find(t => t.id === tabId)?.name) {
+      onTabRename(tabId, newName);
+    }
+    setEditingTabId(null);
+    setEditingName('');
+  };
+
+  const cancelEdit = () => {
+    setEditingTabId(null);
+    setEditingName('');
+  };
+
+  const handleKeyDown = (e, tabId) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveEdit(tabId);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.tabsWrapper}>
@@ -13,9 +48,28 @@ export default function QueryTabs({ tabs, activeTabId, onTabChange, onTabClose, 
               ...styles.tab,
               ...(tab.id === activeTabId ? styles.tabActive : styles.tabInactive),
             }}
-            onClick={() => onTabChange(tab.id)}
+            onClick={() => editingTabId !== tab.id && onTabChange(tab.id)}
           >
-            <span style={styles.tabName}>{tab.name}</span>
+            {editingTabId === tab.id ? (
+              <input
+                type="text"
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onKeyDown={(e) => handleKeyDown(e, tab.id)}
+                onBlur={() => saveEdit(tab.id)}
+                onClick={(e) => e.stopPropagation()}
+                style={styles.tabInput}
+                autoFocus
+              />
+            ) : (
+              <span
+                style={styles.tabName}
+                onDoubleClick={() => startEditing(tab)}
+                title="Double-click to rename"
+              >
+                {tab.name}
+              </span>
+            )}
             {tabs.length > 1 && (
               <button
                 style={styles.closeButton}
@@ -87,6 +141,17 @@ const styles = {
     flex: 1,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    cursor: 'text',
+  },
+  tabInput: {
+    flex: 1,
+    background: 'var(--surface-ground)',
+    border: '1px solid var(--primary-color)',
+    borderRadius: '3px',
+    padding: '0.25rem 0.5rem',
+    fontSize: '0.9rem',
+    color: 'var(--text-color)',
+    outline: 'none',
   },
   closeButton: {
     background: 'none',

@@ -585,7 +585,7 @@ function App() {
 
           <TabPanel value="playground" current={tab} className="min-h-[600px]">
             <div className="surface-panel flex flex-col h-full">
-              <Playground theme={currentTheme} />
+              <Playground theme={currentTheme} onQuerySaved={refreshSavedQueries} />
             </div>
           </TabPanel>
 

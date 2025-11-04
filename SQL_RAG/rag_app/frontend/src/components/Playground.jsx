@@ -6,15 +6,18 @@ import AiSuggestionPanel from './playground/AiSuggestionPanel.jsx';
 import DiffViewModal from './playground/DiffViewModal.jsx';
 import QueryTabs from './playground/QueryTabs.jsx';
 import QueryHistoryPanel from './playground/QueryHistoryPanel.jsx';
+import SaveQueryModal from './playground/SaveQueryModal.jsx';
+import KeyboardShortcutsModal from './playground/KeyboardShortcutsModal.jsx';
 import Button from './Button.jsx';
 import Card from './Card.jsx';
-import { executeSql, explainSql, fixSql, formatSql } from '../services/ragClient.js';
+import { executeSql, explainSql, fixSql, formatSql, chatSql, saveQuery } from '../services/ragClient.js';
+import { useLocalStorage } from '../hooks/useLocalStorage';
 
 /**
  * SQL Playground - Interactive SQL editor with AI assistance
  * Allows users to write, execute, and analyze SQL queries
  */
-export default function Playground({ theme }) {
+export default function Playground({ theme, onQuerySaved }) {
   // Week 5: Query Tabs State
   const [tabs, setTabs] = useState([
     {
@@ -31,17 +34,27 @@ export default function Playground({ theme }) {
   const [showHistory, setShowHistory] = useState(false);
 
   // Week 5: Query History State
-  const [queryHistory, setQueryHistory] = useState([]);
+  const [queryHistory, setQueryHistory] = useLocalStorage('playground-history', []);
 
   // Week 4: AI Features State
   const [aiPanel, setAiPanel] = useState({
     visible: false,
     explanation: null,
-    isLoading: false
+    isLoading: false,
+    activeTab: 'explain'
   });
   const [isFixing, setIsFixing] = useState(false);
   const [showDiffModal, setShowDiffModal] = useState(false);
   const [diffData, setDiffData] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatError, setChatError] = useState(null);
+
+  // Week 5+: Save Query Modal
+  const [showSaveModal, setShowSaveModal] = useState(false);
+
+  // Keyboard Shortcuts Modal
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
 
   const editorRef = useRef(null);
 
@@ -80,23 +93,20 @@ export default function Playground({ theme }) {
     localStorage.setItem('playground-active-tab', activeTabId);
   }, [tabs, activeTabId]);
 
-  // Week 5: Query History - Load from localStorage on mount
+  // Keyboard Shortcuts - Listen for "?" key
   useEffect(() => {
-    const savedHistory = localStorage.getItem('playground-history');
-    if (savedHistory) {
-      try {
-        const parsed = JSON.parse(savedHistory);
-        setQueryHistory(parsed);
-      } catch (error) {
-        console.error('Failed to load query history:', error);
+    const handleKeyPress = (e) => {
+      // Check if "?" is pressed (shift + / on US keyboards)
+      // Also check that user is not typing in an input/textarea
+      if (e.key === '?' && !['INPUT', 'TEXTAREA'].includes(e.target.tagName)) {
+        e.preventDefault();
+        setShowShortcutsModal(true);
       }
-    }
-  }, []);
+    };
 
-  // Week 5: Query History - Save to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('playground-history', JSON.stringify(queryHistory));
-  }, [queryHistory]);
+    window.addEventListener('keydown', handleKeyPress);
+    return () => window.removeEventListener('keydown', handleKeyPress);
+  }, []);
 
   // Week 5: Tab Helpers
   const currentTab = tabs.find(t => t.id === activeTabId) || tabs[0];
@@ -143,6 +153,12 @@ export default function Playground({ theme }) {
 
   const handleTabChange = (tabId) => {
     setActiveTabId(tabId);
+  };
+
+  const handleTabRename = (tabId, newName) => {
+    setTabs(tabs.map(t =>
+      t.id === tabId ? { ...t, name: newName } : t
+    ));
   };
 
   const handleExecute = async (dryRun = false) => {
@@ -282,7 +298,12 @@ export default function Playground({ theme }) {
     }
 
     // Show AI panel with loading state
-    setAiPanel({ visible: true, explanation: null, isLoading: true });
+    setAiPanel({
+      visible: true,
+      explanation: null,
+      isLoading: true,
+      activeTab: 'explain'
+    });
 
     try {
       console.log('🤖 Calling explainSql API...');
@@ -292,7 +313,8 @@ export default function Playground({ theme }) {
         setAiPanel({
           visible: true,
           explanation: response.explanation,
-          isLoading: false
+          isLoading: false,
+          activeTab: 'explain'
         });
         console.log('✅ Explanation generated');
       } else {
@@ -303,10 +325,108 @@ export default function Playground({ theme }) {
       setAiPanel({
         visible: true,
         explanation: `Error: ${error.message}`,
-        isLoading: false
+        isLoading: false,
+        activeTab: 'explain'
       });
     }
   };
+
+  const handleOpenChatPanel = () => {
+    if (!sql.trim()) {
+      alert('Enter or load a SQL query to chat with the assistant.');
+      return;
+    }
+
+    setAiPanel((prev) => ({
+      ...prev,
+      visible: true,
+      activeTab: 'chat',
+      isLoading: false
+    }));
+  };
+
+  const handleChatSend = async (messageText) => {
+    if (!sql.trim()) {
+      setChatError('Please add SQL to the editor so the assistant has context.');
+      throw new Error('Missing SQL context');
+    }
+
+    const trimmedMessage = messageText.trim();
+    if (!trimmedMessage) {
+      return;
+    }
+
+    setChatError(null);
+    setAiPanel((prev) => ({
+      ...prev,
+      visible: true,
+      activeTab: 'chat'
+    }));
+
+    setChatMessages((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `${Date.now()}-user`,
+          role: 'user',
+          content: trimmedMessage
+        }
+      ];
+      return next.slice(-20);
+    });
+
+    setIsChatLoading(true);
+
+    try {
+      const payloadMessages = [
+        ...chatMessages,
+        {
+          role: 'user',
+          content: trimmedMessage
+        }
+      ]
+        .slice(-12)
+        .map(({ role, content }) => ({ role, content }));
+
+      const response = await chatSql({
+        sql: sql.trim(),
+        messages: payloadMessages
+      });
+
+      if (response.success && response.reply) {
+        setChatMessages((prev) => {
+          const next = [
+            ...prev,
+            {
+              id: `${Date.now()}-assistant`,
+              role: 'assistant',
+              content: response.reply
+            }
+          ];
+          return next.slice(-20);
+        });
+        setChatError(null);
+      } else {
+        const errorMsg = response.error || 'Assistant could not respond. Please try again.';
+        setChatError(errorMsg);
+        throw new Error(errorMsg);
+      }
+    } catch (error) {
+      console.error('❌ Chat request failed:', error);
+      setChatError(error.message || 'Failed to contact AI assistant.');
+      throw error;
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleAiPanelTabChange = (tab) => {
+    setAiPanel((prev) => ({
+      ...prev,
+      activeTab: tab
+    }));
+  };
+
 
   const handleFixWithAI = async () => {
     if (!result || result.success || !result.error_message) {
@@ -376,16 +496,22 @@ export default function Playground({ theme }) {
 
   // Week 5: Query History Handlers
   const addToHistory = (queryResult) => {
+    const rawRowCount =
+      queryResult.row_count ??
+      queryResult.rowCount ??
+      0;
+    const rowCount = Number(rawRowCount) || 0;
+
     const historyItem = {
       id: Date.now(),
       sql: sql,
       timestamp: new Date().toISOString(),
       success: queryResult.success || false,
-      rowCount: queryResult.row_count || 0
+      rowCount
     };
 
     // Add to beginning, keep only last 50
-    setQueryHistory([historyItem, ...queryHistory].slice(0, 50));
+    setQueryHistory((prevHistory) => [historyItem, ...prevHistory].slice(0, 50));
   };
 
   const handleLoadQuery = (querySql) => {
@@ -411,6 +537,51 @@ export default function Playground({ theme }) {
       console.error('❌ Failed to copy SQL:', error);
       alert('Failed to copy SQL to clipboard');
     }
+  };
+
+  // Week 5+: Save Query Handler
+  const handleSaveQuery = async (queryData) => {
+    try {
+      console.log('💾 Saving query to database...');
+
+      const payload = {
+        question: queryData.name,
+        sql: queryData.sql,
+        data: result?.data || null,
+      };
+
+      const response = await saveQuery(payload);
+
+      if (response && response.id) {
+        console.log('✅ Query saved successfully:', response.id);
+        alert(`Query "${queryData.name}" saved successfully! You can now use it in the Dashboard.`);
+
+        // Refresh saved queries list in App.jsx so Dashboard shows the new query
+        if (onQuerySaved) {
+          await onQuerySaved();
+        }
+      } else {
+        throw new Error('Failed to save query');
+      }
+    } catch (error) {
+      console.error('❌ Failed to save query:', error);
+      throw error; // Re-throw so modal can show error
+    }
+  };
+
+  // Week 5+: Open Save Modal (only if query has been executed successfully)
+  const handleOpenSaveModal = () => {
+    if (!sql.trim()) {
+      alert('Please enter a SQL query first');
+      return;
+    }
+
+    if (!result || !result.success) {
+      alert('Please execute your query successfully before saving');
+      return;
+    }
+
+    setShowSaveModal(true);
   };
 
   return (
@@ -448,6 +619,15 @@ export default function Playground({ theme }) {
             {showHistory ? '📜 Hide History' : '📜 Show History'}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setShowShortcutsModal(true)}
+            className="px-3 py-2 text-sm rounded transition-colors bg-gray-700 text-gray-300 hover:bg-gray-600"
+            title="Keyboard shortcuts (press ? anytime)"
+          >
+            ⌨️ Shortcuts
+          </button>
+
           <select
             onChange={(event) => {
               if (event.target.value) {
@@ -478,6 +658,7 @@ export default function Playground({ theme }) {
         onTabChange={handleTabChange}
         onTabClose={handleTabClose}
         onTabAdd={handleTabAdd}
+        onTabRename={handleTabRename}
       />
 
       <div className="flex gap-4 flex-1 overflow-hidden">
@@ -530,6 +711,14 @@ export default function Playground({ theme }) {
                     📋 Copy
                   </Button>
                   <Button
+                    onClick={handleOpenSaveModal}
+                    disabled={!result || !result.success}
+                    className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Save query to use in Dashboard"
+                  >
+                    💾 Save Query
+                  </Button>
+                  <Button
                     onClick={handleFormat}
                     disabled={!sql.trim()}
                     className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -544,6 +733,14 @@ export default function Playground({ theme }) {
                     title="Explain SQL with AI"
                   >
                     ✨ Explain with AI
+                  </Button>
+                  <Button
+                    onClick={handleOpenChatPanel}
+                    disabled={!sql.trim()}
+                    className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Chat with AI about this SQL"
+                  >
+                    💬 Chat with AI
                   </Button>
                   <Button
                     onClick={() => handleExecute(true)}
@@ -637,7 +834,21 @@ export default function Playground({ theme }) {
             explanation={aiPanel.explanation}
             suggestions={[]}
             isLoading={aiPanel.isLoading}
-            onClose={() => setAiPanel({ visible: false, explanation: null, isLoading: false })}
+            initialTab={aiPanel.activeTab}
+            onTabChange={handleAiPanelTabChange}
+            chatMessages={chatMessages}
+            onSendChat={handleChatSend}
+            isChatLoading={isChatLoading}
+            chatError={chatError}
+            onClose={() => {
+              setAiPanel({
+                visible: false,
+                explanation: null,
+                isLoading: false,
+                activeTab: 'explain'
+              });
+              setChatError(null);
+            }}
           />
         )}
 
@@ -660,6 +871,22 @@ export default function Playground({ theme }) {
             setShowDiffModal(false);
             setDiffData(null);
           }}
+        />
+      )}
+
+      {/* Week 5+: Save Query Modal */}
+      {showSaveModal && (
+        <SaveQueryModal
+          sql={sql}
+          onSave={handleSaveQuery}
+          onClose={() => setShowSaveModal(false)}
+        />
+      )}
+
+      {/* Keyboard Shortcuts Modal */}
+      {showShortcutsModal && (
+        <KeyboardShortcutsModal
+          onClose={() => setShowShortcutsModal(false)}
         />
       )}
     </div>
