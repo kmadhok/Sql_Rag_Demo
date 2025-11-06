@@ -1,13 +1,23 @@
+import os
+from pathlib import Path
+
 from google.cloud import bigquery
 import pandas as pd
 
-# Target dataset
-PROJECT = "bigquery-public-data"
-DATASET = "thelook_ecommerce"
-DATASET_FQN = f"{PROJECT}.{DATASET}"
-CSV_OUT = "data_new/thelook_ecommerce_schema.csv"
+# Target dataset (env-aware)
+DATASET_PROJECT = os.getenv("SCHEMA_EXPORT_PROJECT", "bigquery-public-data")
+DATASET_NAME = os.getenv("SCHEMA_EXPORT_DATASET", "thelook_ecommerce")
+DATASET_FQN = f"{DATASET_PROJECT}.{DATASET_NAME}"
+CSV_OUT = os.getenv("SCHEMA_EXPORT_CSV", "data_new/thelook_ecommerce_schema.csv")
 
-client = bigquery.Client(project=PROJECT)
+# Billing project defaults to dedicated BIGQUERY_PROJECT_ID/GOOGLE_CLOUD_PROJECT if present
+CLIENT_PROJECT = (
+    os.getenv("BIGQUERY_PROJECT_ID")
+    or os.getenv("GOOGLE_CLOUD_PROJECT")
+    or DATASET_PROJECT
+)
+
+client = bigquery.Client(project=CLIENT_PROJECT)
 
 rows = []
 
@@ -44,6 +54,8 @@ for t in tables:
 
 # 3) Save to CSV with the exact 4 columns requested
 df = pd.DataFrame(rows, columns=["full_table_name", "table", "column", "column_data_type"])
-df.to_csv(CSV_OUT, index=False)
+output_path = Path(CSV_OUT)
+output_path.parent.mkdir(parents=True, exist_ok=True)
+df.to_csv(output_path, index=False)
 
-print(f"✅ Wrote {len(df)} rows to {CSV_OUT}")
+print(f"✅ Wrote {len(df)} rows to {output_path}")

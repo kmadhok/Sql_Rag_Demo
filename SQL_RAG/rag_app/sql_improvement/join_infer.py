@@ -179,124 +179,12 @@ def _compute_embedding_similarity(
         return 0.0
 
 
-def _compute_cardinality_score(left_uniqueness: float, right_uniqueness: float) -> float:
-    """
-    Score the cardinality pattern to identify FK→PK relationships.
-
-    Returns:
-        1.0 for perfect FK→PK pattern (left moderate, right high)
-        0.8 for good FK→PK pattern
-        0.6 for 1:1 relationship (both unique)
-        0.0 for attribute columns (low uniqueness)
-    """
-    # Perfect FK→PK: left has some duplicates (0.3-0.95), right highly unique (>0.9)
-    if 0.3 <= left_uniqueness <= 0.95 and right_uniqueness >= 0.9:
-        return 1.0
-
-    # Good FK→PK: left less unique than right, right is mostly unique
-    if left_uniqueness < right_uniqueness and right_uniqueness >= 0.8:
-        return 0.8
-
-    # 1:1 relationship: both columns highly unique
-    if left_uniqueness >= 0.9 and right_uniqueness >= 0.9:
-        return 0.6
-
-    # Penalize low uniqueness (e.g., gender, status with 0.01)
-    if left_uniqueness < 0.3 or right_uniqueness < 0.3:
-        return 0.0
-
-    # Default: moderate cardinality
-    return 0.3
-
-
-def _compute_key_pattern_score(col_left: str, col_right: str) -> float:
-    """
-    Score based on presence of key-related terms in column names.
-
-    Returns:
-        1.0 if both columns have key patterns
-        0.5 if one column has key patterns
-        0.0 otherwise
-    """
-    key_terms = ['id', 'key', 'code', 'ref', 'pk', 'fk', 'num', 'number', 'no']
-
-    col_left_lower = col_left.lower()
-    col_right_lower = col_right.lower()
-
-    left_has_key = any(term in col_left_lower for term in key_terms)
-    right_has_key = any(term in col_right_lower for term in key_terms)
-
-    if left_has_key and right_has_key:
-        return 1.0
-    elif left_has_key or right_has_key:
-        return 0.5
-    else:
-        return 0.0
-
-
-def is_likely_join_key(col_name: str, dtype: np.dtype, uniqueness: float) -> bool:
-    """
-    Determine if a column is likely a join key (vs. a descriptive attribute).
-
-    Filters out:
-    - Datetime columns (created_at, updated_at, etc.)
-    - Attribute columns (name, status, gender, address, email, etc.)
-    - Low uniqueness columns (< 0.30) that can't be keys
-
-    Args:
-        col_name: Column name
-        dtype: pandas dtype
-        uniqueness: Uniqueness score (0-1)
-
-    Returns:
-        True if column is likely a join key, False otherwise
-    """
-    col_lower = col_name.lower()
-
-    # Exclude datetime columns entirely
-    if pd.api.types.is_datetime64_any_dtype(dtype):
-        return False
-
-    # Exclude common attribute patterns
-    exclude_patterns = [
-        'name', 'status', 'gender', 'description', 'address',
-        'email', 'phone', 'created', 'updated', 'shipped',
-        'delivered', 'returned', '_at', 'date', 'time',
-        'latitude', 'longitude', 'geom', 'state', 'city',
-        'country', 'postal', 'zip', 'street', 'traffic'
-    ]
-
-    if any(pattern in col_lower for pattern in exclude_patterns):
-        return False
-
-    # Exclude exact matches for common low-cardinality attributes
-    if col_lower in ['gender', 'status', 'state', 'city', 'country',
-                     'latitude', 'longitude', 'user_geom', 'age']:
-        return False
-
-    # Require minimum uniqueness (avoids gender/status with 0.01)
-    if uniqueness < 0.30:
-        return False
-
-    # Include if contains key patterns
-    key_patterns = ['id', 'key', 'code', 'ref', 'num', 'pk', 'fk']
-    if any(pattern in col_lower for pattern in key_patterns):
-        return True
-
-    # If numeric/string with good uniqueness, include
-    if uniqueness >= 0.30:
-        return True
-
-    return False
-
-
 def find_join_candidates(
     df_left: pd.DataFrame,
     df_right: pd.DataFrame,
     left_name: str = "left",
     right_name: str = "right",
     use_embeddings: bool = False,
-    filter_non_keys: bool = True,
     weights: Optional[dict] = None
 ) -> pd.DataFrame:
     """
@@ -308,14 +196,10 @@ def find_join_candidates(
         left_name: Name of left table (used for FK pattern detection)
         right_name: Name of right table (used for FK pattern detection)
         use_embeddings: Whether to use semantic embeddings (requires sentence-transformers)
-        filter_non_keys: Whether to filter out non-join-key columns (default: True)
-        weights: Optional custom weights dict with keys: name_sim, value_jaccard, cardinality_score,
-                 key_pattern_score, embed_sim
+        weights: Optional custom weights dict with keys: name_sim, value_jaccard, uniqueness, embed_sim
 
     Returns:
         DataFrame with columns:
-        - left_table: Name of the left table
-        - right_table: Name of the right table
         - left_col: Column name from left DataFrame
         - right_col: Column name from right DataFrame
         - type_compat: Boolean, are types compatible
@@ -323,25 +207,22 @@ def find_join_candidates(
         - value_jaccard: Jaccard similarity of values (0-1)
         - left_uniqueness: Uniqueness of left column (0-1)
         - right_uniqueness: Uniqueness of right column (0-1)
-        - cardinality_score: FK→PK pattern score (0-1)
-        - key_pattern_score: Key term presence score (0-1)
         - embed_sim: Embedding similarity (0-1, or 0 if disabled)
         - confidence: Overall confidence score (0-1)
         - notes: Additional pattern notes
     """
-    # Default weights optimized for join key detection
+    # Default weights from story
     if weights is None:
         weights = {
-            'name_sim': 0.25,
-            'value_jaccard': 0.25,
-            'cardinality_score': 0.30,
-            'key_pattern_score': 0.15,
-            'embed_sim': 0.05
+            'name_sim': 0.4,
+            'value_jaccard': 0.35,
+            'uniqueness': 0.15,
+            'embed_sim': 0.10
         }
 
     # Sample DataFrames to ≤100 rows
-    df_left_sample = df_left.head(100).copy()
-    df_right_sample = df_right.head(100).copy()
+    df_left_sample = df_left.head(1000).copy()
+    df_right_sample = df_right.head(1000).copy()
 
     # Initialize embedding model if requested
     embedding_model = None
@@ -361,31 +242,7 @@ def find_join_candidates(
     candidates = []
 
     for left_col in df_left_sample.columns:
-        # Compute left column uniqueness for filtering
-        left_uniqueness = _compute_uniqueness(df_left_sample[left_col])
-
-        # Apply join key filter if enabled
-        if filter_non_keys:
-            if not is_likely_join_key(
-                left_col,
-                df_left_sample[left_col].dtype,
-                left_uniqueness
-            ):
-                continue  # Skip non-key columns
-
         for right_col in df_right_sample.columns:
-            # Compute right column uniqueness for filtering
-            right_uniqueness = _compute_uniqueness(df_right_sample[right_col])
-
-            # Apply join key filter if enabled
-            if filter_non_keys:
-                if not is_likely_join_key(
-                    right_col,
-                    df_right_sample[right_col].dtype,
-                    right_uniqueness
-                ):
-                    continue  # Skip non-key columns
-
             # Type compatibility gate
             type_compat = _check_type_compatibility(
                 df_left_sample[left_col].dtype,
@@ -404,11 +261,9 @@ def find_join_candidates(
                 df_right_sample[right_col]
             )
 
-            # Compute cardinality score (FK→PK pattern detection)
-            cardinality_score = _compute_cardinality_score(left_uniqueness, right_uniqueness)
-
-            # Compute key pattern score
-            key_pattern_score = _compute_key_pattern_score(left_col, right_col)
+            # Compute uniqueness
+            left_uniqueness = _compute_uniqueness(df_left_sample[left_col])
+            right_uniqueness = _compute_uniqueness(df_right_sample[right_col])
 
             # Compute embedding similarity
             embed_sim = 0.0
@@ -420,24 +275,25 @@ def find_join_candidates(
                     embedding_model
                 )
 
-            # Compute confidence score with new weights
+            # Compute confidence score
+            uniqueness_component = min(left_uniqueness, 1.0) * min(right_uniqueness, 1.0)
+
             confidence = (
                 weights['name_sim'] * name_sim +
                 weights['value_jaccard'] * value_jaccard +
-                weights['cardinality_score'] * cardinality_score +
-                weights['key_pattern_score'] * key_pattern_score +
+                weights['uniqueness'] * uniqueness_component +
                 weights['embed_sim'] * embed_sim
             )
 
-            # Add note if filtering was applied
-            if filter_non_keys and not notes:
-                notes = "key_filtered"
-            elif filter_non_keys:
-                notes = f"{notes},key_filtered"
+            # FK->PK heuristic boost
+            if (left_col.lower().endswith('_id') and
+                left_uniqueness < 0.5 and
+                right_col.lower() == 'id' and
+                right_uniqueness > 0.9):
+                confidence = min(1.0, confidence + 0.1)
+                notes = f"{notes},fk_pk_boost" if notes else "fk_pk_boost"
 
             candidates.append({
-                'left_table': left_name,
-                'right_table': right_name,
                 'left_col': left_col,
                 'right_col': right_col,
                 'type_compat': type_compat,
@@ -445,8 +301,6 @@ def find_join_candidates(
                 'value_jaccard': round(value_jaccard, 4),
                 'left_uniqueness': round(left_uniqueness, 4),
                 'right_uniqueness': round(right_uniqueness, 4),
-                'cardinality_score': round(cardinality_score, 4),
-                'key_pattern_score': round(key_pattern_score, 4),
                 'embed_sim': round(embed_sim, 4),
                 'confidence': round(confidence, 4),
                 'notes': notes

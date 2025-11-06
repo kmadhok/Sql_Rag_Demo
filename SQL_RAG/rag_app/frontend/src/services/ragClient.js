@@ -1,19 +1,41 @@
+import chartDebugger from '../utils/chartDebugger.js';
+
 const rawBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
 const API_BASE = rawBase.replace(/\/+$/, "");
 
 
-async function handleResponse(response) {
+async function handleResponse(response, context = {}) {
+  const { method = 'GET', url = '', startTime = null } = context;
+
   if (!response.ok) {
     const text = await response.text();
+
+    // Log error details
+    chartDebugger.error('API', `${method} ${url} failed`, {
+      status: response.status,
+      statusText: response.statusText,
+      body: text,
+      duration: startTime ? Date.now() - startTime : null,
+    });
+
     console.error('⚠️ API Error Response:', {
       status: response.status,
       statusText: response.statusText,
       body: text
     });
+
     throw new Error(text || response.statusText);
   }
 
   const data = await response.json();
+  const duration = startTime ? Date.now() - startTime : null;
+
+  // Log successful response
+  chartDebugger.apiResponse(method, url, response.status, {
+    dataKeys: data ? Object.keys(data) : [],
+    duration: duration ? `${duration}ms` : null,
+  });
+
   console.log('✨ Parsed JSON response:', data);
   return data;
 }
@@ -71,8 +93,25 @@ export async function listSavedQueries() {
 }
 
 export async function getSavedQuery(id) {
-  const response = await fetch(`${API_BASE}/saved_queries/${id}`);
-  return handleResponse(response);
+  const url = `${API_BASE}/saved_queries/${id}`;
+  const method = 'GET';
+  const startTime = Date.now();
+
+  // Log request
+  chartDebugger.apiRequest(method, url, id);
+
+  try {
+    const response = await fetch(url);
+    return handleResponse(response, { method, url, startTime });
+  } catch (error) {
+    // Log network errors
+    chartDebugger.error('API', `${method} ${url} network error`, {
+      savedQueryId: id,
+      error: error.message,
+      duration: `${Date.now() - startTime}ms`,
+    });
+    throw error;
+  }
 }
 
 // Dashboard API methods
@@ -91,8 +130,23 @@ export async function listDashboards() {
 }
 
 export async function getDashboard(id) {
-  const response = await fetch(`${API_BASE}/dashboards/${id}`);
-  return handleResponse(response);
+  const url = `${API_BASE}/dashboards/${id}`;
+  const method = 'GET';
+  const startTime = Date.now();
+
+  chartDebugger.apiRequest(method, url, id);
+
+  try {
+    const response = await fetch(url);
+    return handleResponse(response, { method, url, startTime });
+  } catch (error) {
+    chartDebugger.error('API', `${method} ${url} network error`, {
+      dashboardId: id,
+      error: error.message,
+      duration: `${Date.now() - startTime}ms`,
+    });
+    throw error;
+  }
 }
 
 export async function updateDashboard(id, payload) {

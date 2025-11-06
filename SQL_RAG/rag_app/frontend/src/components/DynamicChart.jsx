@@ -21,6 +21,7 @@ import {
 import { getSavedQuery } from '../services/ragClient.js';
 import { aggregateData, AGGREGATION_TYPES } from '../utils/chartDataTransformers.js';
 import Card from './Card.jsx';
+import chartDebugger from '../utils/chartDebugger.js';
 
 const COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#EC4899', '#14B8A6', '#F97316'];
 
@@ -55,9 +56,22 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
   const [queryData, setQueryData] = useState(null);
   const [chartData, setChartData] = useState([]);
 
+  // Component mount/unmount logging
+  useEffect(() => {
+    chartDebugger.lifecycle(savedQueryId, 'MOUNT', {
+      chartConfig,
+      title,
+    });
+
+    return () => {
+      chartDebugger.lifecycle(savedQueryId, 'UNMOUNT');
+    };
+  }, [savedQueryId, chartConfig, title]);
+
   // Fetch saved query data
   useEffect(() => {
     if (!savedQueryId) {
+      chartDebugger.warn('FETCH', 'No savedQueryId provided', { savedQueryId });
       setLoading(false);
       return;
     }
@@ -66,11 +80,29 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
       setLoading(true);
       setError(null);
 
+      chartDebugger.info('FETCH', `Loading saved query: ${savedQueryId}`);
+
       try {
         const data = await getSavedQuery(savedQueryId);
+
+        chartDebugger.success('FETCH', `Loaded query data for: ${savedQueryId}`, {
+          hasData: !!data,
+          hasDataPreview: !!data?.data_preview,
+          dataPreviewLength: data?.data_preview?.length || 0,
+          question: data?.question,
+          rowCount: data?.row_count,
+        });
+
         setQueryData(data);
       } catch (err) {
         const errorMsg = err.message || 'Failed to load query data';
+
+        chartDebugger.error('FETCH', `Failed to load query: ${savedQueryId}`, {
+          error: err,
+          errorMessage: errorMsg,
+          chartConfig,
+        });
+
         setError(errorMsg);
         if (onError) {
           onError(errorMsg);
@@ -86,6 +118,12 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
   // Transform data when query data or config changes
   useEffect(() => {
     if (!queryData || !queryData.data_preview || !chartConfig) {
+      chartDebugger.warn('TRANSFORM', `Missing data for transformation`, {
+        hasQueryData: !!queryData,
+        hasDataPreview: !!queryData?.data_preview,
+        hasChartConfig: !!chartConfig,
+        savedQueryId,
+      });
       setChartData([]);
       return;
     }
@@ -93,7 +131,18 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
     try {
       const { xColumn, yColumn, aggregation = 'count' } = chartConfig;
 
+      chartDebugger.info('TRANSFORM', `Starting data transformation for: ${savedQueryId}`, {
+        xColumn,
+        yColumn,
+        aggregation,
+        inputRows: queryData.data_preview.length,
+        chartType: chartConfig.chartType,
+      });
+
       if (!xColumn) {
+        chartDebugger.warn('TRANSFORM', `No xColumn specified for: ${savedQueryId}`, {
+          chartConfig,
+        });
         setChartData([]);
         return;
       }
@@ -106,15 +155,27 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
         10 // Top 10 results
       );
 
+      chartDebugger.success('TRANSFORM', `Data transformed for: ${savedQueryId}`, {
+        outputRows: aggregated.length,
+        sample: aggregated.slice(0, 3),
+      });
+
       setChartData(aggregated);
     } catch (err) {
+      chartDebugger.error('TRANSFORM', `Failed to transform data for: ${savedQueryId}`, {
+        error: err,
+        chartConfig,
+        dataPreviewLength: queryData?.data_preview?.length,
+      });
+
       console.error('Error transforming chart data:', err);
       setChartData([]);
     }
-  }, [queryData, chartConfig]);
+  }, [queryData, chartConfig, savedQueryId]);
 
   // Loading state
   if (loading) {
+    chartDebugger.info('RENDER', `Showing loading state for: ${savedQueryId}`);
     return (
       <Card className="h-64 flex items-center justify-center">
         <div className="text-center">
@@ -129,6 +190,11 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
 
   // Error state
   if (error) {
+    chartDebugger.error('RENDER', `Displaying error state for: ${savedQueryId}`, {
+      error,
+      savedQueryId,
+      chartConfig,
+    });
     return (
       <Card className="h-64 flex items-center justify-center">
         <div className="text-center">
@@ -141,6 +207,15 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
 
   // Empty state
   if (!chartData || chartData.length === 0) {
+    chartDebugger.warn('RENDER', `No chart data available for: ${savedQueryId}`, {
+      hasChartData: !!chartData,
+      chartDataLength: chartData?.length || 0,
+      chartConfig,
+      queryData: queryData ? {
+        hasDataPreview: !!queryData.data_preview,
+        dataPreviewLength: queryData.data_preview?.length || 0,
+      } : null,
+    });
     return (
       <Card className="h-64 flex items-center justify-center">
         <div className="text-center">
@@ -157,6 +232,16 @@ export default function DynamicChart({ savedQueryId, chartConfig, title, onError
 
   const chartTitle = title || `${chartConfig?.aggregation || 'Count'} by ${chartConfig?.xColumn || 'Category'}`;
   const chartType = chartConfig?.chartType || 'column';
+
+  // Log successful chart render
+  chartDebugger.success('RENDER', `Rendering ${chartType} chart for: ${savedQueryId}`, {
+    chartTitle,
+    chartType,
+    dataPoints: chartData.length,
+    xColumn: chartConfig.xColumn,
+    yColumn: chartConfig.yColumn,
+    aggregation: chartConfig.aggregation,
+  });
 
   // Render appropriate chart based on type
   const renderChart = () => {

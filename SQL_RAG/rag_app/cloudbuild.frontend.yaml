@@ -1,0 +1,50 @@
+# Cloud Build configuration for React frontend
+# Usage: gcloud builds submit --config cloudbuild.frontend.yaml --substitutions=_IMAGE_NAME=sql-rag-frontend,_VITE_API_BASE_URL=https://backend-url
+
+steps:
+  # Build the Docker image using Dockerfile.frontend with API URL build arg
+  # Build context is frontend/ directory specified explicitly in args
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.frontend'
+      - '--build-arg'
+      - 'VITE_API_BASE_URL=${_VITE_API_BASE_URL}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:$BUILD_ID'
+      - './frontend'
+    timeout: 1200s
+
+  # Push the image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:$BUILD_ID'
+
+# Store images in Artifact Registry
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:$BUILD_ID'
+
+# Substitutions (defaults, can be overridden)
+substitutions:
+  _REGION: 'us-central1'
+  _REPOSITORY: 'sql-rag-repo'
+  _IMAGE_NAME: 'sql-rag-frontend'
+  _VITE_API_BASE_URL: 'http://localhost:8080'
+
+# Build timeout
+timeout: 1800s
+
+# Use faster machine type for quicker builds
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

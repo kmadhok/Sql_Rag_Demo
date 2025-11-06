@@ -38,7 +38,7 @@ TABLE_2 = "bigquery-public-data.thelook_ecommerce.orders"
 PROJECT_ID = "brainrot-453319"
 
 # Number of rows to sample per table
-LIMIT = 100
+LIMIT = 1000
 
 # Output directory (same folder as this script)
 OUTPUT_DIR = SCRIPT_DIR

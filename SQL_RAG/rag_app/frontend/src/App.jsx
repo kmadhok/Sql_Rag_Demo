@@ -505,9 +505,9 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen text-white">
+    <div className="h-screen flex flex-col overflow-hidden text-white">
       {/* Clean Header */}
-      <header className="app-header">
+      <header className="app-header shrink-0">
         <div className="container" style={{ padding: "16px 20px" }}>
           <div className="flex justify-between items-center">
             <div>
@@ -530,7 +530,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className={tab === 'playground' ? 'w-full' : 'container'} style={{ padding: tab === 'playground' ? '20px' : '32px 20px 48px' }}>
+      <main className="w-full flex-1 flex flex-col overflow-hidden" style={{ padding: '20px' }}>
         {/* Hero Section - Clean (Hidden on Playground) */}
         {tab !== 'playground' && (
           <div className="hero-intro animate-fade-in-up">
@@ -549,20 +549,20 @@ function App() {
         </div>
 
         {/* Tab Content */}
-        <div className="animate-fade-in-up stagger-2" style={{ gap: "20px", display: "flex", flexDirection: "column" }}>
+        <div className="animate-fade-in-up stagger-2 flex-1 flex flex-col overflow-hidden" style={{ gap: "20px" }}>
           <TabPanel value="intro" current={tab}>
-            <div className="surface-panel-light p-6 md:p-8">
+            <div className="surface-panel-light p-6 md:p-8 h-full overflow-auto">
               <Introduction />
             </div>
           </TabPanel>
 
           <TabPanel value="data" current={tab}>
-            <div className="surface-panel p-6 md:p-8">
+            <div className="surface-panel p-6 md:p-8 h-full overflow-auto">
               <DataOverview />
             </div>
           </TabPanel>
 
-          <TabPanel value="chat" current={tab} className="min-h-[520px]">
+          <TabPanel value="chat" current={tab}>
             <div className="surface-panel flex flex-col h-full p-4 md:p-6">
               <div className="flex-1 overflow-hidden mb-3">
                 <ChatHistory
@@ -583,14 +583,14 @@ function App() {
             </div>
           </TabPanel>
 
-          <TabPanel value="playground" current={tab} className="min-h-[600px]">
+          <TabPanel value="playground" current={tab}>
             <div className="surface-panel flex flex-col h-full">
               <Playground theme={currentTheme} onQuerySaved={refreshSavedQueries} />
             </div>
           </TabPanel>
 
           <TabPanel value="dashboard" current={tab}>
-            <div className="surface-panel-light p-6 md:p-8">
+            <div className="surface-panel-light p-6 md:p-8 h-full overflow-auto">
               <Dashboard
                 savedQueries={savedQueries}
                 onRefresh={refreshSavedQueries}
@@ -611,7 +611,7 @@ function App() {
       </main>
 
       {/* Clean Footer */}
-      <footer className="app-footer" style={{ marginTop: "56px" }}>
+      <footer className="app-footer shrink-0" style={{ marginTop: "0" }}>
         <div className="container" style={{ padding: "18px 20px" }}>
           <p className="typography-caption" style={{ textAlign: "center", marginBottom: 0 }}>
             Powered by AI • Built with React &amp; FastAPI

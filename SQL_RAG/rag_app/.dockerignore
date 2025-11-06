@@ -116,3 +116,17 @@ data/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Frontend build artifacts (for API builds)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.turbo/
+frontend/package-lock.json
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Deployment scripts
+deploy*.sh
+Dockerfile*

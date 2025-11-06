@@ -15,6 +15,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
 import pandas as pd
+
+
+def _env_path(key: str, default: Path) -> Path:
+    value = os.getenv(key)
+    if value:
+        return Path(value).expanduser()
+    return default
 import streamlit as st
 
 # Import utility functions
@@ -33,7 +40,10 @@ try:
     SCHEMA_CSV_PATH = app_config.SCHEMA_CSV_PATH
 except ImportError:
     # Fallback configuration
-    SCHEMA_CSV_PATH = Path(__file__).parent.parent / "data_new" / "thelook_ecommerce_schema.csv"
+    SCHEMA_CSV_PATH = _env_path(
+        "SCHEMA_CSV_PATH",
+        Path(__file__).parent.parent / "data_new" / "thelook_ecommerce_schema.csv",
+    )
 
 # Import data loading functions
 from data.app_data_loader import load_lookml_safe_join_map

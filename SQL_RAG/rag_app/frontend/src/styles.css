@@ -982,17 +982,17 @@ pre code {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm) var(--space-md);
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(71, 85, 105, 0.5);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
   border-radius: var(--radius-md);
-  color: rgba(226, 232, 240, 0.9);
+  color: var(--text-primary);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .dashboard-selector-button:hover {
-  border-color: rgba(71, 85, 105, 0.7);
-  background: rgba(30, 41, 59, 0.6);
+  border-color: var(--border-accent);
+  background: var(--bg-surface-alt);
 }
 
 .dashboard-selector-dropdown {
@@ -1001,7 +1001,7 @@ pre code {
   left: 0;
   min-width: 320px;
   max-width: 400px;
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3),
@@ -1039,34 +1039,51 @@ pre code {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-md);
-  border-bottom: 1px solid rgba(51, 65, 85, 0.3);
+  border-bottom: 1px solid var(--border-secondary);
   transition: background var(--transition-fast);
 }
 
 .dashboard-selector-item .typography-body {
-  color: rgba(248, 250, 252, 0.95);
+  color: var(--text-primary);
 }
 
 .dashboard-selector-item .typography-caption {
-  color: rgba(203, 213, 225, 0.85);
+  color: var(--text-secondary);
 }
 
 .dashboard-selector-item:hover {
-  background: rgba(30, 41, 59, 0.4);
+  background: var(--bg-surface-alt);
 }
 
 .dashboard-selector-item:hover .typography-body {
-  color: rgb(248, 250, 252);
+  color: var(--text-primary);
 }
 
 .dashboard-selector-item.active {
-  background: rgba(59, 130, 246, 0.1);
-  border-left: 3px solid rgba(59, 130, 246, 0.6);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-left: 3px solid var(--accent-primary);
 }
 
 .dashboard-selector-item.active .typography-body {
-  color: rgb(248, 250, 252);
+  color: var(--text-primary);
   font-weight: 500;
+}
+
+.dashboard-selector-item > button.flex-1 {
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.dashboard-selector-item > button.flex-1:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .dashboard-selector-item:last-child {

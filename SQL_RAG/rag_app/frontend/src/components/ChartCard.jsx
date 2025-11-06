@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DynamicChart from './DynamicChart.jsx';
 import Button from './Button.jsx';
+import chartDebugger from '../utils/chartDebugger.js';
 
 /**
  * ChartCard - Draggable/resizable wrapper for chart visualizations
@@ -25,6 +26,32 @@ export default function ChartCard({
   isDragging = false,
 }) {
   const [isHovered, setIsHovered] = useState(false);
+
+  // Log ChartCard lifecycle
+  useEffect(() => {
+    chartDebugger.lifecycle(itemId, 'CARD_MOUNT', {
+      savedQueryId,
+      queryQuestion,
+      chartConfig,
+    });
+
+    return () => {
+      chartDebugger.lifecycle(itemId, 'CARD_UNMOUNT');
+    };
+  }, [itemId, savedQueryId, queryQuestion, chartConfig]);
+
+  // Enhanced error handler with detailed context
+  const handleChartError = (err) => {
+    chartDebugger.error('CARD', `Chart error in card: ${itemId}`, {
+      itemId,
+      savedQueryId,
+      queryQuestion,
+      chartConfig,
+      error: err,
+    });
+
+    console.error(`Chart ${itemId} error:`, err);
+  };
 
   return (
     <div
@@ -132,7 +159,7 @@ export default function ChartCard({
         <DynamicChart
           savedQueryId={savedQueryId}
           chartConfig={chartConfig}
-          onError={(err) => console.error(`Chart ${itemId} error:`, err)}
+          onError={handleChartError}
         />
       </div>
     </div>

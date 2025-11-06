@@ -12,6 +12,21 @@ from pathlib import Path
 from typing import List, Dict, Optional, Any
 import pandas as pd
 
+
+def _env_path(key: str, default: Path) -> Path:
+    value = os.getenv(key)
+    if value:
+        return Path(value).expanduser()
+    return default
+
+
+def _env_vector_store(default: str) -> str:
+    return (
+        os.getenv("DEFAULT_VECTOR_STORE")
+        or os.getenv("VECTOR_STORE_NAME")
+        or default
+    )
+
 # Import application configuration
 try:
     from config.app_config import app_config
@@ -21,18 +36,24 @@ try:
     CATALOG_ANALYTICS_DIR = app_config.CATALOG_ANALYTICS_DIR
     SCHEMA_CSV_PATH = app_config.SCHEMA_CSV_PATH
     LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent.parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent.parent / "lookml_data"
+    _secondary_map_env = os.getenv("LOOKML_SAFE_JOIN_MAP_PATH")
+    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = (
+        Path(_secondary_map_env).expanduser()
+        if _secondary_map_env
+        else Path(__file__).parent.parent / "lookml_safe_join_map.json"
+    )
+    LOOKML_DIR = Path(os.getenv("LOOKML_DIR", Path(__file__).parent.parent / "lookml_data")).expanduser()
 except ImportError:
     # Fallback configuration
-    FAISS_INDICES_DIR = Path(__file__).parent.parent / "faiss_indices"
-    DEFAULT_VECTOR_STORE = "index_sample_queries_with_metadata_recovered"
-    CSV_PATH = Path(__file__).parent.parent / "sample_queries_with_metadata.csv"
-    CATALOG_ANALYTICS_DIR = Path(__file__).parent.parent / "catalog_analytics"
-    SCHEMA_CSV_PATH = Path(__file__).parent.parent / "data_new" / "thelook_ecommerce_schema.csv"
+    _BASE_DIR = Path(__file__).parent.parent
+    FAISS_INDICES_DIR = _env_path("FAISS_INDICES_DIR", _BASE_DIR / "faiss_indices")
+    DEFAULT_VECTOR_STORE = _env_vector_store("index_sample_queries_with_metadata_recovered")
+    CSV_PATH = _env_path("CSV_PATH", _BASE_DIR / "sample_queries_with_metadata.csv")
+    CATALOG_ANALYTICS_DIR = _env_path("CATALOG_ANALYTICS_DIR", _BASE_DIR / "catalog_analytics")
+    SCHEMA_CSV_PATH = _env_path("SCHEMA_CSV_PATH", _BASE_DIR / "data_new" / "thelook_ecommerce_schema.csv")
     LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent.parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent.parent / "lookml_data"
+    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = _env_path("LOOKML_SAFE_JOIN_MAP_PATH", _BASE_DIR / "lookml_safe_join_map.json")
+    LOOKML_DIR = _env_path("LOOKML_DIR", _BASE_DIR / "lookml_data")
 
 logger = logging.getLogger(__name__)
 

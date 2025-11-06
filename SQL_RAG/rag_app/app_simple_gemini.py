@@ -32,13 +32,30 @@ from pathlib import Path
 from typing import List, Dict, Optional, Tuple, Union, Any
 from collections import defaultdict
 
+
+def _resolve_env_path(key: str, default: Path) -> Path:
+    """Helper to resolve paths from environment variables."""
+    value = os.getenv(key)
+    if value:
+        return Path(value).expanduser()
+    return default
+
+
+def _env_vector_store(default: str) -> str:
+    """Resolve vector store name from environment variables."""
+    return (
+        os.getenv("DEFAULT_VECTOR_STORE")
+        or os.getenv("VECTOR_STORE_NAME")
+        or default
+    )
+
 # Load environment variables from .env if present (for GEMINI_API_KEY, etc.)
 try:
     from dotenv import load_dotenv, find_dotenv
-    _env_path = find_dotenv(usecwd=True)
-    if _env_path:
-        load_dotenv(_env_path, override=False)
-        logging.getLogger(__name__).info(f"Loaded environment from {_env_path}")
+    _dotenv_path = find_dotenv(usecwd=True)
+    if _dotenv_path:
+        load_dotenv(_dotenv_path, override=False)
+        logging.getLogger(__name__).info(f"Loaded environment from {_dotenv_path}")
 except Exception as _e:
     logging.getLogger(__name__).debug(f"dotenv not loaded: {_e}")
 
@@ -166,8 +183,13 @@ try:
     CATALOG_ANALYTICS_DIR = app_config.CATALOG_ANALYTICS_DIR
     SCHEMA_CSV_PATH = app_config.SCHEMA_CSV_PATH
     LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent / "lookml_data"
+    _secondary_map_env = os.getenv("LOOKML_SAFE_JOIN_MAP_PATH")
+    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = (
+        Path(_secondary_map_env).expanduser()
+        if _secondary_map_env
+        else Path(__file__).parent / "lookml_safe_join_map.json"
+    )
+    LOOKML_DIR = Path(os.getenv("LOOKML_DIR", Path(__file__).parent / "lookml_data")).expanduser()
     
     # Pagination config
     QUERIES_PER_PAGE = app_config.QUERIES_PER_PAGE
@@ -176,14 +198,15 @@ try:
 except ImportError:
     # Fallback to original configuration
     logger.info("Using legacy configuration (app_config not available)")
-    FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
-    DEFAULT_VECTOR_STORE = "index_sample_queries_with_metadata_recovered"
-    CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"
-    CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"
-    SCHEMA_CSV_PATH = Path(__file__).parent / "data_new/thelook_ecommerce_schema.csv"
+    _BASE_DIR = Path(__file__).parent
+    FAISS_INDICES_DIR = _resolve_env_path("FAISS_INDICES_DIR", _BASE_DIR / "faiss_indices")
+    DEFAULT_VECTOR_STORE = _env_vector_store("index_sample_queries_with_metadata_recovered")
+    CSV_PATH = _resolve_env_path("CSV_PATH", _BASE_DIR / "sample_queries_with_metadata.csv")
+    CATALOG_ANALYTICS_DIR = _resolve_env_path("CATALOG_ANALYTICS_DIR", _BASE_DIR / "catalog_analytics")
+    SCHEMA_CSV_PATH = _resolve_env_path("SCHEMA_CSV_PATH", _BASE_DIR / "data_new/thelook_ecommerce_schema.csv")
     LOOKML_SAFE_JOIN_MAP_PATH = FAISS_INDICES_DIR / "lookml_safe_join_map.json"
-    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = Path(__file__).parent / "lookml_safe_join_map.json"
-    LOOKML_DIR = Path(__file__).parent / "lookml_data"
+    SECONDARY_LOOKML_SAFE_JOIN_MAP_PATH = _resolve_env_path("LOOKML_SAFE_JOIN_MAP_PATH", _BASE_DIR / "lookml_safe_join_map.json")
+    LOOKML_DIR = _resolve_env_path("LOOKML_DIR", _BASE_DIR / "lookml_data")
     
     # Legacy pagination config
     QUERIES_PER_PAGE = 15

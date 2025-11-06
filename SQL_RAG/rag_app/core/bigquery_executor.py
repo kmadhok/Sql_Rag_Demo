@@ -6,6 +6,7 @@ Provides secure SQL execution capabilities for the thelook_ecommerce dataset
 with comprehensive safety guards and validation.
 """
 
+import os
 import re
 import time
 import logging
@@ -35,6 +36,13 @@ class QueryResult:
     cache_hit: bool = False
     dry_run: bool = False
 
+_DEFAULT_PROJECT_ID = os.getenv("BIGQUERY_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+_DEFAULT_DATASET_PROJECT = os.getenv("SCHEMA_EXPORT_PROJECT", "bigquery-public-data")
+_DEFAULT_DATASET_NAME = os.getenv("SCHEMA_EXPORT_DATASET", "thelook_ecommerce")
+_DEFAULT_DATASET_ID = os.getenv("BIGQUERY_DATASET") or f"{_DEFAULT_DATASET_PROJECT}.{_DEFAULT_DATASET_NAME}"
+_DEFAULT_SCHEMA_PATH = os.getenv("SCHEMA_CSV_PATH", "data_new/thelook_ecommerce_schema.csv")
+
+
 class BigQueryExecutor:
     """
     Secure BigQuery executor for thelook_ecommerce dataset
@@ -47,12 +55,12 @@ class BigQueryExecutor:
     - Query performance metrics
     """
     
-    def __init__(self, 
-                 project_id: str = "brainrot-453319",
-                 dataset_id: str = "bigquery-public-data.thelook_ecommerce",
+    def __init__(self,
+                 project_id: Optional[str] = None,
+                 dataset_id: Optional[str] = None,
                  max_rows: int = 10000,
                  timeout_seconds: int = 30,
-                 schema_file_path: str = "data_new/thelook_ecommerce_schema.csv"):
+                 schema_file_path: Optional[str] = None):
         """
         Initialize BigQuery executor
         
@@ -63,16 +71,21 @@ class BigQueryExecutor:
             timeout_seconds: Query timeout in seconds
             schema_file_path: Path to CSV file containing table schema
         """
-        self.project_id = project_id
-        self.dataset_id = dataset_id
+        self.project_id = project_id or _DEFAULT_PROJECT_ID or _DEFAULT_DATASET_PROJECT
+        if not self.project_id:
+            raise EnvironmentError(
+                "BigQuery project not configured. Set BIGQUERY_PROJECT_ID or GOOGLE_CLOUD_PROJECT."
+            )
+
+        self.dataset_id = dataset_id or _DEFAULT_DATASET_ID
         self.max_rows = max_rows
         self.timeout_seconds = timeout_seconds
-        self.schema_file_path = schema_file_path
+        self.schema_file_path = schema_file_path or _DEFAULT_SCHEMA_PATH
         
         # Initialize BigQuery client
         try:
-            self.client = bigquery.Client(project=project_id)
-            logger.info(f"✅ BigQuery client initialized for project: {project_id}")
+            self.client = bigquery.Client(project=self.project_id)
+            logger.info(f"✅ BigQuery client initialized for project: {self.project_id}")
         except Exception as e:
             logger.error(f"❌ Failed to initialize BigQuery client: {e}")
             raise

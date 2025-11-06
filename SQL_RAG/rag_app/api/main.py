@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import os
 import logging
+import time
 from typing import List, Optional, Any, Dict, Literal
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import sqlparse
@@ -55,13 +56,78 @@ from data.app_data_loader import (
 )
 
 app = FastAPI(title="SQL RAG API", version="1.0.0")
+
+# CORS middleware - configurable via CORS_ORIGINS environment variable
+# For production, set CORS_ORIGINS to your frontend URL(s), comma-separated
+# Example: CORS_ORIGINS="https://sql-rag-frontend-xxxxx.run.app,https://yourdomain.com"
+cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+cors_origins = [origin.strip() for origin in cors_origins_env.split(",")] if cors_origins_env != "*" else ["*"]
+
+logger.info(f"CORS enabled for origins: {cors_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Request/Response Logging Middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """
+    Log all incoming requests and outgoing responses.
+    Includes timing information and error tracking.
+    """
+    request_id = id(request)
+    start_time = time.time()
+
+    # Log incoming request
+    logger.info(
+        f"→ [{request_id}] {request.method} {request.url.path}",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "query_params": dict(request.query_params),
+            "client": request.client.host if request.client else None,
+        }
+    )
+
+    try:
+        # Process request
+        response = await call_next(request)
+        duration_ms = (time.time() - start_time) * 1000
+
+        # Log successful response
+        logger.info(
+            f"← [{request_id}] {response.status_code} {request.method} {request.url.path} ({duration_ms:.2f}ms)",
+            extra={
+                "request_id": request_id,
+                "status_code": response.status_code,
+                "duration_ms": duration_ms,
+            }
+        )
+
+        return response
+
+    except Exception as exc:
+        duration_ms = (time.time() - start_time) * 1000
+
+        # Log error
+        logger.error(
+            f"✗ [{request_id}] ERROR {request.method} {request.url.path} ({duration_ms:.2f}ms): {exc}",
+            extra={
+                "request_id": request_id,
+                "error": str(exc),
+                "duration_ms": duration_ms,
+            },
+            exc_info=True
+        )
+
+        raise
 
 
 # Pydantic request/response models ------------------------------------------------
@@ -901,17 +967,50 @@ def get_saved_queries():
 
 @app.get("/saved_queries/{query_id}", response_model=SavedQueryDetail)
 def get_saved_query(query_id: str):
-    saved = load_saved_query(query_id)
-    if not saved:
-        raise HTTPException(status_code=404, detail="Saved query not found")
-    return SavedQueryDetail(
-        id=saved.id,
-        question=saved.question,
-        sql=saved.sql,
-        created_at=saved.created_at,
-        row_count=saved.row_count,
-        data_preview=saved.data_preview,
-    )
+    """
+    Retrieve a specific saved query by ID.
+    Enhanced with detailed logging for dashboard debugging.
+    """
+    logger.info(f"[SAVED_QUERY] Loading query: {query_id}")
+
+    try:
+        saved = load_saved_query(query_id)
+
+        if not saved:
+            logger.warning(f"[SAVED_QUERY] Query not found: {query_id}")
+            raise HTTPException(status_code=404, detail=f"Saved query not found: {query_id}")
+
+        logger.info(
+            f"[SAVED_QUERY] Successfully loaded query: {query_id}",
+            extra={
+                "query_id": query_id,
+                "question": saved.question,
+                "has_sql": bool(saved.sql),
+                "has_data_preview": bool(saved.data_preview),
+                "data_preview_length": len(saved.data_preview) if saved.data_preview else 0,
+                "row_count": saved.row_count,
+            }
+        )
+
+        return SavedQueryDetail(
+            id=saved.id,
+            question=saved.question,
+            sql=saved.sql,
+            created_at=saved.created_at,
+            row_count=saved.row_count,
+            data_preview=saved.data_preview,
+        )
+
+    except HTTPException:
+        # Re-raise HTTP exceptions (like 404)
+        raise
+    except Exception as exc:
+        logger.error(
+            f"[SAVED_QUERY] Error loading query {query_id}: {exc}",
+            extra={"query_id": query_id, "error": str(exc)},
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to load saved query: {str(exc)}")
 
 
 # Dashboard endpoints ---------------------------------------------------------------
@@ -991,6 +1090,136 @@ def delete_existing_dashboard(dashboard_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Dashboard not found")
     return {"message": "Dashboard deleted successfully"}
+
+
+@app.get("/health/dashboard")
+def dashboard_health_check():
+    """
+    Comprehensive dashboard health check endpoint.
+    Validates all dashboards and their referenced saved queries.
+
+    Returns:
+        - status: overall health status
+        - dashboards: list of dashboards with validation results
+        - issues: list of detected issues
+        - summary: aggregated statistics
+    """
+    logger.info("[HEALTH_CHECK] Starting dashboard health check")
+
+    try:
+        dashboards_list = list_dashboards()
+        saved_queries = {sq.id: sq for sq in list_saved_queries()}
+
+        health_report = {
+            "status": "healthy",
+            "timestamp": time.time(),
+            "dashboards": [],
+            "issues": [],
+            "summary": {
+                "total_dashboards": len(dashboards_list),
+                "total_charts": 0,
+                "valid_charts": 0,
+                "invalid_charts": 0,
+                "missing_queries": 0,
+                "empty_data_previews": 0,
+            }
+        }
+
+        # Check each dashboard
+        for dashboard in dashboards_list:
+            dashboard_report = {
+                "id": dashboard.id,
+                "name": dashboard.name,
+                "chart_count": len(dashboard.layout_items),
+                "valid_charts": 0,
+                "invalid_charts": 0,
+                "charts": []
+            }
+
+            # Check each chart in the dashboard
+            for item in dashboard.layout_items:
+                saved_query_id = item.get("saved_query_id")
+                chart_id = item.get("i", "unknown")
+
+                chart_status = {
+                    "chart_id": chart_id,
+                    "saved_query_id": saved_query_id,
+                    "status": "valid",
+                    "issues": []
+                }
+
+                health_report["summary"]["total_charts"] += 1
+
+                # Validate saved query exists
+                if not saved_query_id:
+                    chart_status["status"] = "invalid"
+                    chart_status["issues"].append("Missing saved_query_id")
+                    dashboard_report["invalid_charts"] += 1
+                    health_report["summary"]["invalid_charts"] += 1
+                    health_report["issues"].append({
+                        "dashboard": dashboard.name,
+                        "chart_id": chart_id,
+                        "issue": "Missing saved_query_id"
+                    })
+                elif saved_query_id not in saved_queries:
+                    chart_status["status"] = "invalid"
+                    chart_status["issues"].append(f"Saved query not found: {saved_query_id}")
+                    dashboard_report["invalid_charts"] += 1
+                    health_report["summary"]["invalid_charts"] += 1
+                    health_report["summary"]["missing_queries"] += 1
+                    health_report["issues"].append({
+                        "dashboard": dashboard.name,
+                        "chart_id": chart_id,
+                        "saved_query_id": saved_query_id,
+                        "issue": "Saved query not found (404)"
+                    })
+                else:
+                    # Query exists, validate its data
+                    query = saved_queries[saved_query_id]
+                    if not query.data_preview or len(query.data_preview) == 0:
+                        chart_status["status"] = "warning"
+                        chart_status["issues"].append("Empty data preview")
+                        health_report["summary"]["empty_data_previews"] += 1
+                        health_report["issues"].append({
+                            "dashboard": dashboard.name,
+                            "chart_id": chart_id,
+                            "saved_query_id": saved_query_id,
+                            "issue": "Empty data preview"
+                        })
+
+                    chart_status["question"] = query.question
+                    chart_status["row_count"] = query.row_count
+                    chart_status["has_data"] = bool(query.data_preview)
+                    dashboard_report["valid_charts"] += 1
+                    health_report["summary"]["valid_charts"] += 1
+
+                dashboard_report["charts"].append(chart_status)
+
+            health_report["dashboards"].append(dashboard_report)
+
+        # Set overall status
+        if health_report["summary"]["invalid_charts"] > 0:
+            health_report["status"] = "unhealthy"
+        elif health_report["summary"]["empty_data_previews"] > 0:
+            health_report["status"] = "warning"
+
+        logger.info(
+            f"[HEALTH_CHECK] Completed: {health_report['status']} - "
+            f"{health_report['summary']['valid_charts']}/{health_report['summary']['total_charts']} charts valid"
+        )
+
+        return health_report
+
+    except Exception as exc:
+        logger.error(f"[HEALTH_CHECK] Error during health check: {exc}", exc_info=True)
+        return {
+            "status": "error",
+            "timestamp": time.time(),
+            "error": str(exc),
+            "dashboards": [],
+            "issues": [],
+            "summary": {}
+        }
 
 
 class QuickRequest(BaseModel):

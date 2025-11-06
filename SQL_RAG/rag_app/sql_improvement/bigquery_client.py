@@ -26,6 +26,7 @@ class BigQueryClient:
         >>> bytes_estimate = client.dry_run_bytes("SELECT * FROM large_table")
     """
 
+
     def __init__(
         self,
         project_id: str = "brainrot-453319",

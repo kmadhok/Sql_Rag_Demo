@@ -4,20 +4,32 @@ Configuration constants and settings for SQL RAG Streamlit application.
 Extracted from app_simple_gemini.py for better modularity.
 """
 
+import os
 from pathlib import Path
+
+_BASE_DIR = Path(__file__).parent
+
+
+def _env_path(key: str, default: Path) -> Path:
+    """Resolve a path from environment variables with sensible defaults."""
+    value = os.getenv(key)
+    if value:
+        return Path(value).expanduser()
+    return default
+
 
 # ============================================================================
 # File Paths and Directories
 # ============================================================================
-FAISS_INDICES_DIR = Path(__file__).parent / "faiss_indices"
-CSV_PATH = Path(__file__).parent / "sample_queries_with_metadata.csv"  # CSV data source
-CATALOG_ANALYTICS_DIR = Path(__file__).parent / "catalog_analytics"  # Cached analytics
-SCHEMA_CSV_PATH = Path(__file__).parent / "schema.csv"  # Schema file with table_id, column, datatype
+FAISS_INDICES_DIR = _env_path("FAISS_INDICES_DIR", _BASE_DIR / "faiss_indices")
+CSV_PATH = _env_path("CSV_PATH", _BASE_DIR / "sample_queries_with_metadata.csv")  # CSV data source
+CATALOG_ANALYTICS_DIR = _env_path("CATALOG_ANALYTICS_DIR", _BASE_DIR / "catalog_analytics")  # Cached analytics
+SCHEMA_CSV_PATH = _env_path("SCHEMA_CSV_PATH", _BASE_DIR / "schema.csv")  # Schema file with table_id, column, datatype
 
 # ============================================================================
 # Vector Store Configuration
 # ============================================================================
-DEFAULT_VECTOR_STORE = "index_queries_with_descriptions (1)"  # Expected index name
+DEFAULT_VECTOR_STORE = os.getenv("DEFAULT_VECTOR_STORE") or os.getenv("VECTOR_STORE_NAME") or "index_queries_with_descriptions (1)"  # Expected index name
 
 # ============================================================================
 # Pagination Configuration

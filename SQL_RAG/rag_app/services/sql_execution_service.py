@@ -49,13 +49,18 @@ class SQLExecutionResponse:
 
 def _resolve_project_dataset(settings: SQLExecutionSettings) -> SQLExecutionSettings:
     """Fill in project/dataset defaults from environment variables."""
-    project = (
-        settings.project_id
-        or os.getenv("BIGQUERY_PROJECT_ID")
-        or os.getenv("GOOGLE_CLOUD_PROJECT")
-        or "brainrot-453319"
-    )
-    dataset = settings.dataset_id or os.getenv("BIGQUERY_DATASET") or "bigquery-public-data.thelook_ecommerce"
+    project = settings.project_id or os.getenv("BIGQUERY_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not project:
+        raise EnvironmentError(
+            "BigQuery project not configured. Set BIGQUERY_PROJECT_ID or GOOGLE_CLOUD_PROJECT."
+        )
+
+    dataset = settings.dataset_id or os.getenv("BIGQUERY_DATASET")
+    if not dataset:
+        default_dataset_project = os.getenv("SCHEMA_EXPORT_PROJECT", "bigquery-public-data")
+        default_dataset_name = os.getenv("SCHEMA_EXPORT_DATASET", "thelook_ecommerce")
+        dataset = f"{default_dataset_project}.{default_dataset_name}"
+
     settings.project_id = project
     settings.dataset_id = dataset
     return settings
