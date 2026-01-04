@@ -59,13 +59,14 @@ logs/
 *.temp
 .cache/
 
-# Environment files (secrets should be in Secret Manager)
+# Environment files (secrets should be in Secret Manager or passed as env vars)
 .env
-.env.*
+.env.local
+.env.deploy
 !.env.example
 
 # Large data files and indices
-faiss_indices/
+# faiss_indices/  # REQUIRED: Vector store must be included in deployment (~600KB, needed at runtime)
 catalog_analytics/
 llm_sql_cache/
 query_rewrite_cache/

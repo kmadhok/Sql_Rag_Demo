@@ -1,7 +1,21 @@
 import chartDebugger from '../utils/chartDebugger.js';
 
-const rawBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080";
-const API_BASE = rawBase.replace(/\/+$/, "");
+// === PRODUCTION HARDENING: Environment-aware API URL configuration ===
+// In development mode: Allow localhost fallback for convenience
+// In production mode: Require explicit VITE_API_BASE_URL, fail fast if missing
+const rawBase = import.meta.env.DEV
+  ? (import.meta.env.VITE_API_BASE_URL || "http://localhost:8080")  // Dev: fallback OK
+  : import.meta.env.VITE_API_BASE_URL;                               // Prod: no fallback
+
+// Production safety check - fail fast if URL missing
+if (!rawBase) {
+  throw new Error(
+    "FATAL: VITE_API_BASE_URL is not configured! " +
+    "Production builds require --build-arg VITE_API_BASE_URL=<url>"
+  );
+}
+
+const API_BASE = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
 
 
 async function handleResponse(response, context = {}) {

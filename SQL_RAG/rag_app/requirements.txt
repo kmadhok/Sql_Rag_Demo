@@ -1,17 +1,13 @@
-# SQL RAG Application - Production Dependencies
-# Optimized for Google Cloud Run deployment
+# SQL RAG Application - FastAPI API Service Dependencies
+# Minimal dependencies for api/main.py deployment (no Streamlit UI)
+# Optimized for Google Cloud Run deployment with buildpacks
 
-# === Core Web Framework ===
-streamlit>=1.28.0,<2.0.0
-
-# === FastAPI Web Framework (for API service) ===
+# === FastAPI Web Framework ===
 fastapi>=0.115.0,<1.0.0
 uvicorn[standard]>=0.29.0,<1.0.0
 
 # === AI/ML Core Dependencies ===
 # Google Gemini clients
-# - google-genai: new client (import google.genai) used by gemini_client.py
-# - google-generativeai: legacy client (import google.generativeai) kept for compatibility in some tools
 google-genai>=1.0.0,<2.0.0
 google-generativeai>=0.8.0,<1.0.0
 
@@ -31,7 +27,7 @@ rank-bm25>=0.2.0,<1.0.0  # For hybrid search functionality
 # === Data Processing and Analytics ===
 pandas>=2.0.0,<3.0.0
 numpy>=1.24.0,<2.0.0
-pyarrow>=10.0.0,<15.0.0  # For Parquet file support and optimized I/O
+#pyarrow>=10.0.0,<15.0.0  # For Parquet file support and optimized I/O
 
 # === Text Processing ===
 rapidfuzz>=3.0.0,<4.0.0  # For fuzzy string matching and deduplication
@@ -48,19 +44,8 @@ google-cloud-firestore>=2.13.0,<3.0.0  # For persistent conversation storage
 
 # === BigQuery Integration ===
 google-cloud-bigquery>=3.0.0,<4.0.0  # BigQuery Python client for SQL execution
-google-cloud-bigquery[pandas]>=3.0.0,<4.0.0  # BigQuery with pandas DataFrame support
-
-# === Optional Legacy Support ===
-# Uncomment if Ollama fallback is needed (not recommended for Cloud Run)
-# langchain-ollama>=0.1.0,<1.0.0
-
-# === Development/Visualization Dependencies ===
-# These are optional and can be excluded for minimal production image
-# pyvis>=0.3.0,<1.0.0  # For network graphs
-# graphviz>=0.20.0,<1.0.0  # For graph visualization
-# sentence-transformers>=2.2.0,<3.0.0  # For semantic embeddings in join inference tool (sql_improvement/)
+db-dtypes>=1.0.0,<2.0.0  # Required for BigQuery DataFrame operations
 
 # === Security and Production Hardening ===
-# Pin specific versions for production stability
 setuptools>=65.0.0  # Security updates
 wheel>=0.38.0  # Build system security

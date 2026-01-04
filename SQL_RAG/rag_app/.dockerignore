@@ -51,18 +51,19 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# Generated application data (will be recreated)
-# Note: We re-include prebuilt FAISS indices under faiss_indices/index_* so Cloud Run can load them
-faiss_indices/
-!faiss_indices/index_*/
-!faiss_indices/index_*/**
-!faiss_indices/status_*.json
+# Generated application data
+# IMPORTANT: Do NOT exclude faiss_indices/ - the vector store is required at runtime
+# Only exclude analytics and cache directories that can be regenerated
 
 catalog_analytics/
-!catalog_analytics/**
 query_rewrite_cache/
-*.pkl
-*.parquet
+
+# Exclude .pkl and .parquet files except in faiss_indices (vector stores need these)
+# Note: Global *.pkl would exclude faiss_indices/index_*/index.pkl
+catalog_analytics/*.pkl
+catalog_analytics/*.parquet
+query_rewrite_cache/*.pkl
+query_rewrite_cache/*.parquet
 
 # IDE and editor files
 .vscode/
