@@ -1,0 +1,33 @@
+# RAG App Specific Ignores
+# (These supplement the root .gitignore)
+
+# Environment files
+.env
+.env.deploy
+.env.local
+.env.production
+!.env.example
+
+# Generated data
+faiss_indices/
+actions/faiss_indices/
+catalog_analytics/
+llm_sql_cache/
+query_rewrite_cache/
+
+# Logs
+debug_logs.md
+logs/
+
+# Streamlit cache
+.streamlit/cache/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/package-lock.json
+
+# Archived configs (contain old secrets)
+archive/.env.*
