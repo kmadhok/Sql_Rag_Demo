@@ -1,0 +1,206 @@
+# Integration Test Questions for SQL RAG Pipeline
+# Each test case validates end-to-end: embedding retrieval -> LLM generation -> SQL execution
+
+test_cases:
+  # Basic SELECT queries
+  - id: simple_select_products
+    question: "Show me the 10 most expensive products"
+    description: "Simple SELECT with ORDER BY and LIMIT"
+    expected_sql_patterns:
+      - SELECT
+      - products
+      - retail_price
+      - ORDER BY
+      - DESC
+      - LIMIT
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.products
+    agent_type: null
+    should_execute: true
+
+  - id: simple_select_recent_orders
+    question: "Show me the 5 most recent orders"
+    description: "SELECT with timestamp ordering"
+    expected_sql_patterns:
+      - SELECT
+      - orders
+      - created_at
+      - ORDER BY
+      - DESC
+      - LIMIT
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.orders
+    agent_type: null
+    should_execute: true
+
+  # Aggregation queries
+  - id: aggregation_count_by_gender
+    question: "How many users are there for each gender?"
+    description: "COUNT aggregation with GROUP BY"
+    expected_sql_patterns:
+      - SELECT
+      - COUNT
+      - users
+      - gender
+      - GROUP BY
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.users
+    agent_type: null
+    should_execute: true
+
+  - id: aggregation_avg_age_by_state
+    question: "What is the average age of users in each state?"
+    description: "AVG aggregation with GROUP BY"
+    expected_sql_patterns:
+      - SELECT
+      - AVG
+      - age
+      - state
+      - users
+      - GROUP BY
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.users
+    agent_type: null
+    should_execute: true
+
+  - id: aggregation_event_count_by_source
+    question: "Count events by traffic source"
+    description: "COUNT with GROUP BY for analytics"
+    expected_sql_patterns:
+      - SELECT
+      - COUNT
+      - events
+      - traffic_source
+      - GROUP BY
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.events
+    agent_type: null
+    should_execute: true
+
+  # JOIN queries
+  - id: join_users_orders
+    question: "Show me all orders with user information"
+    description: "Simple JOIN between users and orders"
+    expected_sql_patterns:
+      - SELECT
+      - JOIN
+      - users
+      - orders
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.users
+      - bigquery-public-data.thelook_ecommerce.orders
+    agent_type: null
+    should_execute: true
+
+  - id: join_orders_items_products
+    question: "Show me order details with product information"
+    description: "Multiple JOINs across orders, order_items, and products"
+    expected_sql_patterns:
+      - SELECT
+      - JOIN
+      - orders
+      - order_items
+      - products
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.orders
+      - bigquery-public-data.thelook_ecommerce.order_items
+      - bigquery-public-data.thelook_ecommerce.products
+    agent_type: null
+    should_execute: true
+
+  # Agent workflows
+  - id: agent_explain_schema
+    question: "@explain What is the schema of the products table?"
+    description: "Test @explain agent for schema description"
+    expected_sql_patterns: []  # Explain doesn't generate SQL
+    expected_tables: []
+    agent_type: explain
+    should_execute: false
+
+  - id: agent_create_query
+    question: "@create Find the top 10 customers by total order value"
+    description: "Test @create agent for complex query generation"
+    expected_sql_patterns:
+      - SELECT
+      - SUM
+      - GROUP BY
+      - ORDER BY
+      - LIMIT
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.orders
+      - bigquery-public-data.thelook_ecommerce.order_items
+    agent_type: create
+    should_execute: true
+
+  - id: agent_schema_tables
+    question: "@schema Show me all available tables"
+    description: "Test @schema agent for schema browsing"
+    expected_sql_patterns: []  # Schema browsing doesn't generate SQL
+    expected_tables: []
+    agent_type: schema
+    should_execute: false
+
+  # Complex analytical queries
+  - id: complex_monthly_revenue
+    question: "What is the monthly revenue trend for 2023?"
+    description: "Complex aggregation with date functions"
+    expected_sql_patterns:
+      - SELECT
+      - SUM
+      - DATE
+      - GROUP BY
+      - ORDER BY
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.orders
+      - bigquery-public-data.thelook_ecommerce.order_items
+    agent_type: null
+    should_execute: true
+
+  - id: complex_customer_lifetime_value
+    question: "Calculate customer lifetime value"
+    description: "Complex aggregation with multiple joins"
+    expected_sql_patterns:
+      - SELECT
+      - SUM
+      - JOIN
+      - GROUP BY
+    expected_tables:
+      - bigquery-public-data.thelook_ecommerce.users
+      - bigquery-public-data.thelook_ecommerce.orders
+    agent_type: null
+    should_execute: true
+
+  # Edge cases
+  - id: edge_case_ambiguous
+    question: "Show me the data"
+    description: "Ambiguous query - should ask for clarification or use default table"
+    expected_sql_patterns:
+      - SELECT
+    expected_tables: []
+    agent_type: null
+    should_execute: false  # Too ambiguous to execute safely
+
+  - id: edge_case_no_match
+    question: "What is the weather today?"
+    description: "Query unrelated to e-commerce data - should gracefully handle"
+    expected_sql_patterns: []
+    expected_tables: []
+    agent_type: null
+    should_execute: false
+
+# Validation criteria
+validation:
+  # SQL must be valid BigQuery syntax
+  sql_syntax_valid: true
+
+  # Generated SQL must only contain SELECT statements (safety)
+  only_select_statements: true
+
+  # Execution should return results (for should_execute: true)
+  execution_successful: true
+
+  # Response time should be reasonable (in seconds)
+  max_response_time: 30
+
+  # Retrieved similar queries should be relevant
+  min_similarity_score: 0.5
