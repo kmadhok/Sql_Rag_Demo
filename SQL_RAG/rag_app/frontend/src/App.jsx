@@ -64,10 +64,7 @@ function TabPanel({ value, current, className = "", children }) {
  */
 const TabNavigation = ({ activeTab, onTabChange }) => {
   const tabs = [
-    { id: 'intro', label: 'Introduction' },
-    { id: 'data', label: 'Data' },
     { id: 'chat', label: 'Chat' },
-    { id: 'playground', label: 'SQL Playground' },
     { id: 'dashboard', label: 'Dashboard' },
   ];
 
@@ -92,7 +89,7 @@ function App() {
   const [options, setOptions] = useState(DEFAULT_OPTIONS);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState("intro");
+  const [tab, setTab] = useState("chat");
   const [savedQueries, setSavedQueries] = useState([]);
   const [dashboards, setDashboards] = useState([]);
   const [currentDashboard, setCurrentDashboard] = useState(null);
@@ -531,8 +528,8 @@ function App() {
 
       {/* Main Content */}
       <main className="w-full flex-1 flex flex-col overflow-hidden" style={{ padding: '20px' }}>
-        {/* Hero Section - Clean (Hidden on Playground) */}
-        {tab !== 'playground' && (
+        {/* Hero Section - Always Visible */}
+        {true && (
           <div className="hero-intro animate-fade-in-up">
             <h2 className="typography-hero">
               Explore Data with Natural Language
@@ -550,18 +547,6 @@ function App() {
 
         {/* Tab Content */}
         <div className="animate-fade-in-up stagger-2 flex-1 flex flex-col overflow-hidden" style={{ gap: "20px" }}>
-          <TabPanel value="intro" current={tab}>
-            <div className="surface-panel-light p-6 md:p-8 h-full overflow-auto">
-              <Introduction />
-            </div>
-          </TabPanel>
-
-          <TabPanel value="data" current={tab}>
-            <div className="surface-panel p-6 md:p-8 h-full overflow-auto">
-              <DataOverview />
-            </div>
-          </TabPanel>
-
           <TabPanel value="chat" current={tab}>
             <div className="surface-panel flex flex-col h-full p-4 md:p-6">
               <div className="flex-1 overflow-hidden mb-3">
@@ -580,12 +565,6 @@ function App() {
                   onOptionsChange={setOptions}
                 />
               </div>
-            </div>
-          </TabPanel>
-
-          <TabPanel value="playground" current={tab}>
-            <div className="surface-panel flex flex-col h-full">
-              <Playground theme={currentTheme} onQuerySaved={refreshSavedQueries} />
             </div>
           </TabPanel>
 
