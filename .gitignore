@@ -170,3 +170,5 @@ SQL_Demo_recording.mov
 pull_personal_queries.py
 bigquery_test_description.py
 multi_thread_test.py
+node_modules/
+.DS_Store
