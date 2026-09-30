@@ -61,6 +61,17 @@ Decision: **install Tailwind v4** (`@tailwindcss/vite`) rather than keep hand-wr
 - Leave MUI in place for now (8 files). Removing it is a separate, optional cleanup.
 - **Verify:** screenshots at 1440px and 390px; the Options panel collapses; `document.documentElement.scrollWidth === innerWidth` on mobile.
 
+### Redesign: Analyst workspace (direction B) — ✅ built 2026-09-30
+Chosen from three mockups (answer page, analyst workspace, SQL notebook). Replaces the old Chat tab and covers most of Phase 2 below.
+- Layout: a thread on the left (question + one-line result per turn) and a canvas on the right with Result / SQL / How it worked tabs. Phones show one pane at a time with a Chat / Answer switch.
+- Every question generates SQL (no `@create`) and runs it automatically. Follow-ups carry the previous questions, summaries and SQL as context.
+- Result: headline numbers, an automatic chart (bar for label + measure, line for time series, including split year/month columns), and the table. Column roles, summaries and formatting live in `src/workspace/analyzeResult.js`.
+- "How it worked": the real pipeline (retrieval time, example count, tables, schema tokens, model, tokens, generation time, validation, BigQuery time/bytes/rows), the example queries the model saw, and the old Options panel as retrieval settings.
+- Empty state from direction A: example questions (all six verified against the live pipeline), what's in the data, and what happens when you ask.
+- Errors are plain language with Try again; BigQuery `success: false` is now treated as a failure (the old UI showed it as an empty success).
+- Tests: `npm test` (Vitest), 45 tests over result analysis, SQL tokenizing and the ask flow.
+- Not done yet: similarity scores for retrieved examples (the API doesn't return them), the dashboard's own redesign (Phase 3), removing the now-unused old chat components.
+
 ### Phase 2: Chat experience (~1 day)
 1. **Make SQL generation the default.** Treat every question as a SQL request; `@create` becomes optional (still accepted). New placeholder: "Ask a question about orders, users, or products…".
 2. **Empty state that teaches the dataset:** one line on what `thelook_ecommerce` is, a compact list of its tables (orders, order_items, users, products, …), and 4–6 example questions that are known to work, as chips.

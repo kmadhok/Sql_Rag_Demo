@@ -17,3 +17,24 @@
 @utility space-x-sm { & > :not(:last-child) { margin-inline-end: var(--space-sm); } }
 @utility space-y-md { & > :not(:last-child) { margin-block-end: var(--space-md); } }
 @utility space-y-lg { & > :not(:last-child) { margin-block-end: var(--space-lg); } }
+
+/* Analyst workspace palette: near-black surfaces, one accent (Tailwind emerald). */
+@theme {
+  --color-canvas: #0b0b0d;
+  --color-panel: #131316;
+  --color-raised: #1b1b1f;
+  --color-line: #26262b;
+}
+
+/*
+ * Preflight-style reset scoped to the workspace (.ws). The global reset stays off so the
+ * older dashboard styles are unaffected; utilities still win because this is the base layer.
+ */
+@layer base {
+  .ws, .ws *, .ws ::before, .ws ::after { box-sizing: border-box; border: 0 solid; margin: 0; padding: 0; }
+  .ws :where(button, input, textarea, select) { font: inherit; color: inherit; background: transparent; }
+  .ws :where(button:not(:disabled), [role="tab"]) { cursor: pointer; }
+  .ws :where(ol, ul) { list-style: none; }
+  .ws :where(table) { border-collapse: collapse; }
+  .ws :where(h1, h2, h3, h4) { font-size: inherit; font-weight: inherit; }
+}
