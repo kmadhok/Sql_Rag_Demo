@@ -81,6 +81,12 @@ Chosen from three mockups (answer page, analyst workspace, SQL notebook). Replac
 6. **Readable errors:** parse `detail`, map known cases to plain language ("The AI service is unavailable — try again shortly"), render once as a dark-theme alert with a Retry button.
 7. Remove the letter avatars; use alignment and background color for the user and assistant roles.
 
+### Phase 3: Board and cleanup — ✅ done 2026-09-30
+- The dashboard is now a **Board**: pins live in the visitor's browser (no shared state, nothing lost on Cloud Run restarts) and a bundled example board of four real pipeline answers shows by default. Cards reuse the workspace charts, show two headline numbers, and can re-run their SQL.
+- Removed drag/resize layouts, dashboard templates and PDF export (about 2,000 lines, five heavy libraries), plus 47 unreachable files and `styles.css`. Tailwind's preflight is now global.
+- Bundle: 1.45 MB → 569 KB JS, 49 KB → 23 KB CSS. Dependencies: react, react-dom, recharts, serve (for the frontend Procfile).
+
+Original Phase 3 plan:
 ### Phase 3: Dashboard (~0.5–1 day)
 1. **Seed a curated, read-only "Demo" dashboard** (e.g. revenue by month, top categories, orders by status, users by country) and show it by default. Let visitors create their own dashboards in `localStorage`, or behind a flag, so shared Firestore state can't get polluted again. Delete the current test dashboards.
 2. **Chart defaults that make sense:** pick the x-axis from the first dimension column and y from the first numeric one; never default to "count by id". Use one accent color for single-series bars (reserve the categorical palette for multi-series). Start the y-axis at 0.

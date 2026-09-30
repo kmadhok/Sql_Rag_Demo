@@ -1,6 +1,6 @@
 const REPO_URL = "https://github.com/kmadhok/Sql_Rag_Demo";
 
-export default function TopBar({ view, onViewChange, savedCount }) {
+export default function TopBar({ view, onViewChange, pinCount }) {
   const tab = (id, label, extra) => (
     <button
       type="button"
@@ -16,7 +16,7 @@ export default function TopBar({ view, onViewChange, savedCount }) {
   );
 
   return (
-    <header className="ws flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 md:px-5">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 md:px-5">
       <span className="font-semibold tracking-tight text-white">SQL RAG</span>
       <span className="hidden rounded-md border border-line px-2 py-0.5 text-xs text-zinc-400 lg:inline">
         thelook_ecommerce · 7 tables
@@ -27,9 +27,9 @@ export default function TopBar({ view, onViewChange, savedCount }) {
       <nav className="ml-auto flex items-center gap-1" aria-label="Main">
         {tab("ask", "Ask")}
         {tab(
-          "dashboard",
-          "Dashboard",
-          savedCount > 0 && <span className="ml-1.5 rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">{savedCount}</span>
+          "board",
+          "Board",
+          pinCount > 0 && <span className="ml-1.5 rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">{pinCount}</span>
         )}
         <a
           href={REPO_URL}

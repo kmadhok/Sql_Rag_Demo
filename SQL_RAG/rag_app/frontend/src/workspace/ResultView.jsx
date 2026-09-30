@@ -13,7 +13,7 @@ const TOOLTIP = {
 const MAX_TABLE_ROWS = 100;
 const ID_COLUMN = /(^id$|_id$|^id_)/i;
 
-function Kpi({ title, value, detail, large }) {
+export function Kpi({ title, value, detail, large }) {
   return (
     <div className="rounded-xl border border-line bg-panel p-3.5">
       <p className="text-xs text-zinc-500">{title}</p>
@@ -23,21 +23,22 @@ function Kpi({ title, value, detail, large }) {
   );
 }
 
-function ResultChart({ chart }) {
+export function ResultChart({ chart, compact = false, bare = false }) {
   const format = (v) => formatNumber(v, chart.measure);
+  const frame = bare ? "" : "rounded-xl border border-line bg-panel p-4";
   if (chart.kind === "bar") {
     const shortLabel = (s) => (String(s).length > 22 ? `${String(s).slice(0, 21)}…` : s);
     return (
-      <figure className="rounded-xl border border-line bg-panel p-4">
+      <figure className={frame}>
         <figcaption className="mb-2 text-xs text-zinc-500">
           {humanize(chart.measure)}{chart.truncated ? ` · top ${chart.points.length} shown` : ""}
         </figcaption>
-        <ResponsiveContainer width="100%" height={chart.points.length * 30 + 12}>
-          <BarChart data={chart.points} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }}>
+        <ResponsiveContainer width="100%" height={chart.points.length * (compact ? 24 : 30) + 12}>
+          <BarChart data={chart.points} layout="vertical" margin={{ top: 0, right: 64, bottom: 0, left: 0 }} barCategoryGap={compact ? 4 : undefined}>
             <XAxis type="number" hide domain={[0, "dataMax"]} />
             <YAxis type="category" dataKey="x" width={150} tick={AXIS} tickFormatter={shortLabel} axisLine={false} tickLine={false} />
             <Tooltip {...TOOLTIP} formatter={(v) => [format(v), humanize(chart.measure)]} />
-            <Bar dataKey="y" barSize={18} radius={[0, 3, 3, 0]} isAnimationActive={false}>
+            <Bar dataKey="y" barSize={compact ? 14 : 18} radius={[0, 3, 3, 0]} isAnimationActive={false}>
               {chart.points.map((p, i) => <Cell key={`${p.x}-${i}`} fill={i === 0 ? ACCENT : ACCENT_MUTED} />)}
               <LabelList dataKey="y" position="right" formatter={format} fill="#d4d4d8" fontSize={12} />
             </Bar>
@@ -47,9 +48,9 @@ function ResultChart({ chart }) {
     );
   }
   return (
-    <figure className="rounded-xl border border-line bg-panel p-4">
+    <figure className={frame}>
       <figcaption className="mb-2 text-xs text-zinc-500">{humanize(chart.measure)} over time</figcaption>
-      <ResponsiveContainer width="100%" height={280}>
+      <ResponsiveContainer width="100%" height={compact ? 200 : 280}>
         <LineChart data={chart.points} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
           <CartesianGrid stroke="#26262b" vertical={false} />
           <XAxis dataKey="x" tick={AXIS} axisLine={false} tickLine={false} minTickGap={28} />
@@ -68,14 +69,14 @@ function cellText(value, column) {
   return String(value);
 }
 
-function ResultTable({ rows, totalRows }) {
+export function ResultTable({ rows, totalRows, maxHeight = "max-h-[420px]" }) {
   if (rows.length === 0) return null;
   const columns = Object.keys(rows[0]);
   const numeric = new Set(columns.filter((c) => rows.every((r) => r[c] === null || typeof r[c] === "number")));
   const shown = rows.slice(0, MAX_TABLE_ROWS);
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-panel">
-      <div className="max-h-[420px] overflow-auto">
+      <div className={`${maxHeight} overflow-auto`}>
         <table className="w-full text-[13px]">
           <thead className="sticky top-0 bg-panel text-left text-xs text-zinc-500">
             <tr className="border-b border-line">

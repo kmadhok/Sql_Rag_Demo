@@ -39,7 +39,7 @@ function ErrorCard({ turn, onRetry, onShowSql }) {
   );
 }
 
-export default function Canvas({ turn, onSave, onRetry, settings, onSettingsChange }) {
+export default function Canvas({ turn, pinned, onPin, onRetry, settings, onSettingsChange }) {
   const [tab, setTab] = useState("result");
   const [copied, setCopied] = useState(false);
   useEffect(() => setTab("result"), [turn.id]);
@@ -55,10 +55,6 @@ export default function Canvas({ turn, onSave, onRetry, settings, onSettingsChan
     }
   };
 
-  let saveLabel = "Save to dashboard";
-  if (turn.saving) saveLabel = "Saving…";
-  else if (turn.savedId) saveLabel = "Saved ✓";
-
   return (
     <div className="mx-auto max-w-[1180px] p-4 md:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -69,15 +65,14 @@ export default function Canvas({ turn, onSave, onRetry, settings, onSettingsChan
           </button>
           <button
             type="button"
-            onClick={() => onSave(turn.id)}
-            disabled={turn.status !== "done" || turn.saving || Boolean(turn.savedId)}
+            onClick={onPin}
+            disabled={turn.status !== "done" || pinned}
             className="rounded-md bg-emerald-400 px-3 py-1.5 font-medium text-zinc-950 disabled:opacity-40"
           >
-            {saveLabel}
+            {pinned ? "Pinned ✓" : "Pin to board"}
           </button>
         </div>
       </div>
-      {turn.saveError && <p className="mt-2 text-sm text-rose-300">{turn.saveError}</p>}
 
       <div role="tablist" aria-label="Answer views" className="mt-4 flex gap-5 border-b border-line text-sm">
         {TABS.map((t) => (

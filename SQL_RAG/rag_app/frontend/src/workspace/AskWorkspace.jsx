@@ -5,8 +5,8 @@ import Welcome from "./Welcome.jsx";
 
 // Desktop: thread on the left, canvas on the right.
 // Phones: one pane at a time, switching to the answer when a question is asked.
-export default function AskWorkspace({ ask: state }) {
-  const { turns, activeTurn, setActiveId, ask, save, busy, settings, setSettings } = state;
+export default function AskWorkspace({ ask: state, board }) {
+  const { turns, activeTurn, setActiveId, ask, busy, settings, setSettings } = state;
   const [pane, setPane] = useState("canvas");
 
   const askAndShow = (question) => {
@@ -30,7 +30,7 @@ export default function AskWorkspace({ ask: state }) {
   );
 
   return (
-    <div className="ws flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[340px_1fr]">
+    <div className="flex min-h-0 flex-1 flex-col md:grid md:grid-cols-[340px_1fr]">
       <div className="flex gap-1 border-b border-line p-2 md:hidden">
         {paneButton("thread", `Chat${turns.length ? ` (${turns.length})` : ""}`)}
         {paneButton("canvas", "Answer")}
@@ -42,7 +42,14 @@ export default function AskWorkspace({ ask: state }) {
 
       <main className={`${pane === "canvas" ? "block" : "hidden"} min-h-0 flex-1 overflow-y-auto md:block`}>
         {activeTurn ? (
-          <Canvas turn={activeTurn} onSave={save} onRetry={askAndShow} settings={settings} onSettingsChange={setSettings} />
+          <Canvas
+            turn={activeTurn}
+            pinned={board.isPinned(activeTurn.id)}
+            onPin={() => board.pin(activeTurn)}
+            onRetry={askAndShow}
+            settings={settings}
+            onSettingsChange={setSettings}
+          />
         ) : (
           <Welcome onAsk={askAndShow} busy={busy} />
         )}
