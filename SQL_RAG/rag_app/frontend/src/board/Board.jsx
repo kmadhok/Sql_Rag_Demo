@@ -19,7 +19,7 @@ function BoardCard({ card, onRefresh, onRemove, refreshing, error }) {
         <div className="min-w-0 flex-1">
           <h3 className="font-medium text-white">{card.question}</h3>
           <p className="mt-0.5 text-xs text-zinc-500">
-            {refreshing ? "Refreshing…" : `${card.refreshedAt ? "Refreshed" : "Pinned"} ${when(card.refreshedAt || card.pinnedAt)}`}
+            {refreshing ? "Refreshing…" : `${card.refreshedAt ? "Refreshed" : card.id.startsWith("example-") ? "Generated" : "Pinned"} ${when(card.refreshedAt || card.pinnedAt)}`}
             {" · "}{card.execution?.totalRows?.toLocaleString("en-US")} rows · {formatSeconds(card.execution?.seconds)}
           </p>
         </div>
