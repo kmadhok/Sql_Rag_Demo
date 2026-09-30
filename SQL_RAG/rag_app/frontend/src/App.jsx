@@ -51,7 +51,7 @@ function TabPanel({ value, current, className = "", children }) {
   const isActive = value === current;
   return (
     <div
-      className={`flex flex-col flex-1 ${isActive ? "" : "hidden"} ${className}`.trim()}
+      className={`flex flex-col flex-1 min-h-0 ${isActive ? "" : "hidden"} ${className}`.trim()}
       aria-hidden={!isActive}
     >
       {isActive ? children : null}
@@ -502,10 +502,10 @@ function App() {
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden text-white">
+    <div className="min-h-screen md:h-screen flex flex-col md:overflow-hidden text-white">
       {/* Clean Header */}
       <header className="app-header shrink-0">
-        <div className="container" style={{ padding: "16px 20px" }}>
+        <div className="app-container" style={{ padding: "16px 20px" }}>
           <div className="flex justify-between items-center">
             <div>
               <h1 className="typography-heading" style={{ marginBottom: 0 }}>SQL RAG</h1>
@@ -527,7 +527,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="w-full flex-1 flex flex-col overflow-hidden" style={{ padding: '20px' }}>
+      <main className="w-full flex-1 flex flex-col md:overflow-hidden" style={{ padding: '20px' }}>
         {/* Hero Section - Always Visible */}
         {true && (
           <div className="hero-intro animate-fade-in-up">
@@ -546,10 +546,10 @@ function App() {
         </div>
 
         {/* Tab Content */}
-        <div className="animate-fade-in-up stagger-2 flex-1 flex flex-col overflow-hidden" style={{ gap: "20px" }}>
+        <div className="animate-fade-in-up stagger-2 flex-1 flex flex-col md:overflow-hidden" style={{ gap: "20px" }}>
           <TabPanel value="chat" current={tab}>
             <div className="surface-panel flex flex-col h-full p-4 md:p-6">
-              <div className="flex-1 overflow-hidden mb-3">
+              <div className="flex-1 md:overflow-hidden mb-3">
                 <ChatHistory
                   conversation={conversation}
                   error={error}
@@ -591,7 +591,7 @@ function App() {
 
       {/* Clean Footer */}
       <footer className="app-footer shrink-0" style={{ marginTop: "0" }}>
-        <div className="container" style={{ padding: "18px 20px" }}>
+        <div className="app-container" style={{ padding: "18px 20px" }}>
           <p className="typography-caption" style={{ textAlign: "center", marginBottom: 0 }}>
             Powered by AI • Built with React &amp; FastAPI
           </p>

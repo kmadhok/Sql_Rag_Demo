@@ -20,7 +20,7 @@ This is a portfolio piece. The visitor is a hiring manager or engineer who gives
 | 2 | Layout and spacing broken throughout | Misplaced "U"/"A" avatars, options panel can't collapse, dead space below footer | The markup uses Tailwind utility classes (`h-screen`, `p-4`, `mb-2`, `max-h-0`, `opacity-0`, `rounded-full`, `md:p-6`…) but **Tailwind isn't installed**. `styles.css` hand-defines only some of them, and ≥51 used in `App.jsx`, `ChatInput.jsx` and `ChatMessage.jsx` alone are defined nowhere |
 | 3 | Visitors see internal knobs first | "Documents: 20", "Auto Weights", "Query Rewrite" are always visible (`ChatInput.jsx:121`) | The collapse depends on the missing Tailwind classes |
 | 4 | Errors are raw JSON, shown twice | Assistant bubble plus a pink alert both print `{"detail":...}` (`App.jsx:343`) | `err.message` is the raw response body; the message and the alert both render it |
-| 5 | Horizontal scroll on mobile | `scrollWidth` 500px at a 390px viewport | Fixed-width elements and missing responsive utilities |
+| 5 | ~~Horizontal scroll on mobile~~ **Retracted** | The 500px `scrollWidth` came from Chrome's minimum window width during the review; with real device emulation (390×844) there is no horizontal scroll | n/a |
 | 6 | Dashboard shows test junk to every visitor | "My Dashboard Test", chart titled "Use @create find the users", "count by id" (every bar = 1, y-axis clipped at 0.5), one chart rendering empty | Dashboards live in shared Firestore with no seeded or read-only demo state |
 | 7 | Dead controls | The "Settings" button has no handler (`App.jsx:521`) | Leftover placeholder |
 | 8 | Visitors have to learn a magic syntax | Placeholder says "use @create for SQL"; chips prefill `@create …` | SQL generation is opt-in through a prefix instead of being the default intent |
@@ -39,12 +39,21 @@ Replaces the dead Gemini key with a single `OPENROUTER_API_KEY`. OpenRouter serv
 6. Make `/health` run a one-token embed call, so a dead key reports unhealthy instead of 200.
 7. **Verify:** the "Top users" chip returns SQL plus result rows on the live URL; add unit tests for the provider switch and for structured output.
 
-### Hosting on kanumadhok.com
-- **Backend stays on Cloud Run.** It needs BigQuery and Firestore, and Cloud Run gets GCP credentials automatically. On Vercel it would need a service-account JSON, would push against function size limits with FAISS + LangChain, and would add cold starts, with no visible benefit.
-- **Frontend moves to its own Vercel project at `sql.kanumadhok.com`:** add a CNAME in Cloudflare (DNS only, matching the existing records) and set `VITE_API_BASE_URL` to the Cloud Run API. Add a card in `my_website/components/ProjectGallery.tsx` linking to it. Retire the nginx `sql-rag-frontend-simple` Cloud Run service once the new one is live.
-- A path such as `kanumadhok.com/sql-rag` is possible through Next.js rewrites, but it needs Vite `base` changes and couples the two deploys. The subdomain is simpler.
+### Hosting on kanumadhok.com — ✅ done 2026-09-29
+- Served at **kanumadhok.com/sql-rag**: `my_website/next.config.ts` rewrites `/sql-rag/*` to the Cloud Run frontend, Vite builds with `base: /sql-rag/`, and nginx strips the prefix so the service's own URL keeps working.
+- The backend stays on Cloud Run (BigQuery and Firestore credentials come for free there). CORS allows kanumadhok.com, www.kanumadhok.com and the old frontend URL.
+- Phase 0 shipped the same day: OpenRouter for LLM + embeddings, key in Secret Manager `openrouter-api-key`, index `index_sample_queries_openrouter`. Still open from Phase 0: the deep `/health` check (step 6).
 
-### Phase 1: Fix the foundation (styling system, ~0.5 day)
+### Phase 1: Fix the foundation (styling system) — ✅ done 2026-09-29
+What shipped and what differed from the plan:
+- Tailwind v4 via `@tailwindcss/vite`, imported **without preflight** (`src/tailwind.css`: theme + utilities only), so the existing base styles and MUI are untouched.
+- The spacing tokens were **not** mapped into `@theme`: registering `--spacing-sm/md/lg/xl` also redefines `max-w-sm/md/lg/xl` (it made the message bubble 28px wide). The five named classes actually used (`gap-md`, `p-lg`, `space-x-sm`, `space-y-md`, `space-y-lg`) are defined as `@utility` rules instead.
+- Removed about 100 lines of hand-written utilities from `styles.css`. As unlayered CSS they would have overridden Tailwind's responsive variants (e.g. `.hidden` beating `md:block`). `.container` was renamed to `.app-container`.
+- Classes that were dead before now take effect. On desktop the app is a fixed-height shell (input pinned, chat and dashboard scroll inside their panels); below `md` the page scrolls normally, because the hero leaves no room for a fixed shell on phones.
+- Flex fixes surfaced by the change: `min-w-0` on the message column (long SQL no longer widens the row) and `min-h-0` on `TabPanel` (the dashboard panel scrolls instead of being clipped).
+- Verified with before/after screenshots at 1440×900 and an emulated 390×844 phone: the full ask → answer flow, the Options panel collapsing, no horizontal scroll, and dashboard scrolling.
+
+Original plan:
 Decision: **install Tailwind v4** (`@tailwindcss/vite`) rather than keep hand-writing utilities in `styles.css`.
 - Why: the markup already uses Tailwind vocabulary, so installing it makes every existing class name work at once without touching markup. The alternative is adding each missing utility by hand indefinitely.
 - Map the existing `:root` CSS variables into `@theme`, so colors and spacing stay the same.

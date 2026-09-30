@@ -304,7 +304,7 @@ export default function ChatMessage({ message, onExecute, onSave }) {
 
   return (
     <MessageContainer align={isUser ? "end" : "start"}>
-      <div className={`flex ${isUser ? "flex-row-reverse" : "flex-row"} items-start space-x-2`}>
+      <div className={`flex ${isUser ? "flex-row-reverse" : "flex-row"} items-start space-x-2 min-w-0 max-w-full`}>
         {/* Simple Avatar - No Icon */}
         <div className={`
           w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-bold
@@ -316,8 +316,8 @@ export default function ChatMessage({ message, onExecute, onSave }) {
           {isUser ? 'U' : 'A'}
         </div>
         
-        {/* Message Content */}
-        <div className="flex flex-col space-y-2">
+        {/* Message Content (min-w-0 lets long SQL scroll instead of widening the row) */}
+        <div className="flex flex-col space-y-2 min-w-0">
           {messageBubble}
           
           {/* Non-user message enhancements */}

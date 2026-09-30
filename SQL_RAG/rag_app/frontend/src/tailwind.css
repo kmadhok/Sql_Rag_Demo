@@ -1,0 +1,19 @@
+/*
+ * Tailwind v4 theme + utilities only. Preflight (the CSS reset) is intentionally
+ * omitted: styles.css and MUI provide the base styles. Unlayered rules in
+ * styles.css win over these layered utilities, so component classes keep priority.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/*
+ * Named spacing classes used in the markup, backed by the app's --space-* tokens.
+ * Defined individually on purpose: registering --spacing-sm/md/lg/xl in @theme would
+ * also redefine max-w-sm/md/lg/xl (Tailwind resolves spacing before container sizes).
+ */
+@utility gap-md { gap: var(--space-md); }
+@utility p-lg { padding: var(--space-lg); }
+@utility space-x-sm { & > :not(:last-child) { margin-inline-end: var(--space-sm); } }
+@utility space-y-md { & > :not(:last-child) { margin-block-end: var(--space-md); } }
+@utility space-y-lg { & > :not(:last-child) { margin-block-end: var(--space-lg); } }
