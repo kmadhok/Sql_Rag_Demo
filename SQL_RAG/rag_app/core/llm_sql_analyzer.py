@@ -23,13 +23,13 @@ from pydantic import BaseModel, Field
 
 # Import Gemini client (reuse existing integration)
 try:
-    from gemini_client import GeminiClient
+    from llm_registry import make_llm_client
     GEMINI_AVAILABLE = True
 except ImportError:
     try:
         import sys
         sys.path.append('..')
-        from gemini_client import GeminiClient
+        from llm_registry import make_llm_client
         GEMINI_AVAILABLE = True
     except ImportError:
         GEMINI_AVAILABLE = False
@@ -118,7 +118,7 @@ class LLMSQLAnalyzer:
         
         # Initialize Gemini client
         if GEMINI_AVAILABLE:
-            self.llm = GeminiClient(model=self.model)
+            self.llm = make_llm_client(self.model)
             logger.info(f"🤖 LLM SQL Analyzer initialized with {self.model}")
         else:
             self.llm = None

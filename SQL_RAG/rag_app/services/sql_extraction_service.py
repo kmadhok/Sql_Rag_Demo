@@ -22,13 +22,9 @@ class SQLExtractionService:
     def init_llm_client(self):
         """Initialize LLM client for extraction"""
         try:
-            from gemini_client import GeminiClient
-            import os
-            
-            self.llm_client = GeminiClient(
-                api_key=os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY'),
-                model="gemini-2.5-flash-lite"
-            )
+            from llm_registry import make_llm_client
+
+            self.llm_client = make_llm_client("gemini-2.5-flash-lite")
             logger.info("✅ SQL Extraction Service LLM client ready")
             
         except Exception as e:

@@ -38,6 +38,7 @@ from langchain_core.documents import Document
 
 # Gemini imports
 from gemini_client import GeminiClient, test_gemini_connection
+from llm_registry import make_llm_client
 
 # Configure logging (must be before imports that use logger in except blocks)
 logging.basicConfig(level=logging.INFO)
@@ -959,7 +960,7 @@ def answer_question_simple_gemini(
         # Initialize LLM and generate response (allow explicit override)
         try:
             if llm_model:
-                llm = GeminiClient(model=llm_model)
+                llm = make_llm_client(llm_model)
                 GEMINI_MODEL_LOG = llm_model
             else:
                 from llm_registry import get_llm_registry
@@ -968,7 +969,7 @@ def answer_question_simple_gemini(
                 GEMINI_MODEL_LOG = _llm_reg.gen_model
         except Exception:
             fallback_model = llm_model or GEMINI_MODEL
-            llm = GeminiClient(model=fallback_model)
+            llm = make_llm_client(fallback_model)
             GEMINI_MODEL_LOG = fallback_model
         
         generation_start = time.time()

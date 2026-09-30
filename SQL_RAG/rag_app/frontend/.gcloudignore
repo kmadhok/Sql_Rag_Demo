@@ -1,0 +1,6 @@
+# Keep Cloud Build uploads small; the Dockerfile runs npm ci itself.
+node_modules/
+dist/
+.env
+.env.*
+!.env.example

@@ -23,10 +23,21 @@ SERVICE_NAME="sql-rag-api-simple"
 MEMORY="${MEMORY:-2Gi}"
 CPU="${CPU:-2}"
 
-# Check required variables
-if [ -z "$OPENAI_API_KEY" ] || [ -z "$GEMINI_API_KEY" ]; then
-  echo "Error: OPENAI_API_KEY and GEMINI_API_KEY must be set"
-  echo "Either set them in .env.deploy or export them in your shell"
+OPENROUTER_SECRET="${OPENROUTER_SECRET:-openrouter-api-key}"
+VECTOR_STORE_NAME="${VECTOR_STORE_NAME:-index_sample_queries_openrouter}"
+CORS_ORIGINS="${CORS_ORIGINS:-https://kanumadhok.com,https://www.kanumadhok.com,https://sql-rag-frontend-simple-481433773942.us-central1.run.app}"
+
+# The OpenRouter key lives in Secret Manager, never in env vars or source uploads.
+# Create it once with:
+#   gcloud secrets create openrouter-api-key --data-file=- --project brainrot-453319
+if ! gcloud secrets describe "$OPENROUTER_SECRET" --project "$PROJECT_ID" >/dev/null 2>&1; then
+  echo "Error: Secret Manager secret '$OPENROUTER_SECRET' not found in $PROJECT_ID"
+  exit 1
+fi
+
+if [ ! -d "faiss_indices/$VECTOR_STORE_NAME" ]; then
+  echo "Error: faiss_indices/$VECTOR_STORE_NAME not found."
+  echo "Build it with: EMBEDDINGS_PROVIDER=openrouter python scripts/reembed_index.py --source <index> --output $VECTOR_STORE_NAME"
   exit 1
 fi
 
@@ -162,7 +173,8 @@ gcloud run deploy "$SERVICE_NAME" \
   --cpu "$CPU" \
   --max-instances 10 \
   --timeout 300 \
-  --set-env-vars "PYTHONUNBUFFERED=1,PYTHONPATH=/app,EMBEDDINGS_PROVIDER=gemini,BIGQUERY_PROJECT_ID=$PROJECT_ID,BIGQUERY_DATASET=bigquery-public-data.thelook_ecommerce,CORS_ORIGINS=*,OPENAI_API_KEY=$OPENAI_API_KEY,GEMINI_API_KEY=$GEMINI_API_KEY"
+  --set-secrets "OPENROUTER_API_KEY=$OPENROUTER_SECRET:latest" \
+  --set-env-vars "^@^PYTHONUNBUFFERED=1@PYTHONPATH=/app@LLM_PROVIDER=openrouter@EMBEDDINGS_PROVIDER=openrouter@VECTOR_STORE_NAME=$VECTOR_STORE_NAME@BIGQUERY_PROJECT_ID=$PROJECT_ID@BIGQUERY_DATASET=bigquery-public-data.thelook_ecommerce@CORS_ORIGINS=$CORS_ORIGINS"
 
 # Capture deployment result
 DEPLOY_EXIT_CODE=$?

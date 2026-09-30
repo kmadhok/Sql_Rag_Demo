@@ -4,15 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a **SQL Retrieval-Augmented Generation (RAG) system** with a modern FastAPI backend and React frontend that enables natural language queries over SQL codebases using Google Gemini for generation, OpenAI embeddings, and FAISS vector stores. The application features a clean 2-tab interface (Chat + Dashboard) designed for portfolio presentation.
+This is a **SQL Retrieval-Augmented Generation (RAG) system** with a modern FastAPI backend and React frontend that enables natural language queries over SQL codebases. Production uses OpenRouter for both generation (Gemini 2.5 models by default) and embeddings (`openai/text-embedding-3-small`), with FAISS vector stores. The application features a clean 2-tab interface (Chat + Dashboard) designed for portfolio presentation.
 
-**Current Production Architecture (feature/2-tab-ui branch):**
+**Current Production Architecture (`main` branch):**
 - **Backend**: FastAPI service at `rag_app/api/main.py` exposing REST API endpoints
 - **Frontend**: React 18 application at `rag_app/frontend/src/App.jsx` with 2-tab UI
 - **Deployment**: Separate Google Cloud Run services (backend via buildpack, frontend via Docker)
 - **Legacy Reference**: Streamlit app at `rag_app/app_simple_gemini.py` (preserved for reference, not used in production)
 
 **Deployed Services:**
+- Public URL: https://kanumadhok.com/sql-rag (portfolio site `my_website` rewrites `/sql-rag/*` to the frontend service; Vite builds with `base: /sql-rag/`)
 - Frontend: https://sql-rag-frontend-simple-481433773942.us-central1.run.app
 - Backend API: https://sql-rag-api-simple-481433773942.us-central1.run.app
 - API Docs: https://sql-rag-api-simple-481433773942.us-central1.run.app/docs
@@ -99,6 +100,7 @@ BigQuery (thelook_ecommerce dataset)
 
 **LLM Registry** (`rag_app/llm_registry.py`)
 - Centralizes model selection per pipeline role
+- `LLM_PROVIDER=gemini|openrouter` picks the client via `make_llm_client()` (`openrouter_client.py` mirrors `gemini_client.py`); always create LLM clients through it
 - Environment variables: `LLM_PARSE_MODEL`, `LLM_GEN_MODEL`, `LLM_REWRITE_MODEL`, `LLM_CHAT_MODEL`
 - Defaults: `gemini-2.5-pro` for generation, `gemini-2.5-flash-lite` for parsing/chat
 
@@ -607,5 +609,7 @@ Debug logs for SQL validation pipeline are written to `rag_app/debug_logs.md`.
 - **Windows Compatibility**: No complex async processors; uses standalone embedding generator
 - **Firestore**: Conversation persistence requires Google Cloud Firestore setup
 - **Schema CSV Format**: Must have `table_id`, `column`, `datatype` columns
-- **Current Branch**: feature/2-tab-ui (simplified from 5 tabs to 2 for portfolio focus)
+- **Current Branch**: main (2-tab UI for portfolio focus)
+- **Secrets**: `OPENROUTER_API_KEY` comes from Secret Manager secret `openrouter-api-key` in prod; locally from `.env` (repo root or `rag_app/`)
+- **Vector store**: prod uses `faiss_indices/index_sample_queries_openrouter`; changing the embedding model requires `scripts/reembed_index.py`
 - **Legacy Streamlit App**: `app_simple_gemini.py` preserved as reference, not used in production deployment

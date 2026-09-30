@@ -12,7 +12,7 @@ from langchain_core.documents import Document
 
 from .config import CHAT_DEFAULT_PROMPT_INSTRUCTION
 from .utils import estimate_token_count
-from gemini_client import GeminiClient
+from llm_registry import make_llm_client
 from schema_agent import SchemaAgent, handle_schema_query
 
 # Configure logging
@@ -294,7 +294,7 @@ def answer_question_chat_mode(
         )
         
         # Initialize LLM and generate response
-        llm = GeminiClient(model="gemini-2.5-flash")  # Use fast model for chat
+        llm = make_llm_client("gemini-2.5-flash")  # Use fast model for chat
         
         generation_start = time.time()
         answer = llm.invoke(prompt)

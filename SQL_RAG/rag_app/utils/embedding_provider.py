@@ -8,6 +8,7 @@ optimized configuration for both local development and cloud deployment.
 Supports:
 - Google Gemini embeddings (default, recommended for Cloud Run and Vertex AI)
 - OpenAI embeddings (production-ready, cloud-optimized)
+- OpenRouter embeddings (OpenAI-compatible API, any embedding model OpenRouter serves)
 - Ollama embeddings (local development, legacy support)
 
 Configuration (environment variables):
@@ -20,6 +21,8 @@ Configuration (environment variables):
 - GOOGLE_GENAI_USE_VERTEXAI: override to force Vertex AI usage (otherwise inferred from GENAI_CLIENT_MODE)
 - OPENAI_API_KEY: required when using OpenAI (store in Google Secret Manager for Cloud Run)
 - OLLAMA_EMBEDDING_MODEL: defaults to "nomic-embed-text" (local development only)
+- OPENROUTER_API_KEY: required when EMBEDDINGS_PROVIDER=openrouter
+- OPENROUTER_EMBEDDING_MODEL: defaults to "openai/text-embedding-3-small"
 
 Cloud Run Deployment Notes:
 - Gemini embeddings are RECOMMENDED for serverless deployment with Vertex AI
@@ -73,12 +76,44 @@ def get_embedding_function(
         return _create_gemini_embeddings(model)
     elif selected == "openai":
         return _create_openai_embeddings(model)
+    elif selected == "openrouter":
+        return _create_openrouter_embeddings(model)
     elif selected == "ollama":
         return _create_ollama_embeddings(model)
     else:
-        error_msg = f"Unknown embeddings provider: '{selected}'. Supported providers: 'gemini', 'openai', 'ollama'"
+        error_msg = f"Unknown embeddings provider: '{selected}'. Supported providers: 'gemini', 'openai', 'openrouter', 'ollama'"
         logger.error(error_msg)
         raise RuntimeError(error_msg)
+
+
+DEFAULT_OPENROUTER_EMBEDDING_MODEL = "openai/text-embedding-3-small"
+
+
+def _create_openrouter_embeddings(model: str | None = None) -> Any:
+    """Create embeddings served by OpenRouter's OpenAI-compatible endpoint."""
+    try:
+        from langchain_openai import OpenAIEmbeddings  # type: ignore
+    except ImportError as e:
+        raise RuntimeError("langchain-openai is not installed. Install it with: pip install langchain-openai") from e
+
+    from openrouter_client import APP_HEADERS, get_openrouter_api_key, get_openrouter_base_url
+
+    api_key = get_openrouter_api_key()
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY environment variable not set (required for EMBEDDINGS_PROVIDER=openrouter)")
+
+    model_name = model or os.getenv("OPENROUTER_EMBEDDING_MODEL", DEFAULT_OPENROUTER_EMBEDDING_MODEL)
+    logger.info(f"Using OpenRouter embedding model: {model_name}")
+    return OpenAIEmbeddings(
+        model=model_name,
+        api_key=api_key,
+        base_url=get_openrouter_base_url(),
+        default_headers=APP_HEADERS,
+        # Send raw text; token-id input is OpenAI-specific and rejected by other providers.
+        check_embedding_ctx_length=False,
+        request_timeout=30,
+        max_retries=3,
+    )
 
 
 def _create_openai_embeddings(model: str | None = None) -> Any:
@@ -406,6 +441,14 @@ def get_provider_info() -> dict[str, Any]:
             "api_key_configured": api_key_set,
             "cloud_ready": True,
             "dimensions": 768,  # Gemini embedding standard dimensions
+        }
+    elif provider == "openrouter":
+        from openrouter_client import get_openrouter_api_key
+        return {
+            "provider": "openrouter",
+            "model": os.getenv("OPENROUTER_EMBEDDING_MODEL", DEFAULT_OPENROUTER_EMBEDDING_MODEL),
+            "api_key_configured": bool(get_openrouter_api_key()),
+            "cloud_ready": True,
         }
     elif provider == "openai":
         model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")

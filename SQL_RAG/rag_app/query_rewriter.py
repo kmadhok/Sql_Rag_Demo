@@ -350,18 +350,15 @@ Provide ONLY the enhanced query, no explanations:"""
             llm_error = None
             
             try:
-                client = self._get_genai_client()
+                from llm_registry import make_llm_client
                 prompt = self._build_rewrite_prompt(query, intent_analysis)
                 
                 llm_start = time.time()
-                response = client.models.generate_content(
-                    model=model_to_use,
-                    contents=prompt
-                )
+                response_text = make_llm_client(model_to_use).invoke(prompt)
                 llm_time = time.time() - llm_start
                 
-                if response and hasattr(response, 'text') and response.text.strip():
-                    rewritten_query = response.text.strip()
+                if response_text and response_text.strip():
+                    rewritten_query = response_text.strip()
                     logger.info(f"Gemini rewrite completed in {llm_time:.3f}s")
                 else:
                     llm_error = "Empty response from Gemini"
